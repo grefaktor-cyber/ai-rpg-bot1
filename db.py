@@ -1,8 +1,10 @@
 import asyncpg
 import os
-from datetime import date, datetime
+import logging
+from datetime import date
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
 
 class DB:
     def __init__(self):
@@ -49,20 +51,61 @@ class DB:
                     UNIQUE(user_id, location_name)
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_achievements (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    code TEXT,
+                    earned_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, code)
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS world_events (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    username TEXT,
+                    event_text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            # Миграции — добавляем новые колонки, если их нет
+            migrations = [
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS class TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS char_name TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_str INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_dex INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_con INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_int INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_wit INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_men INTEGER DEFAULT 5",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS hp INTEGER DEFAULT 100",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_hp INTEGER DEFAULT 100",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS bosses_defeated INTEGER DEFAULT 0",
+            ]
+            for sql in migrations:
+                try:
+                    await conn.execute(sql)
+                except Exception as e:
+                    logging.warning(f"Migration skipped: {e}")
 
+    # === Базовые методы ===
     async def get_user(self, user_id, username=""):
         today = str(date.today())
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
             if not row:
-                await conn.execute("""
-                    INSERT INTO users (user_id, username, last_reset) VALUES ($1,$2,$3)
-                """, user_id, username, today)
+                await conn.execute(
+                    "INSERT INTO users (user_id, username, last_reset) VALUES ($1,$2,$3)",
+                    user_id, username, today
+                )
                 return self._empty_user(user_id)
             if row["last_reset"] != today:
-                await conn.execute("""
-                    UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2
-                """, today, user_id)
+                await conn.execute(
+                    "UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2",
+                    today, user_id
+                )
                 d = dict(row); d["requests_today"] = 0
                 return d
             return dict(row)
@@ -72,12 +115,17 @@ class DB:
                 "story": "", "consent_given": 0, "referred_by": 0,
                 "referral_count": 0, "xp": 0, "level": 1, "last_daily": None,
                 "daily_streak": 0, "arc": 1, "action_count": 0,
-                "location": "Начальная деревня"}
+                "location": "Начальная деревня", "race": "", "class": "",
+                "char_name": "", "stat_str": 5, "stat_dex": 5, "stat_con": 5,
+                "stat_int": 5, "stat_wit": 5, "stat_men": 5,
+                "hp": 100, "max_hp": 100, "bosses_defeated": 0}
 
     async def give_consent(self, user_id):
         async with self.pool.acquire() as conn:
-            await conn.execute("UPDATE users SET consent_given=1, consent_date=$1 WHERE user_id=$2",
-                               str(date.today()), user_id)
+            await conn.execute(
+                "UPDATE users SET consent_given=1, consent_date=$1 WHERE user_id=$2",
+                str(date.today()), user_id
+            )
 
     async def revoke_consent(self, user_id):
         async with self.pool.acquire() as conn:
@@ -98,8 +146,9 @@ class DB:
 
     async def increment(self, user_id):
         async with self.pool.acquire() as conn:
-            await conn.execute("UPDATE users SET requests_today=requests_today+1 WHERE user_id=$1",
-                               user_id)
+            await conn.execute(
+                "UPDATE users SET requests_today=requests_today+1 WHERE user_id=$1", user_id
+            )
 
     async def update_story(self, user_id, story):
         async with self.pool.acquire() as conn:
@@ -109,6 +158,7 @@ class DB:
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET is_premium=$1 WHERE user_id=$2", value, user_id)
 
+    # === XP, действия, инвентарь, локации ===
     async def add_xp(self, user_id, amount=10):
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT xp, level FROM users WHERE user_id=$1", user_id)
@@ -125,9 +175,9 @@ class DB:
 
     async def incr_action_count(self, user_id):
         async with self.pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE users SET action_count=action_count+1, arc=arc+1 WHERE user_id=$1
-            """, user_id)
+            await conn.execute(
+                "UPDATE users SET action_count=action_count+1, arc=arc+1 WHERE user_id=$1", user_id
+            )
             row = await conn.fetchrow("SELECT action_count, arc FROM users WHERE user_id=$1", user_id)
             return row["action_count"], row["arc"]
 
@@ -138,8 +188,9 @@ class DB:
 
     async def get_inventory(self, user_id):
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT item_name FROM inventory WHERE user_id=$1 ORDER BY created_at",
-                                    user_id)
+            rows = await conn.fetch(
+                "SELECT item_name FROM inventory WHERE user_id=$1 ORDER BY created_at", user_id
+            )
             return [r["item_name"] for r in rows]
 
     async def add_location(self, user_id, location):
@@ -152,19 +203,22 @@ class DB:
 
     async def get_locations(self, user_id):
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT location_name FROM locations WHERE user_id=$1 ORDER BY visited_at",
-                                    user_id)
+            rows = await conn.fetch(
+                "SELECT location_name FROM locations WHERE user_id=$1 ORDER BY visited_at", user_id
+            )
             return [r["location_name"] for r in rows]
 
+    # === Ежедневная награда ===
     async def claim_daily(self, user_id):
         today = str(date.today())
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT last_daily, daily_streak FROM users WHERE user_id=$1", user_id)
+            row = await conn.fetchrow(
+                "SELECT last_daily, daily_streak FROM users WHERE user_id=$1", user_id
+            )
             if row["last_daily"] == today:
                 return None
             yesterday = str(date.fromordinal(date.today().toordinal() - 1))
             streak = row["daily_streak"] + 1 if row["last_daily"] == yesterday else 1
-            # Сброс недельного цикла
             if streak > 7:
                 streak = 1
             await conn.execute("""
@@ -172,3 +226,68 @@ class DB:
                 requests_today=GREATEST(0, requests_today-$3) WHERE user_id=$4
             """, today, streak, 5, user_id)
             return streak
+
+    # === Создание персонажа ===
+    async def set_race(self, user_id, race):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET race=$1 WHERE user_id=$2", race, user_id)
+
+    async def set_class(self, user_id, cls):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET class=$1 WHERE user_id=$2", cls, user_id)
+
+    async def set_char(self, user_id, name, stats, hp):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE users SET char_name=$1,
+                stat_str=$2, stat_dex=$3, stat_con=$4,
+                stat_int=$5, stat_wit=$6, stat_men=$7,
+                hp=$8, max_hp=$8 WHERE user_id=$9
+            """, name, stats["str"], stats["dex"], stats["con"],
+                 stats["int"], stats["wit"], stats["men"], hp, user_id)
+
+    async def update_hp(self, user_id, hp):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET hp=$1 WHERE user_id=$2", max(0, hp), user_id)
+
+    async def incr_bosses(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET bosses_defeated=bosses_defeated+1 WHERE user_id=$1", user_id
+            )
+
+    # === Достижения ===
+    async def add_achievement(self, user_id, code):
+        async with self.pool.acquire() as conn:
+            try:
+                await conn.execute(
+                    "INSERT INTO user_achievements (user_id, code) VALUES ($1,$2)",
+                    user_id, code
+                )
+                return True
+            except asyncpg.UniqueViolationError:
+                return False
+
+    async def get_achievements(self, user_id):
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT code, earned_at FROM user_achievements WHERE user_id=$1 ORDER BY earned_at",
+                user_id
+            )
+            return [dict(r) for r in rows]
+
+    # === Общий мир ===
+    async def add_world_event(self, user_id, username, text):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO world_events (user_id, username, event_text) VALUES ($1,$2,$3)",
+                user_id, username, text
+            )
+
+    async def get_world_events(self, limit=10):
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT username, event_text, created_at FROM world_events
+                ORDER BY created_at DESC LIMIT $1
+            """, limit)
+            return [dict(r) for r in rows]
