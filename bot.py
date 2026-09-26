@@ -25,56 +25,61 @@ POTION_HEAL = 30
 
 # === Справочники ===
 RACES = {
-    "human":    {"name": "Человек",     "desc": "Универсал. Равен во всём.",
+    "human":    {"name": "Человек",     "desc": "Универсал.",
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
-    "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый, но хрупкий.",
+    "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый.",
                  "stats": {"str": 4, "dex": 6, "con": 4, "int": 6, "wit": 6, "men": 5}},
-    "dark_elf": {"name": "Тёмный эльф", "desc": "Сильная магия, слабая защита.",
+    "dark_elf": {"name": "Тёмный эльф", "desc": "Сильная магия.",
                  "stats": {"str": 5, "dex": 5, "con": 4, "int": 6, "wit": 6, "men": 4}},
-    "orc":      {"name": "Орк",         "desc": "Могучий воин, слаб в магии.",
+    "orc":      {"name": "Орк",         "desc": "Могучий воин.",
                  "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 4, "men": 3}},
-    "dwarf":    {"name": "Гном",        "desc": "Выносливый, крепкий.",
+    "dwarf":    {"name": "Гном",        "desc": "Выносливый.",
                  "stats": {"str": 6, "dex": 4, "con": 7, "int": 4, "wit": 4, "men": 5}},
 }
 
 CLASSES = {
-    "warrior": {"name": "Воин",   "desc": "Мастер меча и щита.", "bonus": {"str": 3, "con": 2}},
-    "mage":    {"name": "Маг",    "desc": "Повелитель стихий.",  "bonus": {"int": 3, "wit": 2}},
-    "archer":  {"name": "Лучник", "desc": "Стрелок и следопыт.", "bonus": {"dex": 3, "str": 2}},
-    "priest":  {"name": "Жрец",   "desc": "Целитель и дипломат.","bonus": {"men": 3, "wit": 2}},
+    "warrior": {"name": "Воин",   "desc": "Мастер меча.", "bonus": {"str": 3, "con": 2}},
+    "mage":    {"name": "Маг",    "desc": "Стихии.",      "bonus": {"int": 3, "wit": 2}},
+    "archer":  {"name": "Лучник", "desc": "Стрелок.",     "bonus": {"dex": 3, "str": 2}},
+    "priest":  {"name": "Жрец",   "desc": "Целитель.",    "bonus": {"men": 3, "wit": 2}},
 }
 
 ACHIEVEMENTS = {
-    "first_step":  "🌟 Первый шаг — сделал первое действие",
-    "explorer_5":  "🗺 Исследователь — посетил 5 локаций",
-    "collector_5": "🎒 Коллекционер — собрал 5 предметов",
-    "level_5":     "⭐ Опытный — достиг 5 уровня",
-    "level_10":    "👑 Ветеран — достиг 10 уровня",
-    "first_boss":  "⚔️ Убийца боссов — победил первого босса",
-    "boss_5":      "🐉 Легенда — победил 5 боссов",
-    "referral_3":  "👥 Друг друзей — пригласил 3 игроков",
-    "daily_7":     "🎁 Верный игрок — 7 дней подряд",
-    "rich":        "💰 Богач — накопил 1000 золота",
-    "equipped":    "⚔️ Снаряжён — надел первый предмет",
-    "survivor":    "💀 Выживший — погиб и вернулся в бой",
-    "first_blood": "🩸 Первая кровь — выиграл первый бой",
+    "first_step":  "🌟 Первый шаг",
+    "explorer_5":  "🗺 Исследователь — 5 локаций",
+    "collector_5": "🎒 Коллекционер — 5 предметов",
+    "level_5":     "⭐ Опытный — 5 уровень",
+    "level_10":    "👑 Ветеран — 10 уровень",
+    "first_boss":  "⚔️ Убийца боссов",
+    "boss_5":      "🐉 Легенда — 5 боссов",
+    "referral_3":  "👥 Друг друзей",
+    "daily_7":     "🎁 Верный игрок",
+    "rich":        "💰 Богач — 1000 золота",
+    "equipped":    "⚔️ Снаряжён",
+    "survivor":    "💀 Выживший",
+    "first_blood": "🩸 Первая кровь",
+    "duelist":     "🗡 Дуэлянт — первая PvP-победа",
+    "arena_king":  "⚜️ Гроза арены — 5 PvP-побед",
+    "coward":      "🏳️ Трус — отказался от дуэли",
+    "graffiti":    "✍️ Летописец — оставил первую запись",
+    "social":      "👥 Общительный — побывал в 10 локациях",
 }
 
 SHOP = {
-    "Железный меч":       {"type": "weapon", "price": 50,   "bonus": {"str": 2},           "desc": "Простой, но надёжный"},
-    "Стальной меч":       {"type": "weapon", "price": 250,  "bonus": {"str": 5},           "desc": "Оружие настоящего воина"},
-    "Клинок тьмы":        {"type": "weapon", "price": 1200, "bonus": {"str": 10, "dex": 2},"desc": "Легендарный клинок"},
-    "Посох мага":         {"type": "weapon", "price": 200,  "bonus": {"int": 4},           "desc": "Усиливает магию"},
-    "Лук охотника":       {"type": "weapon", "price": 200,  "bonus": {"dex": 4},           "desc": "Точный и быстрый"},
-    "Кожаная броня":      {"type": "armor",  "price": 50,   "bonus": {"con": 2},           "desc": "Лёгкая защита"},
-    "Кольчуга":           {"type": "armor",  "price": 300,  "bonus": {"con": 5},           "desc": "Крепкая защита"},
-    "Мантия мага":        {"type": "armor",  "price": 250,  "bonus": {"int": 3, "wit": 2}, "desc": "Ткань с рунами"},
-    "Латы рыцаря":        {"type": "armor",  "price": 1200, "bonus": {"con": 10},          "desc": "Тяжёлая броня"},
-    "Амулет удачи":       {"type": "accessory", "price": 150, "bonus": {"men": 3},          "desc": "+удача"},
-    "Кольцо силы":        {"type": "accessory", "price": 200, "bonus": {"str": 3},          "desc": "+сила"},
-    "Перстень мудрости":  {"type": "accessory", "price": 200, "bonus": {"int": 3},          "desc": "+магия"},
-    "Кольцо ловкости":    {"type": "accessory", "price": 200, "bonus": {"dex": 3},          "desc": "+ловкость"},
-    "Амулет мудреца":     {"type": "accessory", "price": 800, "bonus": {"int": 5, "wit": 3},"desc": "Редкий артефакт"},
+    "Железный меч":       {"type": "weapon", "price": 50,   "bonus": {"str": 2}},
+    "Стальной меч":       {"type": "weapon", "price": 250,  "bonus": {"str": 5}},
+    "Клинок тьмы":        {"type": "weapon", "price": 1200, "bonus": {"str": 10, "dex": 2}},
+    "Посох мага":         {"type": "weapon", "price": 200,  "bonus": {"int": 4}},
+    "Лук охотника":       {"type": "weapon", "price": 200,  "bonus": {"dex": 4}},
+    "Кожаная броня":      {"type": "armor",  "price": 50,   "bonus": {"con": 2}},
+    "Кольчуга":           {"type": "armor",  "price": 300,  "bonus": {"con": 5}},
+    "Мантия мага":        {"type": "armor",  "price": 250,  "bonus": {"int": 3, "wit": 2}},
+    "Латы рыцаря":        {"type": "armor",  "price": 1200, "bonus": {"con": 10}},
+    "Амулет удачи":       {"type": "accessory", "price": 150, "bonus": {"men": 3}},
+    "Кольцо силы":        {"type": "accessory", "price": 200, "bonus": {"str": 3}},
+    "Перстень мудрости":  {"type": "accessory", "price": 200, "bonus": {"int": 3}},
+    "Кольцо ловкости":    {"type": "accessory", "price": 200, "bonus": {"dex": 3}},
+    "Амулет мудреца":     {"type": "accessory", "price": 800, "bonus": {"int": 5, "wit": 3}},
 }
 
 DROP_TABLE = ["Кожаная броня", "Железный меч", "Амулет удачи", "Кольцо силы",
@@ -85,6 +90,7 @@ MAIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="🎒 Инвентарь"), KeyboardButton(text="🛒 Магазин")],
         [KeyboardButton(text="⭐ Профиль"),   KeyboardButton(text="🏆 Достижения")],
         [KeyboardButton(text="🗺 Карта"),     KeyboardButton(text="🌍 Мир")],
+        [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="📜 Записи")],
         [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
         [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
     ],
@@ -104,16 +110,19 @@ CONSENT_TEXT = (
 
 HELP_TEXT = (
     "🎮 <b>Как играть</b>\n\n"
-    "Пиши, что делает герой:\n«Осматриваюсь», «Иду в лес», «Атакую гоблина».\n\n"
-    "<b>⚔️ Бой:</b>\n"
-    "Когда начинается бой, появятся кнопки:\n"
-    "⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
+    "Пиши, что делает герой: «Осматриваюсь», «Иду в лес».\n\n"
+    "<b>⚔️ Бой:</b> ⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
     "<b>Оценка врага:</b>\n"
     "🟢 Легко · 🟡 Средне · 🟠 Равный · 🔴 Опасно · 💀 Смертельно · 🐉 Босс\n\n"
-    "<b>Смерть:</b> теряешь 30% золота и воскресаешь в деревне. Уровень и XP сохраняются.\n\n"
-    "<b>Кнопки:</b>\n"
-    "🎒 Инвентарь · 🛒 Магазин · ⭐ Профиль · 🏆 Достижения\n"
-    "🗺 Карта · 🌍 Мир · 🎁 Награда · 🏅 Рейтинг · 💎 Премиум"
+    "<b>🌍 Мир и PvP:</b>\n"
+    "/who — кто в локации\n"
+    "/write текст — оставить запись\n"
+    "/read — прочитать записи\n"
+    "/duel Имя — вызвать на дуэль (10% золота)\n"
+    "/duel Имя 100 — дуэль со ставкой 100💰\n"
+    "/pvptop — рейтинг дуэлянтов\n\n"
+    "<b>Смерть от моба:</b> −30% золота, воскрес в деревне.\n"
+    "<b>Поражение в дуэли:</b> теряешь только ставку.\n"
 )
 
 
@@ -126,12 +135,9 @@ def calc_stats(race_code, class_code):
 
 def effective_stats(user):
     base = {
-        "str": user.get("stat_str", 5),
-        "dex": user.get("stat_dex", 5),
-        "con": user.get("stat_con", 5),
-        "int": user.get("stat_int", 5),
-        "wit": user.get("stat_wit", 5),
-        "men": user.get("stat_men", 5),
+        "str": user.get("stat_str", 5), "dex": user.get("stat_dex", 5),
+        "con": user.get("stat_con", 5), "int": user.get("stat_int", 5),
+        "wit": user.get("stat_wit", 5), "men": user.get("stat_men", 5),
     }
     for slot in ["equipped_weapon", "equipped_armor", "equipped_accessory"]:
         item = user.get(slot, "")
@@ -158,16 +164,11 @@ def danger_emoji(player_level, enemy_level, is_boss):
     if is_boss:
         return "🐉"
     diff = enemy_level - player_level
-    if diff <= -3:
-        return "🟢"
-    elif diff <= -1:
-        return "🟡"
-    elif diff <= 1:
-        return "🟠"
-    elif diff <= 3:
-        return "🔴"
-    else:
-        return "💀"
+    if diff <= -3: return "🟢"
+    if diff <= -1: return "🟡"
+    if diff <= 1:  return "🟠"
+    if diff <= 3:  return "🔴"
+    return "💀"
 
 
 def combat_kb():
@@ -176,6 +177,29 @@ def combat_kb():
          InlineKeyboardButton(text="🛡 Защита", callback_data="combat_defend")],
         [InlineKeyboardButton(text=f"💚 Зелье ({POTION_PRICE}💰)", callback_data="combat_potion"),
          InlineKeyboardButton(text="🏃 Бежать", callback_data="combat_flee")],
+    ])
+
+
+def pvp_kb(my_turn):
+    if my_turn:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚔️ Атака", callback_data="pvp_attack")],
+            [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
+    ])
+
+
+def duel_offer_kb(offer_id, is_caller=False):
+    if is_caller:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data=f"duel_cancel_{offer_id}")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять", callback_data=f"duel_accept_{offer_id}"),
+         InlineKeyboardButton(text="💰 Своя ставка", callback_data=f"duel_counter_{offer_id}")],
+        [InlineKeyboardButton(text="❌ Отказаться", callback_data=f"duel_decline_{offer_id}")],
     ])
 
 
@@ -196,6 +220,25 @@ async def send_combat_state(chat_id, user, combat, round_text=""):
     await bot.send_message(chat_id, text, reply_markup=combat_kb(), parse_mode=ParseMode.HTML)
 
 
+async def send_pvp_state(chat_id, user, combat):
+    opp_hp = combat["enemy_hp"]
+    opp_max = combat["enemy_max_hp"]
+    my_bar = hp_bar(user["hp"], user["max_hp"])
+    opp_bar = hp_bar(opp_hp, opp_max)
+    my_turn = combat["my_turn"]
+    turn_text = "⚔️ <b>ТВОЙ ХОД!</b>" if my_turn else "⏳ Ход противника..."
+    text = (
+        f"⚔️ <b>ДУЭЛЬ · РАУНД {combat['round_num']}</b>\n"
+        f"💰 Ставка: {combat['stake']}\n\n"
+        f"👤 <b>{combat['enemy_name']}</b> (Ур. {combat['enemy_level']})\n"
+        f"{opp_bar} {opp_hp}/{opp_max}\n\n"
+        f"🛡 <b>{user['char_name']}</b> (Ур. {user['level']})\n"
+        f"{my_bar} {user['hp']}/{user['max_hp']}\n\n"
+        f"{turn_text}"
+    )
+    await bot.send_message(chat_id, text, reply_markup=pvp_kb(my_turn), parse_mode=ParseMode.HTML)
+
+
 # === /start ===
 @dp.message(Command("start"))
 async def start(m: Message):
@@ -214,7 +257,7 @@ async def start(m: Message):
             await m.answer("🎉 Вы пришли по приглашению! Ваш друг получил +10 действий.")
             try:
                 await bot.send_message(referrer_id,
-                    "🎉 По вашей ссылке пришёл новый игрок! Вам начислено +10 действий.")
+                    "🎉 По вашей ссылке пришёл новый игрок! +10 действий.")
             except Exception:
                 pass
             user = await db.get_user(m.from_user.id)
@@ -232,12 +275,15 @@ async def start(m: Message):
     if not user["class"]:
         await show_class_selection(m, user["race"]); return
     if not user["char_name"]:
-        await m.answer("✏️ Как зовут вашего героя? Напишите имя (2–20 символов).")
+        await m.answer("✏️ Как зовут вашего героя? (2–20 символов)")
         return
 
     combat = await db.get_combat(m.from_user.id)
     if combat:
-        await send_combat_state(m.chat.id, user, combat, "Ты в бою! Используй кнопки.")
+        if combat.get("is_pvp"):
+            await send_pvp_state(m.chat.id, user, combat)
+        else:
+            await send_combat_state(m.chat.id, user, combat, "Ты в бою!")
         return
 
     is_admin = m.from_user.id in ADMIN_IDS
@@ -247,8 +293,9 @@ async def start(m: Message):
         f"⭐ Уровень: {user['level']} · XP: {user['xp']}\n"
         f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
         f"💰 Золото: {user['gold']}\n"
-        f"📍 Локация: {user['location']}\n\n"
-        f"Опиши действие героя или жми кнопки 👇",
+        f"📍 Локация: {user['location']}\n"
+        f"🏅 Репутация: {user['reputation']}\n\n"
+        f"Опиши действие или жми кнопки 👇",
         reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
     )
 
@@ -257,9 +304,8 @@ async def start(m: Message):
 async def consent_yes(c: CallbackQuery):
     await db.give_consent(c.from_user.id)
     await c.message.edit_text(
-        "✅ Согласие получено. Добро пожаловать!\n\nСейчас создадим твоего героя.",
-        parse_mode=ParseMode.HTML
-    )
+        "✅ Согласие получено. Создадим героя!",
+        parse_mode=ParseMode.HTML)
     await show_race_selection(c.message)
 
 
@@ -271,7 +317,7 @@ async def consent_no(c: CallbackQuery):
 async def show_race_selection(m):
     buttons = [[InlineKeyboardButton(text=f"{r['name']} — {r['desc']}", callback_data=f"race_{code}")]
                for code, r in RACES.items()]
-    await bot.send_message(m.chat.id, "🧝 <b>Выбери расу героя:</b>",
+    await bot.send_message(m.chat.id, "🧝 <b>Выбери расу:</b>",
                            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
                            parse_mode=ParseMode.HTML)
 
@@ -280,7 +326,7 @@ async def show_race_selection(m):
 async def on_race(c: CallbackQuery):
     code = c.data.replace("race_", "")
     if code not in RACES:
-        await c.answer("Ошибка выбора"); return
+        await c.answer("Ошибка"); return
     await db.set_race(c.from_user.id, code)
     await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>", parse_mode=ParseMode.HTML)
     await show_class_selection(c.message, code)
@@ -298,10 +344,10 @@ async def show_class_selection(m, race_code):
 async def on_class(c: CallbackQuery):
     code = c.data.replace("class_", "")
     if code not in CLASSES:
-        await c.answer("Ошибка выбора"); return
+        await c.answer("Ошибка"); return
     await db.set_class(c.from_user.id, code)
     await c.message.edit_text(f"✅ Класс: <b>{CLASSES[code]['name']}</b>", parse_mode=ParseMode.HTML)
-    await bot.send_message(c.from_user.id, "✏️ Теперь напиши <b>имя героя</b> (2–20 символов).",
+    await bot.send_message(c.from_user.id, "✏️ Напиши <b>имя героя</b> (2–20 символов).",
                            parse_mode=ParseMode.HTML)
 
 
@@ -311,7 +357,7 @@ async def on_class(c: CallbackQuery):
 async def stats(m: Message):
     u = await db.get_user(m.from_user.id)
     if not u["race"]:
-        await m.answer("Сначала создай героя: /start"); return
+        await m.answer("Сначала /start"); return
     need = u["level"] * u["level"] * 100
     eff = effective_stats(u)
     equip_lines = []
@@ -325,14 +371,15 @@ async def stats(m: Message):
         f"Класс: {CLASSES.get(u['class'], {}).get('name', '?')}\n"
         f"Уровень: {u['level']} (XP {u['xp']}/{need})\n"
         f"❤️ HP: {u['hp']}/{u['max_hp']}\n"
-        f"💰 Золото: {u['gold']}\n\n"
+        f"💰 Золото: {u['gold']}\n"
+        f"🏅 Репутация: {u['reputation']}\n\n"
         f"<b>Характеристики:</b>\n"
         f"STR {eff['str']} · DEX {eff['dex']} · CON {eff['con']}\n"
         f"INT {eff['int']} · WIT {eff['wit']} · MEN {eff['men']}\n\n"
         f"<b>Экипировка:</b>\n" + "\n".join(equip_lines) + f"\n\n"
         f"📍 {u['location']}\n"
         f"⚔️ Боссов: {u['bosses_defeated']} · 💀 Смертей: {u['deaths']}\n"
-        f"Действий: {u['action_count']}",
+        f"🗡 PvP: {u['pvp_wins']} побед / {u['pvp_losses']} поражений",
         reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
     )
 
@@ -342,7 +389,7 @@ async def stats(m: Message):
 @dp.message(F.text == "🛒 Магазин")
 async def shop(m: Message):
     u = await db.get_user(m.from_user.id)
-    text = f"🛒 <b>Магазин NPC</b>\n\n💰 Золото: <b>{u['gold']}</b>\n\n"
+    text = f"🛒 <b>Магазин</b>\n\n💰 Золото: <b>{u['gold']}</b>\n\n"
     for category, label in [("weapon", "🗡 Оружие"), ("armor", "🛡 Броня"),
                             ("accessory", "💍 Аксессуары")]:
         text += f"<b>{label}:</b>\n"
@@ -364,18 +411,15 @@ async def shop_buy_cb(c: CallbackQuery):
     if item_name not in SHOP:
         await c.answer("Товар не найден"); return
     data = SHOP[item_name]
-    # Админы покупают бесплатно
     is_admin = c.from_user.id in ADMIN_IDS
     if not is_admin:
         ok = await db.spend_gold(c.from_user.id, data["price"])
         if not ok:
-            await c.answer(f"❌ Не хватает золота. Нужно {data['price']}", show_alert=True); return
+            await c.answer(f"❌ Нужно {data['price']}💰", show_alert=True); return
     await db.add_item(c.from_user.id, item_name)
     await c.answer(f"✅ Куплено: {item_name}")
-    await c.message.answer(
-        f"✅ <b>Куплено:</b> {item_name}\n\nЭкипировать: /equip {item_name}",
-        parse_mode=ParseMode.HTML
-    )
+    await c.message.answer(f"✅ <b>{item_name}</b> куплен!\n/equip {item_name}",
+                           parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("equip"))
@@ -385,10 +429,10 @@ async def equip(m: Message):
         await m.answer("Использование: /equip Название"); return
     item_name = parts[1].strip()
     if item_name not in SHOP:
-        await m.answer("❌ Этот предмет нельзя экипировать."); return
+        await m.answer("❌ Нельзя экипировать."); return
     inv = await db.get_inventory(m.from_user.id)
     if item_name not in inv:
-        await m.answer("❌ У тебя нет этого предмета."); return
+        await m.answer("❌ Нет в инвентаре."); return
     slot = SHOP[item_name]["type"]
     old = await db.equip_item(m.from_user.id, slot, item_name)
     await db.remove_item(m.from_user.id, item_name)
@@ -401,10 +445,9 @@ async def equip(m: Message):
                        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
-    new_hp = min(u["hp"], new_max)
-    await db.update_hp_max(m.from_user.id, new_hp, new_max)
+    await db.update_hp_max(m.from_user.id, min(u["hp"], new_max), new_max)
     if await db.add_achievement(m.from_user.id, "equipped"):
-        await m.answer("🏆 <b>Достижение:</b> ⚔️ Снаряжён", parse_mode=ParseMode.HTML)
+        await m.answer("🏆 Достижение: ⚔️ Снаряжён", parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("unequip"))
@@ -423,8 +466,7 @@ async def unequip(m: Message):
         await m.answer("Слот пуст.", reply_markup=MAIN_KB)
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
-    new_hp = min(u["hp"], new_max)
-    await db.update_hp_max(m.from_user.id, new_hp, new_max)
+    await db.update_hp_max(m.from_user.id, min(u["hp"], new_max), new_max)
 
 
 # === Рейтинг ===
@@ -441,12 +483,27 @@ async def top_cmd(m: Message):
         name = p["char_name"] or "Аноним"
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
-        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']} · Боссов: {p['bosses_defeated']}")
+        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
     await m.answer("🏅 <b>Топ-10</b>\n\n" + "\n".join(lines),
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Инвентарь ===
+@dp.message(Command("pvptop"))
+async def pvp_top_cmd(m: Message):
+    top = await db.get_pvp_top(10)
+    if not top:
+        await m.answer("🏅 Пока нет победителей дуэлей.", reply_markup=MAIN_KB); return
+    medals = ["🥇", "🥈", "🥉"]
+    lines = []
+    for i, p in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        name = p["char_name"] or "Аноним"
+        lines.append(f"{medal} <b>{name}</b> — {p['pvp_wins']}🏆 / {p['pvp_losses']}💀 · Реп: {p['reputation']}")
+    await m.answer("⚔️ <b>Топ дуэлянтов</b>\n\n" + "\n".join(lines),
+                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+
+
+# === Инвентарь, карта, достижения, мир ===
 @dp.message(Command("inventory"))
 @dp.message(F.text == "🎒 Инвентарь")
 async def inventory(m: Message):
@@ -460,11 +517,10 @@ async def inventory(m: Message):
             lines.append(f"• {i} — {bonus_str}")
         else:
             lines.append(f"• {i}")
-    text = "🎒 <b>Инвентарь</b>\n\n" + "\n".join(lines) + "\n\n<i>Экипировать: /equip Название</i>"
+    text = "🎒 <b>Инвентарь</b>\n\n" + "\n".join(lines) + "\n\n<i>/equip Название</i>"
     await m.answer(text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Карта ===
 @dp.message(Command("map"))
 @dp.message(F.text == "🗺 Карта")
 async def map_cmd(m: Message):
@@ -475,7 +531,6 @@ async def map_cmd(m: Message):
     await m.answer(f"🗺 <b>Карта</b>\n\n{lst}", reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Достижения ===
 @dp.message(Command("achievements"))
 @dp.message(F.text == "🏆 Достижения")
 async def achievements_cmd(m: Message):
@@ -491,41 +546,520 @@ async def achievements_cmd(m: Message):
     )
 
 
-# === Мир ===
 @dp.message(Command("world"))
 @dp.message(F.text == "🌍 Мир")
 async def world_cmd(m: Message):
     events = await db.get_world_events(10)
     if not events:
-        await m.answer("🌍 Мир молчит. Стань первым героем!", reply_markup=MAIN_KB); return
+        await m.answer("🌍 Мир молчит.", reply_markup=MAIN_KB); return
     lines = [f"• <b>{e['username'] or 'Аноним'}</b>: {e['event_text']}" for e in events]
     await m.answer("🌍 <b>События мира</b>\n\n" + "\n".join(lines),
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Награда ===
+# === ЖИВОЙ МИР ===
+@dp.message(Command("who"))
+@dp.message(F.text == "👥 Кто здесь")
+async def who_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    players = await db.get_players_in_location(u["location"], u["user_id"])
+    if not players:
+        await m.answer(f"👥 В «{u['location']}» больше никого нет.",
+                       reply_markup=MAIN_KB); return
+    lines = []
+    for p in players:
+        race = RACES.get(p["race"], {}).get("name", "?")
+        cls = CLASSES.get(p["class"], {}).get("name", "?")
+        lines.append(f"• <b>{p['char_name']}</b> (Ур.{p['level']}, {race} {cls}) — ❤️{p['hp']}")
+    await m.answer(
+        f"👥 <b>В «{u['location']}» сейчас:</b>\n\n" + "\n".join(lines) +
+        f"\n\n<i>Для дуэли: /duel Имя</i>",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(Command("write"))
+async def write_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    parts = m.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await m.answer("Использование: /write текст записи"); return
+    text = parts[1].strip()[:200]
+    await db.add_graffiti(m.from_user.id, u["char_name"], u["location"], text)
+    await m.answer(
+        f"✍️ Ты оставил запись в «{u['location']}»:\n\n<i>{text}</i>",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+    if await db.add_achievement(m.from_user.id, "graffiti"):
+        await m.answer("🏆 Достижение: ✍️ Летописец", parse_mode=ParseMode.HTML)
+
+
+@dp.message(Command("read"))
+@dp.message(F.text == "📜 Записи")
+async def read_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    notes = await db.get_graffiti(u["location"], 15)
+    if not notes:
+        await m.answer(f"📜 В «{u['location']}» нет записей.",
+                       reply_markup=MAIN_KB); return
+    lines = [f"• <b>{n['username']}</b>: <i>{n['text']}</i>" for n in notes]
+    await m.answer(
+        f"📜 <b>Записи в «{u['location']}»:</b>\n\n" + "\n".join(lines),
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+# === ДУЭЛИ ===
+@dp.message(Command("duel"))
+async def duel_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+
+    if await db.get_combat(m.from_user.id):
+        await m.answer("⚔️ Ты уже в бою!"); return
+
+    parts = m.text.split()
+    if len(parts) < 2:
+        await m.answer("Использование:\n/duel Имя — ставка 10% твоего золота\n/duel Имя 100 — своя ставка")
+        return
+
+    target_name = parts[1]
+    target = await db.get_user_by_char_name(target_name)
+    if not target:
+        await m.answer(f"❌ Игрок «{target_name}» не найден."); return
+    if target["user_id"] == u["user_id"]:
+        await m.answer("❌ Нельзя вызвать себя."); return
+    if target["location"] != u["location"]:
+        await m.answer(
+            f"❌ {target['char_name']} находится в другой локации:\n"
+            f"📍 он: {target['location']}\n📍 ты: {u['location']}"
+        ); return
+    if await db.get_combat(target["user_id"]):
+        await m.answer(f"❌ {target['char_name']} уже в бою."); return
+
+    # Ставка
+    if len(parts) >= 3:
+        try:
+            stake = int(parts[2])
+        except ValueError:
+            await m.answer("Ставка должна быть числом."); return
+        if stake < 10:
+            await m.answer("Минимальная ставка: 10💰"); return
+    else:
+        stake = max(10, int(u["gold"] * 0.10))
+
+    if u["gold"] < stake:
+        await m.answer(f"❌ У тебя нет {stake}💰"); return
+    if target["gold"] < stake:
+        await m.answer(f"❌ У {target['char_name']} нет {stake}💰"); return
+
+    offer_id = await db.create_duel_offer(
+        u["user_id"], u["char_name"], target["user_id"], target["char_name"], stake
+    )
+
+    # Уведомляем вызываемого
+    try:
+        await bot.send_message(
+            target["user_id"],
+            f"⚔️ <b>Тебя вызывает {u['char_name']}!</b>\n\n"
+            f"Ставка: <b>{stake}💰</b> с каждой стороны\n"
+            f"📍 Локация: {u['location']}\n\n"
+            f"У тебя есть время подумать.",
+            reply_markup=duel_offer_kb(offer_id, is_caller=False),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        await m.answer("❌ Не удалось отправить вызов (возможно, бот заблокирован).")
+        return
+
+    await m.answer(
+        f"⚔️ Ты вызвал <b>{target['char_name']}</b> на дуэль!\n"
+        f"Ставка: {stake}💰\n\n"
+        f"⏳ Ждём ответа...",
+        reply_markup=duel_offer_kb(offer_id, is_caller=True),
+        parse_mode=ParseMode.HTML
+    )
+
+
+@dp.callback_query(F.data.startswith("duel_accept_"))
+async def duel_accept(c: CallbackQuery):
+    offer_id = int(c.data.replace("duel_accept_", ""))
+    offer = await db.get_duel_offer(offer_id)
+    if not offer or offer["status"] != "pending":
+        await c.answer("Предложение уже неактивно"); return
+    if c.from_user.id != offer["opponent_id"]:
+        await c.answer("Это не твой вызов"); return
+
+    a = await db.get_user(offer["challenger_id"])
+    b = await db.get_user(offer["opponent_id"])
+    stake = offer["stake"]
+
+    if a["gold"] < stake:
+        await c.answer("У вызывающего не хватает золота", show_alert=True)
+        await db.set_duel_status(offer_id, "cancelled")
+        return
+    if b["gold"] < stake:
+        await c.answer("У тебя не хватает золота", show_alert=True)
+        await db.set_duel_status(offer_id, "cancelled")
+        return
+
+    await db.set_duel_status(offer_id, "accepted")
+    # Восстанавливаем HP обоим до максимума (fair play)
+    for p in (a, b):
+        new_max = calc_max_hp(p)
+        await db.update_hp_max(p["user_id"], new_max, new_max)
+        p["hp"] = new_max
+        p["max_hp"] = new_max
+
+    await db.start_pvp_combat(a, b, stake)
+
+    try:
+        await c.message.edit_text("✅ Принято! Дуэль начинается...")
+    except Exception:
+        pass
+
+    # Отправляем обоим стартовые экраны
+    combat_a = await db.get_combat(a["user_id"])
+    combat_b = await db.get_combat(b["user_id"])
+    await send_pvp_state(a["user_id"], a, combat_a)
+    await send_pvp_state(b["user_id"], b, combat_b)
+
+    await c.answer("Дуэль началась!")
+
+
+@dp.callback_query(F.data.startswith("duel_decline_"))
+async def duel_decline(c: CallbackQuery):
+    offer_id = int(c.data.replace("duel_decline_", ""))
+    offer = await db.get_duel_offer(offer_id)
+    if not offer or offer["status"] != "pending":
+        await c.answer("Уже неактивно"); return
+    if c.from_user.id != offer["opponent_id"]:
+        await c.answer("Это не твой вызов"); return
+
+    await db.set_duel_status(offer_id, "declined")
+    await db.add_reputation(c.from_user.id, -1)
+
+    try:
+        await c.message.edit_text(
+            "🏳️ Ты отказался от дуэли. Репутация: −1\n\n"
+            f"<i>«Слава обходит трусов стороной»</i>",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+    try:
+        await bot.send_message(
+            offer["challenger_id"],
+            f"🏳️ <b>{offer['opponent_name']}</b> отказался от дуэли.\n"
+            f"Ты можешь продолжить свой путь.",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+    if await db.add_achievement(c.from_user.id, "coward"):
+        await c.message.answer("🏆 Достижение: 🏳️ Трус", parse_mode=ParseMode.HTML)
+
+    await c.answer("Отказ")
+
+
+@dp.callback_query(F.data.startswith("duel_cancel_"))
+async def duel_cancel(c: CallbackQuery):
+    offer_id = int(c.data.replace("duel_cancel_", ""))
+    offer = await db.get_duel_offer(offer_id)
+    if not offer or offer["status"] != "pending":
+        await c.answer("Уже неактивно"); return
+    if c.from_user.id != offer["challenger_id"]:
+        await c.answer("Это не твой вызов"); return
+
+    await db.set_duel_status(offer_id, "cancelled")
+    try:
+        await c.message.edit_text("❌ Вызов отменён.")
+    except Exception:
+        pass
+    try:
+        await bot.send_message(
+            offer["opponent_id"],
+            f"❌ {offer['challenger_name']} отменил вызов на дуэль."
+        )
+    except Exception:
+        pass
+    await c.answer("Отменено")
+
+
+@dp.callback_query(F.data.startswith("duel_counter_"))
+async def duel_counter(c: CallbackQuery):
+    offer_id = int(c.data.replace("duel_counter_", ""))
+    offer = await db.get_duel_offer(offer_id)
+    if not offer or offer["status"] != "pending":
+        await c.answer("Уже неактивно"); return
+    if c.from_user.id != offer["opponent_id"]:
+        await c.answer("Это не твой вызов"); return
+
+    await c.answer()
+    try:
+        await c.message.edit_text(
+            "💰 Введи свою ставку числом (например, 100):\n\n"
+            "<i>Отправь просто число в чат.</i>",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+    # Сохраняем ожидание в простой форме — через отдельный диалог
+    # Проще: используем callback-хэш
+    # Сохраним во временную таблицу — но у нас её нет. Используем in-memory.
+    PENDING_COUNTER[c.from_user.id] = offer_id
+
+
+PENDING_COUNTER = {}
+
+
+@dp.message(F.text.regexp(r"^\d+$"))
+async def counter_stake_handler(m: Message):
+    uid = m.from_user.id
+    if uid not in PENDING_COUNTER:
+        return
+    offer_id = PENDING_COUNTER.pop(uid)
+    try:
+        new_stake = int(m.text.strip())
+    except ValueError:
+        return
+    if new_stake < 10:
+        await m.answer("Минимальная ставка 10💰. Попробуй снова /duel.")
+        return
+
+    offer = await db.get_duel_offer(offer_id)
+    if not offer or offer["status"] != "pending":
+        await m.answer("Предложение уже неактивно.")
+        return
+
+    challenger = await db.get_user(offer["challenger_id"])
+    if challenger["gold"] < new_stake:
+        await m.answer(f"❌ У {challenger['char_name']} нет {new_stake}💰")
+        return
+    if await db.get_user(offer["opponent_id"]) and (await db.get_user(offer["opponent_id"]))["gold"] < new_stake:
+        await m.answer(f"❌ У тебя нет {new_stake}💰")
+        return
+
+    await db.set_duel_status(offer_id, "cancelled")
+    new_offer_id = await db.create_duel_offer(
+        offer["opponent_id"], offer["opponent_name"],
+        offer["challenger_id"], offer["challenger_name"], new_stake
+    )
+
+    await m.answer(
+        f"💰 Ты предложил встречную ставку: <b>{new_stake}💰</b>.\n"
+        f"Ждём ответа {offer['challenger_name']}...",
+        parse_mode=ParseMode.HTML
+    )
+    try:
+        await bot.send_message(
+            offer["challenger_id"],
+            f"💰 <b>{offer['opponent_name']}</b> предлагает встречную ставку: "
+            f"<b>{new_stake}💰</b>\n\nТвой ход:",
+            reply_markup=duel_offer_kb(new_offer_id, is_caller=False),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+
+# === PvP-БОЙ ===
+@dp.callback_query(F.data == "pvp_attack")
+async def pvp_attack_cb(c: CallbackQuery):
+    user = await db.get_user(c.from_user.id)
+    combat = await db.get_combat(c.from_user.id)
+    if not combat or not combat.get("is_pvp"):
+        await c.answer("Бой неактивен"); return
+    if not combat["my_turn"]:
+        await c.answer("Не твой ход!", show_alert=True); return
+
+    eff = effective_stats(user)
+    base = eff["str"] * 2 + eff["dex"]
+    dmg = base + random.randint(0, 5)
+    is_crit = random.randint(1, 100) <= eff["dex"]
+    if is_crit:
+        dmg = int(dmg * 2)
+
+    res = await db.pvp_damage(c.from_user.id, dmg)
+    if not res:
+        await c.answer("Ошибка боя"); return
+    opp_hp, opp_id = res
+
+    crit_text = " 💥 КРИТ!" if is_crit else ""
+    await c.answer(f"Ты нанёс {dmg} урона{crit_text}")
+
+    # Обновляем сообщение атакующего (просто покажет следующий раунд)
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if opp_hp <= 0:
+        await pvp_end(winner_id=c.from_user.id, loser_id=opp_id, stake=combat["stake"])
+        return
+
+    # Передаём ход
+    await db.pvp_switch_turn(c.from_user.id)
+
+    # Уведомляем противника — его ход
+    try:
+        opp_user = await db.get_user(opp_id)
+        opp_combat = await db.get_combat(opp_id)
+        await bot.send_message(
+            opp_id,
+            f"💔 <b>{user['char_name']}</b> атакует на {dmg} урона{crit_text}!\n"
+            f"Твой ход!",
+            parse_mode=ParseMode.HTML
+        )
+        await send_pvp_state(opp_id, opp_user, opp_combat)
+    except Exception:
+        pass
+
+    # Обновляем состояние атакующего
+    new_combat = await db.get_combat(c.from_user.id)
+    new_user = await db.get_user(c.from_user.id)
+    await send_pvp_state(c.from_user.id, new_user, new_combat)
+
+
+@dp.callback_query(F.data == "pvp_surrender")
+async def pvp_surrender_cb(c: CallbackQuery):
+    user = await db.get_user(c.from_user.id)
+    combat = await db.get_combat(c.from_user.id)
+    if not combat or not combat.get("is_pvp"):
+        await c.answer("Бой неактивен"); return
+
+    opp_id = combat["opponent_id"]
+    stake = combat["stake"]
+
+    await db.end_combat(c.from_user.id)
+    await db.end_combat(opp_id)
+
+    # Победитель (противник) забирает ставку
+    await db.spend_gold(c.from_user.id, min(stake, user["gold"]))
+    await db.add_gold(opp_id, stake)
+    await db.add_reputation(c.from_user.id, -1)
+    await db.incr_pvp_losses(c.from_user.id)
+    await db.incr_pvp_wins(opp_id)
+    await db.add_reputation(opp_id, 1)
+
+    # HP проигравшего не меняем (по договорённости)
+    # Восстанавливаем противнику HP до макса
+    opp_user = await db.get_user(opp_id)
+    new_max = calc_max_hp(opp_user)
+    await db.update_hp_max(opp_id, new_max, new_max)
+
+    await c.message.edit_text(
+        f"🏳️ <b>Ты сдался!</b>\n\n"
+        f"Ставка {stake}💰 уходит {combat['enemy_name']}.\n"
+        f"Репутация: −1",
+        parse_mode=ParseMode.HTML
+    )
+    try:
+        await bot.send_message(
+            opp_id,
+            f"🏆 <b>Победа!</b>\n\n{user['char_name']} сдался в дуэли.\n"
+            f"Ты получаешь <b>{stake}💰</b>.\nРепутация: +1",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        )
+        await bot.send_message(opp_id, "Продолжай приключение!", reply_markup=MAIN_KB)
+    except Exception:
+        pass
+
+    await c.answer("Ты сдался")
+
+
+async def pvp_end(winner_id, loser_id, stake):
+    await db.end_combat(winner_id)
+    await db.end_combat(loser_id)
+
+    winner = await db.get_user(winner_id)
+    loser = await db.get_user(loser_id)
+
+    # Передача ставки
+    real_stake = min(stake, loser["gold"])
+    await db.spend_gold(loser_id, real_stake)
+    await db.add_gold(winner_id, real_stake)
+    await db.incr_pvp_wins(winner_id)
+    await db.incr_pvp_losses(loser_id)
+    await db.add_reputation(winner_id, 1)
+    await db.add_reputation(loser_id, -1)
+
+    # Восстанавливаем HP обоим
+    for p in (winner, loser):
+        new_max = calc_max_hp(p)
+        await db.update_hp_max(p["user_id"], new_max, new_max)
+
+    # Мир-событие
+    await db.add_world_event(winner_id, winner["username"],
+                             f"победил {loser['char_name']} в дуэли (ставка {real_stake}💰)")
+
+    # Достижения
+    if await db.add_achievement(winner_id, "duelist"):
+        pass
+    w = await db.get_user(winner_id)
+    if w["pvp_wins"] >= 5:
+        if await db.add_achievement(winner_id, "arena_king"):
+            try:
+                await bot.send_message(winner_id, "🏆 Достижение: ⚜️ Гроза арены",
+                                       parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+
+    try:
+        await bot.send_message(
+            winner_id,
+            f"🏆 <b>ПОБЕДА!</b>\n\nТы победил <b>{loser['char_name']}</b>!\n"
+            f"+{real_stake}💰 · Репутация: +1\n"
+            f"❤️ HP восстановлено.",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+    try:
+        await bot.send_message(
+            loser_id,
+            f"💀 <b>Поражение</b>\n\n{winner['char_name']} оказался сильнее.\n"
+            f"−{real_stake}💰 (ставка) · Репутация: −1\n"
+            f"❤️ HP не пострадало — ты можешь продолжать.",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+
+
+# === Награда, премиум, помощь ===
 @dp.message(Command("daily"))
 @dp.message(F.text == "🎁 Награда")
 async def daily(m: Message):
     streak = await db.claim_daily(m.from_user.id)
     if streak is None:
-        await m.answer("🎁 Уже получал сегодня. Завтра!", reply_markup=MAIN_KB); return
+        await m.answer("🎁 Уже получал сегодня.", reply_markup=MAIN_KB); return
     bonus = {1: 5, 2: 5, 3: 10, 4: 10, 5: 15, 6: 15, 7: 30}.get(streak, 10)
     gold_bonus = streak * 20
     await db.add_gold(m.from_user.id, gold_bonus)
-    msg = f"🎁 <b>Ежедневная награда!</b>\n\nДень {streak}\n+{bonus} действий · +{gold_bonus}💰"
+    msg = f"🎁 <b>Награда!</b>\n\nДень {streak}\n+{bonus} действий · +{gold_bonus}💰"
     if streak == 7:
         await db.add_item(m.from_user.id, "Амулет мудреца")
         msg += "\n\n🏆 <b>Бонус:</b> Амулет мудреца!"
     await m.answer(msg, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Премиум ===
 @dp.message(Command("premium"))
 @dp.message(F.text == "💎 Премиум")
 async def premium(m: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"💎 Купить за {PREMIUM_PRICE_STARS} ⭐", callback_data="buy_premium")
+        InlineKeyboardButton(text=f"💎 Купить за {PREMIUM_PRICE_STARS} ⭐",
+                             callback_data="buy_premium")
     ]])
     await m.answer(
         f"💎 <b>Премиум</b>\n\n• Безлимит действий\n• Приоритет\n\n"
@@ -569,7 +1103,6 @@ async def on_payment(m: Message):
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# === Помощь ===
 @dp.message(Command("help"))
 @dp.message(F.text == "❓ Помощь")
 async def help_cmd(m: Message):
@@ -588,21 +1121,19 @@ async def reset(m: Message):
     await m.answer("🔄 История сброшена.")
 
 
-# === АДМИН-КОМАНДЫ ===
+# === АДМИН ===
 @dp.message(Command("admin_help"))
 async def admin_help(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌ Нет доступа."); return
     await m.answer(
         "🛠 <b>Админ-команды</b>\n\n"
         "/admin_reset — обнулить лимит, восстановить HP\n"
-        "/admin_gold N — добавить N золота (можно отрицательное)\n"
+        "/admin_gold N — добавить N золота\n"
         "/admin_hp — восстановить HP\n"
-        "/admin_levelup — +1 уровень (мгновенно)\n"
-        "/admin_endcombat — принудительно завершить бой\n"
-        "/admin_stats — посмотреть свою строку в БД\n\n"
-        "<i>Также: покупки в магазине бесплатны для админов.</i>",
+        "/admin_levelup — +1 уровень\n"
+        "/admin_endcombat — завершить бой\n"
+        "/admin_stats — своя строка в БД",
         parse_mode=ParseMode.HTML
     )
 
@@ -610,36 +1141,26 @@ async def admin_help(m: Message):
 @dp.message(Command("admin_reset"))
 async def admin_reset(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
     await db.update_hp_max(m.from_user.id, new_max, new_max)
     async with db.pool.acquire() as conn:
         await conn.execute("UPDATE users SET requests_today=0 WHERE user_id=$1", m.from_user.id)
-    await m.answer(
-        f"🛠 <b>Админ-сброс</b>\n\n"
-        f"• Лимит обнулён\n"
-        f"• HP: {new_max}/{new_max}\n"
-        f"• Золото: {u['gold']}",
-        parse_mode=ParseMode.HTML
-    )
+    await m.answer(f"🛠 Сброшено. HP: {new_max}/{new_max}", parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("admin_gold"))
 async def admin_gold(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
     parts = m.text.split()
     if len(parts) < 2:
-        await m.answer("Использование: /admin_gold 5000")
-        return
+        await m.answer("Использование: /admin_gold 5000"); return
     try:
         amount = int(parts[1])
     except ValueError:
-        await m.answer("Число должно быть целым.")
-        return
+        await m.answer("Число."); return
     await db.add_gold(m.from_user.id, amount)
     u = await db.get_user(m.from_user.id)
     await m.answer(f"🛠 Золото: {amount:+d}. Теперь: {u['gold']}💰")
@@ -648,8 +1169,7 @@ async def admin_gold(m: Message):
 @dp.message(Command("admin_hp"))
 async def admin_hp(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
     await db.update_hp_max(m.from_user.id, new_max, new_max)
@@ -659,8 +1179,7 @@ async def admin_hp(m: Message):
 @dp.message(Command("admin_levelup"))
 async def admin_levelup(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
     await db.add_xp(m.from_user.id, 999999)
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
@@ -671,8 +1190,15 @@ async def admin_levelup(m: Message):
 @dp.message(Command("admin_endcombat"))
 async def admin_endcombat(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
+    combat = await db.get_combat(m.from_user.id)
+    if combat and combat.get("is_pvp"):
+        opp = combat["opponent_id"]
+        await db.end_combat(opp)
+        try:
+            await bot.send_message(opp, "⚔️ Дуэль отменена админом.", reply_markup=MAIN_KB)
+        except Exception:
+            pass
     await db.end_combat(m.from_user.id)
     await m.answer("🛠 Бой завершён.", reply_markup=MAIN_KB)
 
@@ -680,20 +1206,18 @@ async def admin_endcombat(m: Message):
 @dp.message(Command("admin_stats"))
 async def admin_stats(m: Message):
     if m.from_user.id not in ADMIN_IDS:
-        await m.answer("❌ Нет доступа.")
-        return
+        await m.answer("❌"); return
     u = await db.get_user(m.from_user.id)
     text = "\n".join(f"<code>{k}</code> = {v}" for k, v in u.items())
     await m.answer(f"🛠 <b>Твоя строка</b>\n\n{text}", parse_mode=ParseMode.HTML)
 
 
-# === БОЕВАЯ СИСТЕМА ===
-
+# === БОЙ С МОБАМИ ===
 async def start_combat_from_ai(chat_id, user, enemy):
     await db.start_combat(user["user_id"], enemy["name"], enemy["level"],
                           enemy["hp"], 1 if enemy["is_boss"] else 0)
     combat = await db.get_combat(user["user_id"])
-    intro = "🐉 <b>БОСС!</b> Готовься к тяжёлой битве!" if enemy["is_boss"] else "Бой начался!"
+    intro = "🐉 <b>БОСС!</b>" if enemy["is_boss"] else "Бой начался!"
     await send_combat_state(chat_id, user, combat, intro)
 
 
@@ -701,17 +1225,14 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
     if action_type == "attack":
         eff = effective_stats(user)
         base = eff["str"] * 2 + eff["dex"]
-        rand = random.randint(0, 5)
-        dmg = base + rand
+        dmg = base + random.randint(0, 5)
         is_crit = random.randint(1, 100) <= eff["dex"]
         if is_crit:
             dmg = int(dmg * 2)
         new_enemy_hp = combat["enemy_hp"] - dmg
         await db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
-        if is_crit:
-            extra_text = f"💥 <b>КРИТ!</b> Ты наносишь {dmg} урона!"
-        else:
-            extra_text = f"⚔️ Ты наносишь {dmg} урона."
+        extra_text = (f"💥 <b>КРИТ!</b> {dmg} урона!" if is_crit
+                      else f"⚔️ {dmg} урона.")
         await db.set_combat_defending(user["user_id"], 0)
 
     elif action_type == "defend":
@@ -720,16 +1241,15 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         new_hp = min(user["max_hp"], user["hp"] + heal)
         await db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
-        extra_text = f"🛡 Ты в защите. +{heal} HP. Следующий удар слабее."
+        extra_text = f"🛡 +{heal} HP, удар слабее."
         enemy_dmg = max(1, int((combat["enemy_level"] * 5 + random.randint(0, 5)) * 0.5))
         new_hp = max(0, user["hp"] - enemy_dmg)
         await db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
-        extra_text += f"\n💔 {combat['enemy_name']} бьёт на {enemy_dmg} (снижено)."
+        extra_text += f"\n💔 {combat['enemy_name']} бьёт на {enemy_dmg}."
         combat = await db.get_combat(user["user_id"])
         if user["hp"] <= 0:
-            await handle_death(chat_id, user, combat)
-            return False
+            await handle_death(chat_id, user, combat); return False
         await db.incr_combat_round(user["user_id"])
         combat = await db.get_combat(user["user_id"])
         await send_combat_state(chat_id, user, combat, extra_text)
@@ -745,11 +1265,10 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
     new_hp = max(0, user["hp"] - enemy_dmg)
     await db.update_hp(user["user_id"], new_hp)
     user["hp"] = new_hp
-    extra_text += f"\n💔 {combat['enemy_name']} наносит {enemy_dmg} урона."
+    extra_text += f"\n💔 {combat['enemy_name']} наносит {enemy_dmg}."
 
     if user["hp"] <= 0:
-        await handle_death(chat_id, user, combat)
-        return False
+        await handle_death(chat_id, user, combat); return False
 
     await db.incr_combat_round(user["user_id"])
     combat = await db.get_combat(user["user_id"])
@@ -762,20 +1281,19 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     exp = combat["enemy_level"] * 15
     gold = combat["enemy_level"] * 10
     if combat["is_boss"]:
-        exp *= 3
-        gold *= 3
+        exp *= 3; gold *= 3
     await db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await db.add_xp(user["user_id"], exp)
-    text = f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
-    text += f"<b>{combat['enemy_name']}</b> повержен!\n"
-    text += f"+{exp} XP · +{gold}💰"
+    text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
+            f"<b>{combat['enemy_name']}</b> повержен!\n"
+            f"+{exp} XP · +{gold}💰")
 
     if combat["is_boss"]:
         await db.incr_bosses(user["user_id"])
         await db.add_world_event(user["user_id"], user["username"],
                                  f"победил босса «{combat['enemy_name']}»")
         await db.update_hp(user["user_id"], user["max_hp"])
-        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
+        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP полностью восстановлено."
         if await db.add_achievement(user["user_id"], "first_boss"):
             text += "\n🏆 Достижение: ⚔️ Убийца боссов"
 
@@ -790,7 +1308,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await db.update_hp_max(user["user_id"], new_max, new_max)
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {new_max}."
         if level in (5, 10):
-            await db.add_world_event(user["user_id"], user["username"], f"достиг {level} уровня!")
+            await db.add_world_event(user["user_id"], user["username"],
+                                     f"достиг {level} уровня!")
 
     if await db.add_achievement(user["user_id"], "first_blood"):
         text += "\n🏆 Достижение: 🩸 Первая кровь"
@@ -799,15 +1318,13 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if await db.add_achievement(user["user_id"], "boss_5"):
             text += "\n🏆 Достижение: 🐉 Легенда"
 
-    text += f"\n\n<i>{AI_MARKER}</i>"
     await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
 async def handle_death(chat_id, user, combat):
     await db.end_combat(user["user_id"])
-    lost_gold = int(user["gold"] * 0.30)
-    new_gold = user["gold"] - lost_gold
-    await db.set_gold(user["user_id"], new_gold)
+    lost = int(user["gold"] * 0.30)
+    await db.set_gold(user["user_id"], user["gold"] - lost)
     u = await db.get_user(user["user_id"])
     new_max = calc_max_hp(u)
     await db.update_hp_max(user["user_id"], new_max, new_max)
@@ -816,22 +1333,25 @@ async def handle_death(chat_id, user, combat):
     await db.add_achievement(user["user_id"], "survivor")
     await db.add_world_event(user["user_id"], user["username"],
                              f"пал в бою с «{combat['enemy_name']}»")
-    text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
-            f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
-            f"Ты очнулся в Начальной деревне.\n"
-            f"Жрецы забрали <b>{lost_gold}💰</b> (30%).\n\n"
-            f"❤️ HP: {new_max}/{new_max}\n"
-            f"💰 Золото: {new_gold}\n\n"
-            f"<i>Уровень и опыт сохранены.</i>")
-    await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    await bot.send_message(
+        chat_id,
+        f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
+        f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
+        f"Ты очнулся в Начальной деревне.\n"
+        f"Жрецы забрали <b>{lost}💰</b> (30%).\n\n"
+        f"❤️ HP: {new_max}/{new_max}\n"
+        f"💰 Золото: {u['gold'] - lost}\n\n"
+        f"<i>Уровень и опыт сохранены.</i>",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
 
 
 @dp.callback_query(F.data == "combat_attack")
 async def cb_attack(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
-    if not combat:
-        await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
+    if not combat or combat.get("is_pvp"):
+        await c.answer("Бой окончен."); return
     await c.answer("⚔️ Атака!")
     await process_combat_round(c.message.chat.id, user, combat, "attack")
 
@@ -840,8 +1360,8 @@ async def cb_attack(c: CallbackQuery):
 async def cb_defend(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
-    if not combat:
-        await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
+    if not combat or combat.get("is_pvp"):
+        await c.answer("Бой окончен."); return
     await c.answer("🛡 Защита")
     await process_combat_round(c.message.chat.id, user, combat, "defend")
 
@@ -850,13 +1370,13 @@ async def cb_defend(c: CallbackQuery):
 async def cb_potion(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
-    if not combat:
-        await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
+    if not combat or combat.get("is_pvp"):
+        await c.answer("Бой окончен."); return
     if user["hp"] >= user["max_hp"]:
-        await c.answer("❤️ HP уже полное!", show_alert=True); return
+        await c.answer("❤️ HP полное!", show_alert=True); return
     is_admin = c.from_user.id in ADMIN_IDS
     if not is_admin and user["gold"] < POTION_PRICE:
-        await c.answer(f"❌ Нужно {POTION_PRICE} золота!", show_alert=True); return
+        await c.answer(f"❌ Нужно {POTION_PRICE}💰", show_alert=True); return
     if not is_admin:
         await db.spend_gold(c.from_user.id, POTION_PRICE)
     new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
@@ -870,66 +1390,40 @@ async def cb_potion(c: CallbackQuery):
     await db.update_hp(c.from_user.id, new_hp)
     user["hp"] = new_hp
     if user["hp"] <= 0:
-        await handle_death(c.message.chat.id, user, combat)
-        return
+        await handle_death(c.message.chat.id, user, combat); return
     await db.incr_combat_round(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
-    text = f"💚 Ты выпил зелье (+{POTION_HEAL} HP).\n💔 Враг бьёт на {enemy_dmg}."
-    await send_combat_state(c.message.chat.id, user, combat, text)
+    await send_combat_state(c.message.chat.id, user, combat,
+                            f"💚 Зелье +{POTION_HEAL}. 💔 Враг бьёт на {enemy_dmg}.")
 
 
 @dp.callback_query(F.data == "combat_flee")
 async def cb_flee(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
-    if not combat:
-        await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
+    if not combat or combat.get("is_pvp"):
+        await c.answer("Бой окончен."); return
     if combat["is_boss"]:
         await c.answer("🐉 От босса не убежать!", show_alert=True); return
     if random.randint(1, 100) <= 50:
         await db.end_combat(c.from_user.id)
-        await c.answer("🏃 Побег удался!")
-        await c.message.answer("🏃 Ты успешно сбежал из боя.",
-                               reply_markup=MAIN_KB)
+        await c.answer("🏃 Побег!")
+        await c.message.answer("🏃 Ты сбежал.", reply_markup=MAIN_KB)
     else:
-        await c.answer("❌ Побег не удался!")
+        await c.answer("❌ Не удалось!")
         enemy_dmg = (combat["enemy_level"] * 5 + random.randint(0, 5)) // 2
         new_hp = max(0, user["hp"] - enemy_dmg)
         await db.update_hp(c.from_user.id, new_hp)
         user["hp"] = new_hp
         if user["hp"] <= 0:
-            await handle_death(c.message.chat.id, user, combat)
-            return
+            await handle_death(c.message.chat.id, user, combat); return
         await db.incr_combat_round(c.from_user.id)
         combat = await db.get_combat(c.from_user.id)
-        text = f"❌ Побег не удался! -{enemy_dmg} HP."
-        await send_combat_state(c.message.chat.id, user, combat, text)
+        await send_combat_state(c.message.chat.id, user, combat,
+                                f"❌ Побег не удался! -{enemy_dmg}.")
 
 
-@dp.message(Command("flee"))
-async def flee_cmd(m: Message):
-    user = await db.get_user(m.from_user.id)
-    combat = await db.get_combat(m.from_user.id)
-    if not combat:
-        await m.answer("Ты не в бою.", reply_markup=MAIN_KB); return
-    if combat["is_boss"]:
-        await m.answer("🐉 От босса не убежать!"); return
-    if random.randint(1, 100) <= 50:
-        await db.end_combat(m.from_user.id)
-        await m.answer("🏃 Ты сбежал!", reply_markup=MAIN_KB)
-    else:
-        enemy_dmg = (combat["enemy_level"] * 5 + random.randint(0, 5)) // 2
-        new_hp = max(0, user["hp"] - enemy_dmg)
-        await db.update_hp(m.from_user.id, new_hp)
-        user["hp"] = new_hp
-        if user["hp"] <= 0:
-            await handle_death(m.chat.id, user, combat)
-            return
-        combat = await db.get_combat(m.from_user.id)
-        await send_combat_state(m.chat.id, user, combat, f"❌ Побег не удался! -{enemy_dmg} HP")
-
-
-# === Проверка достижений ===
+# === Достижения ===
 async def check_achievements(uid, user):
     new = []
     if user["action_count"] >= 1:
@@ -937,6 +1431,8 @@ async def check_achievements(uid, user):
     locs = await db.get_locations(uid)
     if len(locs) >= 5:
         if await db.add_achievement(uid, "explorer_5"): new.append("explorer_5")
+    if len(locs) >= 10:
+        if await db.add_achievement(uid, "social"): new.append("social")
     items = await db.get_inventory(uid)
     if len(items) >= 5:
         if await db.add_achievement(uid, "collector_5"): new.append("collector_5")
@@ -968,9 +1464,9 @@ async def handle(m: Message):
     if not user["char_name"]:
         name = m.text.strip()[:20]
         if len(name) < 2:
-            await m.answer("✏️ Имя от 2 до 20 символов:"); return
+            await m.answer("✏️ Имя 2–20 символов:"); return
         stats = calc_stats(user["race"], user["class"])
-        hp = stats["con"] * 20 + 1 * 15
+        hp = stats["con"] * 20 + 15
         await db.set_char(uid, name, stats, hp)
         await m.answer(
             f"🎉 <b>Герой создан!</b>\n\n"
@@ -986,11 +1482,13 @@ async def handle(m: Message):
 
     combat = await db.get_combat(uid)
     if combat:
-        await m.answer("⚔️ Ты в бою! Используй кнопки ниже.",
-                       reply_markup=combat_kb())
+        if combat.get("is_pvp"):
+            await m.answer("⚔️ Ты в дуэли! Жми кнопки.",
+                           reply_markup=pvp_kb(combat["my_turn"]))
+        else:
+            await m.answer("⚔️ Ты в бою! Жми кнопки.", reply_markup=combat_kb())
         return
 
-    # Лимит (админы обходят)
     is_admin = uid in ADMIN_IDS
     if not is_admin and not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
         await m.answer(
@@ -1005,12 +1503,8 @@ async def handle(m: Message):
 
     user_for_ai = dict(user)
     eff = effective_stats(user)
-    user_for_ai["stat_str"] = eff["str"]
-    user_for_ai["stat_dex"] = eff["dex"]
-    user_for_ai["stat_con"] = eff["con"]
-    user_for_ai["stat_int"] = eff["int"]
-    user_for_ai["stat_wit"] = eff["wit"]
-    user_for_ai["stat_men"] = eff["men"]
+    for k in ["str", "dex", "con", "int", "wit", "men"]:
+        user_for_ai[f"stat_{k}"] = eff[k]
 
     result = await ai.generate(user["story"], action, user["arc"], user_for_ai)
     response = result["text"]
@@ -1036,7 +1530,7 @@ async def handle(m: Message):
         response += f"\n\n💔 <i>-{result['damage']} HP</i>"
         if new_hp <= 0:
             await db.update_hp_max(uid, user["max_hp"], user["max_hp"])
-            response += "\n\n💀 <i>Ты потерял сознание. Очнулся в деревне.</i>"
+            response += "\n\n💀 <i>Ты очнулся в деревне.</i>"
     if result["heal"] > 0:
         new_hp = min(user["max_hp"], user["hp"] + result["heal"])
         await db.update_hp(uid, new_hp)
@@ -1060,22 +1554,20 @@ async def handle(m: Message):
         if level in (5, 10):
             await db.add_world_event(uid, user["username"], f"достиг {level} уровня!")
 
-    updated_user = await db.get_user(uid)
-    new_ach = await check_achievements(uid, updated_user)
+    updated = await db.get_user(uid)
+    new_ach = await check_achievements(uid, updated)
     if new_ach:
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
 
-    if is_admin:
-        left = "∞ (admin)"
-    elif user["is_premium"]:
-        left = "∞"
-    else:
-        left = FREE_DAILY_LIMIT - user["requests_today"] - 1
+    left = ("∞ (admin)" if is_admin
+            else "∞" if user["is_premium"]
+            else FREE_DAILY_LIMIT - user["requests_today"] - 1)
 
     need = level * level * 100
     await m.answer(
-        f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated_user['gold']} · ❤️ {updated_user['hp']}/{updated_user['max_hp']} · Осталось: {left}</i>",
+        f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated['gold']} · "
+        f"❤️ {updated['hp']}/{updated['max_hp']} · Осталось: {left}</i>",
         parse_mode=ParseMode.HTML
     )
 
