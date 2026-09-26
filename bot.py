@@ -20,14 +20,12 @@ db = DB()
 
 CONSENT_TEXT = (
     "📋 <b>Перед началом — важное</b>\n\n"
-    "Бот обрабатывает ваши персональные данные (Telegram ID, username) "
-    "для сохранения игрового прогресса.\n\n"
-    "• Данные хранятся на сервере в РФ.\n"
-    "• Весь контент сгенерирован ИИ и маркируется.\n"
-    "• Игра предназначена для лиц <b>18+</b>.\n"
-    "• Вы можете отозвать согласие командой /revoke.\n\n"
-    "Нажимая «Согласен», вы подтверждаете согласие на обработку ПДн "
-    "и что вам исполнилось 18 лет."
+    "Бот обрабатывает ваши данные (Telegram ID, username) для сохранения прогресса.\n\n"
+    "• Данные хранятся в РФ.\n"
+    "• Контент сгенерирован ИИ и маркируется.\n"
+    "• Игра для лиц <b>18+</b>.\n"
+    "• Отозвать согласие → /revoke.\n\n"
+    "Нажимая «Согласен», вы подтверждаете согласие и возраст 18+."
 )
 
 @dp.message(Command("start"))
@@ -46,10 +44,8 @@ async def start(m: Message):
         if await db.set_referrer(m.from_user.id, referrer_id):
             await m.answer("🎉 Вы пришли по приглашению! Ваш друг получил +10 действий.")
             try:
-                await bot.send_message(
-                    referrer_id,
-                    "🎉 По вашей ссылке пришёл новый игрок! Вам начислено +10 действий."
-                )
+                await bot.send_message(referrer_id,
+                    "🎉 По вашей ссылке пришёл новый игрок! Вам начислено +10 действий.")
             except Exception:
                 pass
 
@@ -58,9 +54,11 @@ async def start(m: Message):
         ref_link = f"https://t.me/{me.username}?start=ref_{m.from_user.id}"
         await m.answer(
             f"🎮 С возвращением!\n\n"
-            f"🔗 Ваша реферальная ссылка: {ref_link}\n"
-            f"👥 Приглашено друзей: {user['referral_count']}\n"
-            f"За каждого друга — +10 действий!",
+            f"⭐ Уровень: {user['level']} · XP: {user['xp']}\n"
+            f"📍 Локация: {user['location']}\n\n"
+            f"🔗 Ваша ссылка: {ref_link}\n"
+            f"👥 Приглашено: {user['referral_count']}\n\n"
+            f"Команды: /inventory /map /stats /daily /buy"
         )
         return
 
@@ -77,22 +75,17 @@ async def consent_yes(c: CallbackQuery):
     ref_link = f"https://t.me/{me.username}?start=ref_{c.from_user.id}"
     await c.message.edit_text(
         "✅ Согласие получено. Добро пожаловать в <b>AI-Приключение</b>!\n\n"
-        "Просто пиши, что делает герой:\n"
-        "• «Я осматриваюсь»\n• «Иду в таверну»\n• «Атакую гоблина»\n\n"
+        "Просто пиши, что делает герой.\n\n"
         f"📊 Бесплатно: {FREE_DAILY_LIMIT} действий в день.\n"
-        f"🔗 Твоя ссылка для друзей: {ref_link}\n"
-        f"За каждого друга — +10 действий!\n\n"
-        f"💎 Безлимит → /buy\n"
+        f"🔗 Ваша ссылка: {ref_link}\n"
+        f"За друга — +10 действий!\n\n"
+        f"💎 /buy · 🎁 /daily · 🎒 /inventory\n"
         f"{AI_MARKER}",
-        parse_mode=ParseMode.HTML
-    )
+        parse_mode=ParseMode.HTML)
 
 @dp.callback_query(F.data == "consent_no")
 async def consent_no(c: CallbackQuery):
-    await c.message.edit_text(
-        "❌ Без согласия на обработку данных бот не может сохранять прогресс. "
-        "Вы можете вернуться в любой момент командой /start."
-    )
+    await c.message.edit_text("❌ Без согласия бот не сохранит прогресс. Вернуться — /start.")
 
 @dp.message(Command("revoke"))
 async def revoke(m: Message):
@@ -104,14 +97,54 @@ async def reset(m: Message):
     await db.update_story(m.from_user.id, "")
     await m.answer("🔄 История сброшена.")
 
+@dp.message(Command("inventory"))
+async def inventory(m: Message):
+    items = await db.get_inventory(m.from_user.id)
+    if not items:
+        await m.answer("🎒 Инвентарь пуст. Исследуй мир — найдёшь что-нибудь!")
+        return
+    lst = "\n".join(f"• {i}" for i in items)
+    await m.answer(f"🎒 <b>Инвентарь</b>\n\n{lst}", parse_mode=ParseMode.HTML)
+
+@dp.message(Command("map"))
+async def map_cmd(m: Message):
+    locs = await db.get_locations(m.from_user.id)
+    if not locs:
+        await m.answer("🗺 Вы пока нигде не были. Начните приключение!")
+        return
+    lst = "\n".join(f"📍 {l}" for l in locs)
+    await m.answer(f"🗺 <b>Карта путешествий</b>\n\n{lst}", parse_mode=ParseMode.HTML)
+
+@dp.message(Command("stats"))
+async def stats(m: Message):
+    u = await db.get_user(m.from_user.id)
+    need = u["level"] * u["level"] * 100
+    await m.answer(
+        f"⭐ <b>Статистика</b>\n\n"
+        f"Уровень: {u['level']}\n"
+        f"XP: {u['xp']} / {need}\n"
+        f"Действий всего: {u['action_count']}\n"
+        f"Локация: {u['location']}\n"
+        f"Премиум: {'✅' if u['is_premium'] else '❌'}",
+        parse_mode=ParseMode.HTML)
+
+@dp.message(Command("daily"))
+async def daily(m: Message):
+    streak = await db.claim_daily(m.from_user.id)
+    if streak is None:
+        await m.answer("🎁 Вы уже получали награду сегодня. Возвращайтесь завтра!")
+        return
+    bonus = {1:5, 2:5, 3:10, 4:10, 5:15, 6:15, 7:30}.get(streak, 10)
+    msg = f"🎁 <b>Ежедневная награда!</b>\n\nДень {streak} подряд\n+{bonus} действий"
+    if streak == 7:
+        await db.add_item(m.from_user.id, "Редкий амулет удачи")
+        msg += "\n\n🏆 <b>Бонус за 7 дней:</b> Редкий амулет удачи добавлен в инвентарь!"
+        await db.claim_daily  # сбросим streak — оставляем простым
+    await m.answer(msg, parse_mode=ParseMode.HTML)
+
 @dp.message(Command("premium"))
 async def premium(m: Message):
-    await m.answer(
-        "💎 <b>Премиум</b>\n\n• Безлимитные действия\n"
-        "• Приоритетная обработка\n\n"
-        "Купить → /buy",
-        parse_mode=ParseMode.HTML
-    )
+    await m.answer("💎 Премиум — безлимит действий. Купить → /buy", parse_mode=ParseMode.HTML)
 
 @dp.message(Command("buy"))
 async def buy(m: Message):
@@ -119,12 +152,9 @@ async def buy(m: Message):
         chat_id=m.chat.id,
         title="Премиум-подписка AI-Приключение",
         description="Безлимитные действия, приоритетная обработка",
-        payload="premium_30d",
-        provider_token="",
-        currency="XTR",
+        payload="premium_30d", provider_token="", currency="XTR",
         prices=[LabeledPrice(label="Премиум на 30 дней", amount=PREMIUM_PRICE_STARS)],
-        start_parameter="premium"
-    )
+        start_parameter="premium")
 
 @dp.pre_checkout_query()
 async def pre_checkout(q):
@@ -133,12 +163,7 @@ async def pre_checkout(q):
 @dp.message(F.successful_payment)
 async def on_payment(m: Message):
     await db.set_premium(m.from_user.id, 1)
-    await m.answer(
-        "💎 <b>Оплата получена!</b>\n\n"
-        "Премиум активирован на 30 дней.\n"
-        "Приятной игры!",
-        parse_mode=ParseMode.HTML
-    )
+    await m.answer("💎 <b>Оплата получена!</b> Премиум активирован на 30 дней.", parse_mode=ParseMode.HTML)
 
 @dp.message(F.text)
 async def handle(m: Message):
@@ -151,25 +176,38 @@ async def handle(m: Message):
 
     if not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
         await m.answer(
-            f"⏳ Лимит на сегодня исчерпан ({FREE_DAILY_LIMIT} действий).\n\n"
-            "💎 Премиум без лимитов → /buy\n"
-            "Или пригласи друга → +10 действий!"
+            f"⏳ Лимит исчерпан ({FREE_DAILY_LIMIT} действий).\n\n"
+            "💎 /buy — безлимит\n👥 Пригласи друга — +10\n🎁 /daily — ежедневный бонус"
         )
         return
 
     await bot.send_chat_action(m.chat.id, "typing")
     action = m.text.strip()[:500]
-    response = await ai.generate(user["story"], action)
+    result = await ai.generate(user["story"], action, user["arc"])
+    response = result["text"]
+
+    if result["item"]:
+        await db.add_item(uid, result["item"])
+        response += f"\n\n🎒 <i>Получен предмет: {result['item']}</i>"
+
+    if result["location"]:
+        await db.add_location(uid, result["location"])
+        response += f"\n\n📍 <i>Новая локация: {result['location']}</i>"
 
     new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
     await db.update_story(uid, new_story)
     await db.increment(uid)
+    await db.incr_action_count(uid)
+
+    level, xp, leveled_up = await db.add_xp(uid, 10)
+    if leveled_up:
+        response += f"\n\n⭐ <b>Уровень повышен! Теперь вы уровня {level}.</b>"
 
     left = "∞" if user["is_premium"] else FREE_DAILY_LIMIT - user["requests_today"] - 1
+    need = level * level * 100
     await m.answer(
-        f"{response}\n\n<i>{AI_MARKER} · Осталось: {left}</i>",
-        parse_mode=ParseMode.HTML
-    )
+        f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · Осталось: {left}</i>",
+        parse_mode=ParseMode.HTML)
 
 async def handle_health(request):
     return web.Response(text="Bot is running")
@@ -180,13 +218,11 @@ async def start_web_server():
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"✅ Веб-сервер запущен на порту {port}")
+    await web.TCPSite(runner, "0.0.0.0", port).start()
+    logging.info(f"✅ Веб-сервер на порту {port}")
 
 async def main():
     await db.connect()
-    logging.info("✅ Подключение к базе данных установлено")
     await start_web_server()
     await dp.start_polling(bot)
 
