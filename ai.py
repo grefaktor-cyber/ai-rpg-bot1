@@ -4,7 +4,7 @@ import logging
 import re
 
 SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в стиле тёмного фэнтези (Lineage 2).
-Ведёшь игрока по вымышленному миру. У игрока есть раса, класс, характеристики и экипировка.
+Ведёшь игрока по вымышленному миру. У игрока есть раса, класс, фракция и питомец.
 
 СТРОГИЕ ЗАПРЕТЫ:
 - Не упоминай реальных политиков, партии, действующих государственных деятелей.
@@ -21,27 +21,27 @@ SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в ст�
 
 Правила игры:
 - Пиши ярко, коротко: 3-6 предложений.
-- Учитывай расу, класс и экипировку игрока.
+- Учитывай расу, класс, фракцию, экипировку и питомца игрока в описаниях и реакциях NPC.
 - Помни всё, что игрок делал раньше.
 
 КРИТИЧНО ПРО ТЕГИ:
-- Тег пишется СТРОГО так: квадратная скобка, слово, двоеточие, значение, квадратная скобка.
-- БЕЗ посторонних символов перед словом: НЕ «¡ ENEMY», НЕ «! ENEMY», а только «ENEMY».
+- Тег пишется СТРОГО: квадратная скобка, слово, двоеточие, значение, квадратная скобка.
+- БЕЗ посторонних символов перед словом: НЕ «¡ ENEMY», а «ENEMY».
 - БЕЗ пробела перед закрывающей скобкой: НЕ «HP: 40 ]», а «HP: 40]».
-- Тег ставится ОДИН РАЗ в самом конце ответа. Максимум один тег за раз.
+- Тег ставится ОДИН РАЗ в самом конце ответа.
 
 БОЕВАЯ СИСТЕМА:
-- Если игрок ВСТУПАЕТ В БОЙ — добавь в конце ответа:
+- Если игрок ВСТУПАЕТ В БОЙ — добавь в конце:
   [ENEMY: имя врага | LEVEL: N | HP: M]
-- N — уровень близко к уровню игрока (±1-2). M = N × 20.
-- Для БОССА добавь флаг BOSS:
+- N близко к уровню игрока (±1-2). M = N × 20.
+- Для БОССА флаг BOSS:
   [ENEMY: имя босса | LEVEL: N | HP: M | BOSS]
 - Когда ставишь [ENEMY] — НЕ ставь другие теги.
-- Не ставь [ENEMY] на каждое действие. Только когда бой НАЧИНАЕТСЯ.
 
 ТЕГИ (только когда НЕ идёт бой):
 - [ITEM: название] — игрок получил предмет.
 - [LOCATION: название] — игрок перешёл в новую локацию.
+- [MATERIAL: iron] или leather / dust / crystal — если игрок нашёл материал для крафта (редко, 20% случаев при обыске).
 - [DAMAGE: число] — игрок получил урон.
 - [HEAL: число] — игрок восстановил HP.
 - [GOLD: число] — игрок нашёл золото.
@@ -54,6 +54,8 @@ BLOCKED_WORDS = [
     "политик", "путин", "навальн", "протест", "революция",
     "выборы", "референдум", "спецоперация", "война",
 ]
+
+PET_NAMES = {"wolf": "Волк", "owl": "Сова", "dragon": "Дракончик", "phoenix": "Феникс"}
 
 _client = None
 
@@ -75,36 +77,42 @@ def _is_blocked(text):
 def _build_char_context(user):
     if not user.get("race"):
         return ""
-    return (
-        f"\n\nПЕРСОНАЖ ИГРОКА:\n"
-        f"Имя: {user.get('char_name', 'Безымянный')}\n"
-        f"Раса: {user.get('race', '?')}\n"
-        f"Класс: {user.get('class', '?')}\n"
-        f"Уровень: {user.get('level', 1)}\n"
-        f"HP: {user.get('hp', 100)}/{user.get('max_hp', 100)}\n"
+    lines = [
+        "\n\nПЕРСОНАЖ ИГРОКА:",
+        f"Имя: {user.get('char_name', 'Безымянный')}",
+        f"Раса: {user.get('race', '?')}",
+        f"Класс: {user.get('class', '?')}",
+    ]
+    if user.get("faction") == "light":
+        lines.append("Фракция: Орден Света (защитники, целители)")
+    elif user.get("faction") == "dark":
+        lines.append("Фракция: Тёмное Братство (воины, маги тьмы)")
+
+    lines += [
+        f"Уровень: {user.get('level', 1)}",
+        f"HP: {user.get('hp', 100)}/{user.get('max_hp', 100)}",
         f"STR:{user.get('stat_str', 5)} DEX:{user.get('stat_dex', 5)} CON:{user.get('stat_con', 5)} "
-        f"INT:{user.get('stat_int', 5)} WIT:{user.get('stat_wit', 5)} MEN:{user.get('stat_men', 5)}\n"
-        f"Золото: {user.get('gold', 0)}\n"
+        f"INT:{user.get('stat_int', 5)} WIT:{user.get('stat_wit', 5)} MEN:{user.get('stat_men', 5)}",
+        f"Золото: {user.get('gold', 0)}",
         f"Экипировка: оружие={user.get('equipped_weapon') or 'нет'}, "
         f"броня={user.get('equipped_armor') or 'нет'}, "
-        f"аксессуар={user.get('equipped_accessory') or 'нет'}\n"
-        f"Локация: {user.get('location', '?')}\n"
-    )
+        f"аксессуар={user.get('equipped_accessory') or 'нет'}",
+    ]
+    if user.get("pet_name"):
+        pn = PET_NAMES.get(user.get("pet_type"), "Питомец")
+        lines.append(f"Питомец: {user.get('pet_name')} ({pn}, ур. {user.get('pet_level', 1)})")
+    lines.append(f"Локация: {user.get('location', '?')}")
+    return "\n".join(lines)
 
 
 def _strip_all_tags(text):
-    """Удаляет ВСЕ теги (любой мусор перед словом, пробелы до ])."""
     return re.sub(
-        r"\[[^\[\]]*?(?:ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD)[^\[\]]*?\]",
+        r"\[[^\[\]]*?(?:ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD|MATERIAL)[^\[\]]*?\]",
         "", text, flags=re.IGNORECASE | re.DOTALL
     ).strip()
 
 
 def _extract_enemy(text):
-    """
-    Ищет ENEMY-тег.
-    Устойчиво к: [¡ ENEMY:, [! ENEMY:, [ ENEMY:, пробел перед ], переносы строк.
-    """
     pattern = (
         r"\[[^\[\]]*?ENEMY:?\s*"
         r"([^|\]\n]+?)\s*\|\s*"
@@ -127,7 +135,6 @@ def _extract_enemy(text):
 
 
 def _extract_simple(text, tag):
-    """ITEM / LOCATION — устойчиво к мусору и пробелам."""
     pattern = rf"\[[^\[\]]*?{tag}:?\s*([^\]\n]+?)\s*\]"
     m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     if not m:
@@ -138,7 +145,6 @@ def _extract_simple(text, tag):
 
 
 def _extract_int(text, tag):
-    """DAMAGE / HEAL / GOLD — устойчиво к мусору."""
     pattern = rf"\[[^\[\]]*?{tag}:?\s*(\d+)\s*\]"
     m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     if not m:
@@ -152,7 +158,7 @@ async def generate(story, user_action, arc=1, user=None):
     if _is_blocked(user_action):
         return {"text": "🚫 Этот запрос нарушает правила игры.",
                 "item": None, "location": None, "enemy": None,
-                "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0}
 
     arc_note = ""
     if arc % 20 == 0 and user:
@@ -181,17 +187,16 @@ async def generate(story, user_action, arc=1, user=None):
     except asyncio.TimeoutError:
         return {"text": "⏳ Нейросеть не ответила. Попробуй ещё раз.",
                 "item": None, "location": None, "enemy": None,
-                "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0}
     except Exception as e:
         logging.error(f"GigaChat error: {e}")
         return {"text": "⚠️ Ошибка нейросети. Попробуй позже.",
                 "item": None, "location": None, "enemy": None,
-                "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0}
 
     result = {"text": text, "item": None, "location": None, "enemy": None,
-              "damage": 0, "heal": 0, "gold": 0}
+              "material": None, "damage": 0, "heal": 0, "gold": 0}
 
-    # Сначала ENEMY — если бой, остальные теги игнорируем
     enemy, text = _extract_enemy(text)
     if enemy:
         result["enemy"] = enemy
@@ -200,18 +205,22 @@ async def generate(story, user_action, arc=1, user=None):
             val, text = _extract_simple(text, tag)
             if val:
                 result[key] = val
+        mat, text = _extract_simple(text, "MATERIAL")
+        if mat:
+            mat = mat.lower().strip()
+            if mat in ("iron", "leather", "dust", "crystal"):
+                result["material"] = mat
         for tag, key in [("DAMAGE", "damage"), ("HEAL", "heal"), ("GOLD", "gold")]:
             val, text = _extract_int(text, tag)
             if val:
                 result[key] = val
 
-    # Страховка: чистим всё, что похоже на оставшиеся теги
     text = _strip_all_tags(text)
     result["text"] = text.strip()
 
     if _is_blocked(result["text"]):
         return {"text": "🚫 Сюжет ушёл в недопустимую тему.",
                 "item": None, "location": None, "enemy": None,
-                "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0}
 
     return result
