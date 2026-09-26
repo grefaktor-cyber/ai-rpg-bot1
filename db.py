@@ -58,7 +58,7 @@ class DB:
                 await conn.execute("""
                     INSERT INTO users (user_id, username, last_reset) VALUES ($1,$2,$3)
                 """, user_id, username, today)
-                return await self._empty_user(user_id)
+                return self._empty_user(user_id)
             if row["last_reset"] != today:
                 await conn.execute("""
                     UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2
@@ -164,8 +164,11 @@ class DB:
                 return None
             yesterday = str(date.fromordinal(date.today().toordinal() - 1))
             streak = row["daily_streak"] + 1 if row["last_daily"] == yesterday else 1
+            # Сброс недельного цикла
+            if streak > 7:
+                streak = 1
             await conn.execute("""
                 UPDATE users SET last_daily=$1, daily_streak=$2,
                 requests_today=GREATEST(0, requests_today-$3) WHERE user_id=$4
-            """, today, streak, 5, user_id))
+            """, today, streak, 5, user_id)
             return streak
