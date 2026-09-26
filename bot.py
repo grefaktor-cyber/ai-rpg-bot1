@@ -77,7 +77,6 @@ SHOP = {
     "Амулет мудреца":     {"type": "accessory", "price": 800, "bonus": {"int": 5, "wit": 3},"desc": "Редкий артефакт"},
 }
 
-# Возможный дроп с врагов (простые предметы)
 DROP_TABLE = ["Кожаная броня", "Железный меч", "Амулет удачи", "Кольцо силы",
               "Кольцо ловкости", "Перстень мудрости", "Посох мага", "Лук охотника"]
 
@@ -241,8 +240,10 @@ async def start(m: Message):
         await send_combat_state(m.chat.id, user, combat, "Ты в бою! Используй кнопки.")
         return
 
+    is_admin = m.from_user.id in ADMIN_IDS
+    admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
     await m.answer(
-        f"🎮 <b>С возвращением, {user['char_name']}!</b>\n\n"
+        f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
         f"⭐ Уровень: {user['level']} · XP: {user['xp']}\n"
         f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
         f"💰 Золото: {user['gold']}\n"
@@ -363,9 +364,12 @@ async def shop_buy_cb(c: CallbackQuery):
     if item_name not in SHOP:
         await c.answer("Товар не найден"); return
     data = SHOP[item_name]
-    ok = await db.spend_gold(c.from_user.id, data["price"])
-    if not ok:
-        await c.answer(f"❌ Не хватает золота. Нужно {data['price']}", show_alert=True); return
+    # Админы покупают бесплатно
+    is_admin = c.from_user.id in ADMIN_IDS
+    if not is_admin:
+        ok = await db.spend_gold(c.from_user.id, data["price"])
+        if not ok:
+            await c.answer(f"❌ Не хватает золота. Нужно {data['price']}", show_alert=True); return
     await db.add_item(c.from_user.id, item_name)
     await c.answer(f"✅ Куплено: {item_name}")
     await c.message.answer(
@@ -395,7 +399,6 @@ async def equip(m: Message):
     else:
         await m.answer(f"⚔️ Экипировано: <b>{item_name}</b>",
                        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-    # Recalc max_hp
     u = await db.get_user(m.from_user.id)
     new_max = calc_max_hp(u)
     new_hp = min(u["hp"], new_max)
@@ -585,6 +588,105 @@ async def reset(m: Message):
     await m.answer("🔄 История сброшена.")
 
 
+# === АДМИН-КОМАНДЫ ===
+@dp.message(Command("admin_help"))
+async def admin_help(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    await m.answer(
+        "🛠 <b>Админ-команды</b>\n\n"
+        "/admin_reset — обнулить лимит, восстановить HP\n"
+        "/admin_gold N — добавить N золота (можно отрицательное)\n"
+        "/admin_hp — восстановить HP\n"
+        "/admin_levelup — +1 уровень (мгновенно)\n"
+        "/admin_endcombat — принудительно завершить бой\n"
+        "/admin_stats — посмотреть свою строку в БД\n\n"
+        "<i>Также: покупки в магазине бесплатны для админов.</i>",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(Command("admin_reset"))
+async def admin_reset(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    u = await db.get_user(m.from_user.id)
+    new_max = calc_max_hp(u)
+    await db.update_hp_max(m.from_user.id, new_max, new_max)
+    async with db.pool.acquire() as conn:
+        await conn.execute("UPDATE users SET requests_today=0 WHERE user_id=$1", m.from_user.id)
+    await m.answer(
+        f"🛠 <b>Админ-сброс</b>\n\n"
+        f"• Лимит обнулён\n"
+        f"• HP: {new_max}/{new_max}\n"
+        f"• Золото: {u['gold']}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(Command("admin_gold"))
+async def admin_gold(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    parts = m.text.split()
+    if len(parts) < 2:
+        await m.answer("Использование: /admin_gold 5000")
+        return
+    try:
+        amount = int(parts[1])
+    except ValueError:
+        await m.answer("Число должно быть целым.")
+        return
+    await db.add_gold(m.from_user.id, amount)
+    u = await db.get_user(m.from_user.id)
+    await m.answer(f"🛠 Золото: {amount:+d}. Теперь: {u['gold']}💰")
+
+
+@dp.message(Command("admin_hp"))
+async def admin_hp(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    u = await db.get_user(m.from_user.id)
+    new_max = calc_max_hp(u)
+    await db.update_hp_max(m.from_user.id, new_max, new_max)
+    await m.answer(f"🛠 HP: {new_max}/{new_max}")
+
+
+@dp.message(Command("admin_levelup"))
+async def admin_levelup(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    await db.add_xp(m.from_user.id, 999999)
+    u = await db.get_user(m.from_user.id)
+    new_max = calc_max_hp(u)
+    await db.update_hp_max(m.from_user.id, new_max, new_max)
+    await m.answer(f"🛠 Уровень: {u['level']}. HP: {new_max}/{new_max}")
+
+
+@dp.message(Command("admin_endcombat"))
+async def admin_endcombat(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    await db.end_combat(m.from_user.id)
+    await m.answer("🛠 Бой завершён.", reply_markup=MAIN_KB)
+
+
+@dp.message(Command("admin_stats"))
+async def admin_stats(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌ Нет доступа.")
+        return
+    u = await db.get_user(m.from_user.id)
+    text = "\n".join(f"<code>{k}</code> = {v}" for k, v in u.items())
+    await m.answer(f"🛠 <b>Твоя строка</b>\n\n{text}", parse_mode=ParseMode.HTML)
+
+
 # === БОЕВАЯ СИСТЕМА ===
 
 async def start_combat_from_ai(chat_id, user, enemy):
@@ -596,7 +698,6 @@ async def start_combat_from_ai(chat_id, user, enemy):
 
 
 async def process_combat_round(chat_id, user, combat, action_type, extra_text=""):
-    """Возвращает True, если бой продолжается."""
     if action_type == "attack":
         eff = effective_stats(user)
         base = eff["str"] * 2 + eff["dex"]
@@ -611,7 +712,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             extra_text = f"💥 <b>КРИТ!</b> Ты наносишь {dmg} урона!"
         else:
             extra_text = f"⚔️ Ты наносишь {dmg} урона."
-        # Defending reset
         await db.set_combat_defending(user["user_id"], 0)
 
     elif action_type == "defend":
@@ -621,7 +721,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         await db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
         extra_text = f"🛡 Ты в защите. +{heal} HP. Следующий удар слабее."
-        # Враг бьёт, но половина урона
         enemy_dmg = max(1, int((combat["enemy_level"] * 5 + random.randint(0, 5)) * 0.5))
         new_hp = max(0, user["hp"] - enemy_dmg)
         await db.update_hp(user["user_id"], new_hp)
@@ -636,12 +735,10 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         await send_combat_state(chat_id, user, combat, extra_text)
         return True
 
-    # Проверка: враг убит?
     if new_enemy_hp <= 0:
         await handle_victory(chat_id, user, combat, extra_text)
         return False
 
-    # Враг бьёт
     enemy_dmg = combat["enemy_level"] * 5 + random.randint(0, 5)
     if combat["is_boss"]:
         enemy_dmg = int(enemy_dmg * 1.5)
@@ -678,26 +775,23 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await db.add_world_event(user["user_id"], user["username"],
                                  f"победил босса «{combat['enemy_name']}»")
         await db.update_hp(user["user_id"], user["max_hp"])
-        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP полностью восстановлено."
+        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
         if await db.add_achievement(user["user_id"], "first_boss"):
             text += "\n🏆 Достижение: ⚔️ Убийца боссов"
 
-    # Дроп
     if random.randint(1, 100) <= 30:
         item = random.choice(DROP_TABLE)
         await db.add_item(user["user_id"], item)
         text += f"\n\n🎒 <b>Добыча:</b> {item}"
 
     if leveled_up:
-        # Восстановление HP + пересчёт max_hp
         u = await db.get_user(user["user_id"])
         new_max = calc_max_hp(u)
         await db.update_hp_max(user["user_id"], new_max, new_max)
-        text += f"\n\n⭐ <b>Уровень {level}!</b> HP восстановлено до {new_max}."
+        text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {new_max}."
         if level in (5, 10):
             await db.add_world_event(user["user_id"], user["username"], f"достиг {level} уровня!")
 
-    # Достижения
     if await db.add_achievement(user["user_id"], "first_blood"):
         text += "\n🏆 Достижение: 🩸 Первая кровь"
     u = await db.get_user(user["user_id"])
@@ -714,24 +808,21 @@ async def handle_death(chat_id, user, combat):
     lost_gold = int(user["gold"] * 0.30)
     new_gold = user["gold"] - lost_gold
     await db.set_gold(user["user_id"], new_gold)
-    # Возрождение
     u = await db.get_user(user["user_id"])
     new_max = calc_max_hp(u)
     await db.update_hp_max(user["user_id"], new_max, new_max)
     await db.update_story(user["user_id"], "")
     await db.incr_deaths(user["user_id"])
-    # Достижение выжившего
     await db.add_achievement(user["user_id"], "survivor")
-    # Событие в мир
     await db.add_world_event(user["user_id"], user["username"],
                              f"пал в бою с «{combat['enemy_name']}»")
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
             f"Ты очнулся в Начальной деревне.\n"
-            f"Жрецы вернули тебя к жизни, но забрали <b>{lost_gold}💰</b> (30%).\n\n"
+            f"Жрецы забрали <b>{lost_gold}💰</b> (30%).\n\n"
             f"❤️ HP: {new_max}/{new_max}\n"
             f"💰 Золото: {new_gold}\n\n"
-            f"<i>Уровень и опыт сохранены. Возвращайся сильнее!</i>")
+            f"<i>Уровень и опыт сохранены.</i>")
     await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
@@ -740,7 +831,7 @@ async def cb_attack(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
     combat = await db.get_combat(c.from_user.id)
     if not combat:
-        await c.answer("Бой уже окончен."); await c.message.edit_reply_markup(reply_markup=None); return
+        await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
     await c.answer("⚔️ Атака!")
     await process_combat_round(c.message.chat.id, user, combat, "attack")
 
@@ -763,14 +854,15 @@ async def cb_potion(c: CallbackQuery):
         await c.answer("Бой окончен."); await c.message.edit_reply_markup(reply_markup=None); return
     if user["hp"] >= user["max_hp"]:
         await c.answer("❤️ HP уже полное!", show_alert=True); return
-    if user["gold"] < POTION_PRICE:
+    is_admin = c.from_user.id in ADMIN_IDS
+    if not is_admin and user["gold"] < POTION_PRICE:
         await c.answer(f"❌ Нужно {POTION_PRICE} золота!", show_alert=True); return
-    await db.spend_gold(c.from_user.id, POTION_PRICE)
+    if not is_admin:
+        await db.spend_gold(c.from_user.id, POTION_PRICE)
     new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
     await db.update_hp(c.from_user.id, new_hp)
     user["hp"] = new_hp
     await c.answer(f"💚 +{POTION_HEAL} HP")
-    # Враг бьёт
     enemy_dmg = combat["enemy_level"] * 5 + random.randint(0, 5)
     if combat["is_boss"]:
         enemy_dmg = int(enemy_dmg * 1.5)
@@ -797,7 +889,7 @@ async def cb_flee(c: CallbackQuery):
     if random.randint(1, 100) <= 50:
         await db.end_combat(c.from_user.id)
         await c.answer("🏃 Побег удался!")
-        await c.message.answer("🏃 Ты успешно сбежал из боя. Но слава осталась где-то там...",
+        await c.message.answer("🏃 Ты успешно сбежал из боя.",
                                reply_markup=MAIN_KB)
     else:
         await c.answer("❌ Побег не удался!")
@@ -810,7 +902,7 @@ async def cb_flee(c: CallbackQuery):
             return
         await db.incr_combat_round(c.from_user.id)
         combat = await db.get_combat(c.from_user.id)
-        text = f"❌ Побег не удался! Получаешь {enemy_dmg} урона в спину."
+        text = f"❌ Побег не удался! -{enemy_dmg} HP."
         await send_combat_state(c.message.chat.id, user, combat, text)
 
 
@@ -892,15 +984,15 @@ async def handle(m: Message):
         )
         return
 
-    # Проверка активного боя
     combat = await db.get_combat(uid)
     if combat:
         await m.answer("⚔️ Ты в бою! Используй кнопки ниже.",
                        reply_markup=combat_kb())
         return
 
-    # Лимит
-    if not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
+    # Лимит (админы обходят)
+    is_admin = uid in ADMIN_IDS
+    if not is_admin and not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
         await m.answer(
             f"⏳ Лимит исчерпан ({FREE_DAILY_LIMIT}).\n\n"
             "💎 Премиум · 👥 Друг · 🎁 Награда",
@@ -923,7 +1015,6 @@ async def handle(m: Message):
     result = await ai.generate(user["story"], action, user["arc"], user_for_ai)
     response = result["text"]
 
-    # Если начался бой — не обрабатываем остальные эффекты
     if result["enemy"]:
         await db.increment(uid)
         await db.incr_action_count(uid)
@@ -933,7 +1024,6 @@ async def handle(m: Message):
         await start_combat_from_ai(m.chat.id, user, result["enemy"])
         return
 
-    # Обычные эффекты
     if result["item"]:
         await db.add_item(uid, result["item"])
         response += f"\n\n🎒 <i>Получен предмет: {result['item']}</i>"
@@ -945,7 +1035,6 @@ async def handle(m: Message):
         await db.update_hp(uid, new_hp)
         response += f"\n\n💔 <i>-{result['damage']} HP</i>"
         if new_hp <= 0:
-            # Смерть вне боя
             await db.update_hp_max(uid, user["max_hp"], user["max_hp"])
             response += "\n\n💀 <i>Ты потерял сознание. Очнулся в деревне.</i>"
     if result["heal"] > 0:
@@ -953,7 +1042,6 @@ async def handle(m: Message):
         await db.update_hp(uid, new_hp)
         response += f"\n\n💚 <i>+{result['heal']} HP</i>"
 
-    # Гарантированное золото за действие
     await db.add_gold(uid, 5 + result["gold"])
     if result["gold"] > 0:
         response += f"\n\n💰 <i>+{result['gold']} золота</i>"
@@ -978,7 +1066,13 @@ async def handle(m: Message):
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
 
-    left = "∞" if user["is_premium"] else FREE_DAILY_LIMIT - user["requests_today"] - 1
+    if is_admin:
+        left = "∞ (admin)"
+    elif user["is_premium"]:
+        left = "∞"
+    else:
+        left = FREE_DAILY_LIMIT - user["requests_today"] - 1
+
     need = level * level * 100
     await m.answer(
         f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated_user['gold']} · ❤️ {updated_user['hp']}/{updated_user['max_hp']} · Осталось: {left}</i>",
