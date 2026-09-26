@@ -82,6 +82,28 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS graffiti (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    username TEXT,
+                    location TEXT,
+                    text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS duel_offers (
+                    id SERIAL PRIMARY KEY,
+                    challenger_id BIGINT,
+                    challenger_name TEXT,
+                    opponent_id BIGINT,
+                    opponent_name TEXT,
+                    stake INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
             migrations = [
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS class TEXT DEFAULT ''",
@@ -100,6 +122,13 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_armor TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_accessory TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS deaths INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS reputation INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS pvp_wins INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS pvp_losses INTEGER DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_pvp INTEGER DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS opponent_id BIGINT DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS stake INTEGER DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_turn INTEGER DEFAULT 1",
             ]
             for sql in migrations:
                 try:
@@ -107,6 +136,7 @@ class DB:
                 except Exception as e:
                     logging.warning(f"Migration skipped: {e}")
 
+    # ================= БАЗОВЫЕ =================
     async def get_user(self, user_id, username=""):
         today = str(date.today())
         async with self.pool.acquire() as conn:
@@ -136,7 +166,8 @@ class DB:
                 "stat_int": 5, "stat_wit": 5, "stat_men": 5,
                 "hp": 100, "max_hp": 100, "bosses_defeated": 0,
                 "gold": 0, "equipped_weapon": "", "equipped_armor": "",
-                "equipped_accessory": "", "deaths": 0}
+                "equipped_accessory": "", "deaths": 0, "reputation": 0,
+                "pvp_wins": 0, "pvp_losses": 0}
 
     async def give_consent(self, user_id):
         async with self.pool.acquire() as conn:
@@ -178,7 +209,7 @@ class DB:
 
     async def add_xp(self, user_id, amount=10):
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT xp, level, stat_con FROM users WHERE user_id=$1", user_id)
+            row = await conn.fetchrow("SELECT xp, level FROM users WHERE user_id=$1", user_id)
             new_xp = row["xp"] + amount
             level = row["level"]
             leveled_up = False
@@ -198,6 +229,7 @@ class DB:
             row = await conn.fetchrow("SELECT action_count, arc FROM users WHERE user_id=$1", user_id)
             return row["action_count"], row["arc"]
 
+    # ================= ИНВЕНТАРЬ =================
     async def add_item(self, user_id, item_name):
         async with self.pool.acquire() as conn:
             await conn.execute("INSERT INTO inventory (user_id, item_name) VALUES ($1,$2)",
@@ -220,6 +252,7 @@ class DB:
                 return True
             return False
 
+    # ================= ЛОКАЦИИ =================
     async def add_location(self, user_id, location):
         async with self.pool.acquire() as conn:
             await conn.execute("""
@@ -235,6 +268,38 @@ class DB:
             )
             return [r["location_name"] for r in rows]
 
+    async def get_players_in_location(self, location, exclude_id=0):
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, char_name, level, race, class, hp, max_hp
+                FROM users WHERE location=$1 AND char_name != '' AND user_id != $2
+                ORDER BY level DESC LIMIT 30
+            """, location, exclude_id)
+            return [dict(r) for r in rows]
+
+    async def get_user_by_char_name(self, char_name):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM users WHERE LOWER(char_name)=LOWER($1) LIMIT 1", char_name
+            )
+            return dict(row) if row else None
+
+    # ================= ГРАФФИТИ =================
+    async def add_graffiti(self, user_id, username, location, text):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO graffiti (user_id, username, location, text) VALUES ($1,$2,$3,$4)
+            """, user_id, username, location, text)
+
+    async def get_graffiti(self, location, limit=15):
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT username, text, created_at FROM graffiti
+                WHERE location=$1 ORDER BY created_at DESC LIMIT $2
+            """, location, limit)
+            return [dict(r) for r in rows]
+
+    # ================= ЕЖЕДНЕВНАЯ =================
     async def claim_daily(self, user_id):
         today = str(date.today())
         async with self.pool.acquire() as conn:
@@ -253,6 +318,7 @@ class DB:
             """, today, streak, 5, user_id)
             return streak
 
+    # ================= СОЗДАНИЕ ГЕРОЯ =================
     async def set_race(self, user_id, race):
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET race=$1 WHERE user_id=$2", race, user_id)
@@ -271,6 +337,7 @@ class DB:
             """, name, stats["str"], stats["dex"], stats["con"],
                  stats["int"], stats["wit"], stats["men"], hp, user_id)
 
+    # ================= HP / GOLD =================
     async def update_hp(self, user_id, hp):
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET hp=$1 WHERE user_id=$2", max(0, hp), user_id)
@@ -279,18 +346,6 @@ class DB:
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET hp=$1, max_hp=$2 WHERE user_id=$3",
                                hp, max_hp, user_id)
-
-    async def incr_bosses(self, user_id):
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET bosses_defeated=bosses_defeated+1 WHERE user_id=$1", user_id
-            )
-
-    async def incr_deaths(self, user_id):
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE users SET deaths=deaths+1 WHERE user_id=$1", user_id
-            )
 
     async def add_gold(self, user_id, amount):
         async with self.pool.acquire() as conn:
@@ -311,6 +366,35 @@ class DB:
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET gold=$1 WHERE user_id=$2", amount, user_id)
 
+    async def incr_bosses(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET bosses_defeated=bosses_defeated+1 WHERE user_id=$1", user_id
+            )
+
+    async def incr_deaths(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET deaths=deaths+1 WHERE user_id=$1", user_id)
+
+    async def add_reputation(self, user_id, amount):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET reputation=reputation+$1 WHERE user_id=$2", amount, user_id
+            )
+
+    async def incr_pvp_wins(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET pvp_wins=pvp_wins+1 WHERE user_id=$1", user_id
+            )
+
+    async def incr_pvp_losses(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET pvp_losses=pvp_losses+1 WHERE user_id=$1", user_id
+            )
+
+    # ================= ЭКИПИРОВКА =================
     async def equip_item(self, user_id, slot, item_name):
         col = f"equipped_{slot}"
         async with self.pool.acquire() as conn:
@@ -328,15 +412,26 @@ class DB:
             await conn.execute(f"UPDATE users SET {col}='' WHERE user_id=$1", user_id)
             return old
 
+    # ================= РЕЙТИНГ =================
     async def get_top_players(self, limit=10):
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
-                SELECT char_name, username, level, xp, bosses_defeated, race, class
+                SELECT char_name, username, level, xp, bosses_defeated, race, class, pvp_wins
                 FROM users WHERE race != '' AND char_name != ''
                 ORDER BY level DESC, xp DESC LIMIT $1
             """, limit)
             return [dict(r) for r in rows]
 
+    async def get_pvp_top(self, limit=10):
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT char_name, username, level, pvp_wins, pvp_losses, reputation
+                FROM users WHERE race != '' AND char_name != '' AND pvp_wins > 0
+                ORDER BY pvp_wins DESC LIMIT $1
+            """, limit)
+            return [dict(r) for r in rows]
+
+    # ================= ДОСТИЖЕНИЯ =================
     async def add_achievement(self, user_id, code):
         async with self.pool.acquire() as conn:
             try:
@@ -356,6 +451,7 @@ class DB:
             )
             return [dict(r) for r in rows]
 
+    # ================= МИР =================
     async def add_world_event(self, user_id, username, text):
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -371,7 +467,7 @@ class DB:
             """, limit)
             return [dict(r) for r in rows]
 
-    # === Боевая система ===
+    # ================= БОЙ =================
     async def get_combat(self, user_id):
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM active_combat WHERE user_id=$1", user_id)
@@ -404,3 +500,97 @@ class DB:
     async def end_combat(self, user_id):
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM active_combat WHERE user_id=$1", user_id)
+
+    # ================= PVP =================
+    async def start_pvp_combat(self, user_a, user_b, stake):
+        """Создаёт бой у обоих. A ходит первым."""
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM active_combat WHERE user_id IN ($1,$2)",
+                               user_a["user_id"], user_b["user_id"])
+            await conn.execute("""
+                INSERT INTO active_combat
+                (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp, is_pvp, opponent_id, stake, my_turn)
+                VALUES ($1,$2,$3,$4,$4,1,$5,$6,1)
+            """, user_a["user_id"], user_b["char_name"], user_b["level"],
+                 user_b["hp"], user_b["user_id"], stake)
+            await conn.execute("""
+                INSERT INTO active_combat
+                (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp, is_pvp, opponent_id, stake, my_turn)
+                VALUES ($1,$2,$3,$4,$4,1,$5,$6,0)
+            """, user_b["user_id"], user_a["char_name"], user_a["level"],
+                 user_a["hp"], user_a["user_id"], stake)
+
+    async def pvp_damage(self, attacker_id, damage):
+        """Атакующий бьёт противника. Возвращает (opponent_hp, opponent_id, ended)."""
+        async with self.pool.acquire() as conn:
+            ac = await conn.fetchrow("SELECT * FROM active_combat WHERE user_id=$1", attacker_id)
+            if not ac or not ac["is_pvp"]:
+                return None
+            opp_id = ac["opponent_id"]
+            opp = await conn.fetchrow("SELECT hp FROM users WHERE user_id=$1", opp_id)
+            new_hp = max(0, opp["hp"] - damage)
+            await conn.execute("UPDATE users SET hp=$1 WHERE user_id=$2", new_hp, opp_id)
+            await conn.execute("UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
+                               new_hp, attacker_id)
+            return new_hp, opp_id
+
+    async def pvp_switch_turn(self, user_id):
+        """Отдаёт ход противнику."""
+        async with self.pool.acquire() as conn:
+            ac = await conn.fetchrow("SELECT opponent_id FROM active_combat WHERE user_id=$1", user_id)
+            if not ac:
+                return
+            opp_id = ac["opponent_id"]
+            await conn.execute("UPDATE active_combat SET my_turn=0 WHERE user_id=$1", user_id)
+            await conn.execute("UPDATE active_combat SET my_turn=1, round_num=round_num+1 WHERE user_id=$1", opp_id)
+
+    # ================= ДУЭЛЬНЫЕ ПРЕДЛОЖЕНИЯ =================
+    async def create_duel_offer(self, challenger_id, challenger_name, opponent_id, opponent_name, stake):
+        async with self.pool.acquire() as conn:
+            # Удаляем старые незавершённые
+            await conn.execute("""
+                DELETE FROM duel_offers WHERE status='pending' AND
+                ((challenger_id=$1 AND opponent_id=$2) OR (challenger_id=$2 AND opponent_id=$1))
+            """, challenger_id, opponent_id)
+            row = await conn.fetchrow("""
+                INSERT INTO duel_offers (challenger_id, challenger_name, opponent_id, opponent_name, stake)
+                VALUES ($1,$2,$3,$4,$5) RETURNING id
+            """, challenger_id, challenger_name, opponent_id, opponent_name, stake)
+            return row["id"]
+
+    async def get_duel_offer(self, offer_id):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM duel_offers WHERE id=$1", offer_id)
+            return dict(row) if row else None
+
+    async def get_pending_duel_for(self, user_id):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM duel_offers WHERE opponent_id=$1 AND status='pending'
+                ORDER BY created_at DESC LIMIT 1
+            """, user_id)
+            return dict(row) if row else None
+
+    async def set_duel_status(self, offer_id, status, stake=None):
+        async with self.pool.acquire() as conn:
+            if stake is not None:
+                await conn.execute("UPDATE duel_offers SET status=$1, stake=$2 WHERE id=$3",
+                                   status, stake, offer_id)
+            else:
+                await conn.execute("UPDATE duel_offers SET status=$1 WHERE id=$2",
+                                   status, offer_id)
+
+    async def swap_duel_parties(self, offer_id):
+        """Меняет местами challenger и opponent (для встречного предложения)."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM duel_offers WHERE id=$1", offer_id)
+            if not row:
+                return
+            await conn.execute("""
+                UPDATE duel_offers SET
+                challenger_id=$1, challenger_name=$2,
+                opponent_id=$3, opponent_name=$4,
+                status='pending'
+                WHERE id=$5
+            """, row["opponent_id"], row["opponent_name"],
+                 row["challenger_id"], row["challenger_name"], offer_id)
