@@ -49,9 +49,16 @@ async def start(m: Message):
 
     user = db.get_user(m.from_user.id, m.from_user.username or "")
 
-    if referrer_id and user["referred_by"] == 0:
-        if db.set_referrer(m.from_user.id, referrer_id):
-            await m.answer("🎉 Вы пришли по приглашению! Ваш друг получил +10 действий.")
+if referrer_id and user["referred_by"] == 0:
+    if db.set_referrer(m.from_user.id, referrer_id):
+        await m.answer("🎉 Вы пришли по приглашению! Ваш друг получил +10 действий.")
+        try:
+            await bot.send_message(
+                referrer_id,
+                "🎉 По вашей ссылке пришёл новый игрок! Вам начислено +10 действий."
+            )
+        except Exception:
+            pass
 
     if user["consent_given"]:
         me = await bot.get_me()
