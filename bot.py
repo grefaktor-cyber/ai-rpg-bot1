@@ -3,8 +3,9 @@ import logging
 import os
 import random
 import json
+import traceback
 from aiohttp import web
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import Command
 from aiogram.types import (Message, InlineKeyboardMarkup, InlineKeyboardButton,
                            CallbackQuery, LabeledPrice, ReplyKeyboardMarkup,
@@ -20,6 +21,33 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 db = DB()
+
+
+class ErrorMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except Exception as e:
+            tb = traceback.format_exc()
+            logging.error(f"Handler error: {e}\n{tb}")
+            for admin_id in ADMIN_IDS:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"⚠️ <b>Ошибка</b>\n\n<code>{e}</code>\n\n"
+                        f"<pre>{tb[-800:]}</pre>",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    pass
+            try:
+                if hasattr(event, "message") and event.message:
+                    await event.message.answer("⚠️ Произошла ошибка. Уже чиним!")
+                elif hasattr(event, "answer"):
+                    await event.answer("⚠️ Ошибка. Уже чиним!", show_alert=True)
+            except Exception:
+                pass
+
 
 POTION_PRICE = 25
 POTION_HEAL = 30
@@ -215,7 +243,6 @@ def effective_stats(user):
                 for k, v in SHOP[name]["bonus"].items():
                     bonus = int(v * (1 + lvl * 0.10))
                     base[k] = base.get(k, 0) + bonus
-    # Питомец даёт пассивные бонусы
     if user.get("pet_type"):
         pet = PETS.get(user["pet_type"])
         if pet:
@@ -317,6 +344,30 @@ async def send_combat_state(chat_id, user, combat, round_text=""):
     if round_text:
         text += f"\n\n{round_text}"
     await bot.send_message(chat_id, text, reply_markup=combat_kb(), parse_mode=ParseMode.HTML)
+
+
+async def send_pvp_state(uid, user, combat):
+    """Показать состояние PvP-дуэли игроку."""
+    if not combat:
+        return
+    enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
+    player_bar = hp_bar(user["hp"], user["max_hp"])
+    header = f"⚔️ <b>ДУЭЛЬ · РАУНД {combat['round_num']}</b>"
+    if combat["my_turn"]:
+        turn_text = "🎯 <b>Твой ход!</b>"
+    else:
+        turn_text = "⏳ Ждём хода противника..."
+    enemy_block = (f"🛡 <b>{combat['enemy_name']}</b> (Ур. {combat['enemy_level']})\n"
+                   f"{enemy_bar} {combat['enemy_hp']}/{combat['enemy_max_hp']}")
+    player_block = (f"❤️ <b>{user['char_name']}</b> (Ур. {user['level']})\n"
+                    f"{player_bar} {user['hp']}/{user['max_hp']}\n"
+                    f"💰 Ставка: {combat['stake']}")
+    text = f"{header}\n\n{enemy_block}\n\n{player_block}\n\n{turn_text}"
+    try:
+        await bot.send_message(uid, text, reply_markup=pvp_kb(combat["my_turn"]),
+                               parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logging.error(f"send_pvp_state error: {e}")
 
 
 # ================= START / CONSENT =================
@@ -1569,14 +1620,12 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
     if action_type == "attack":
         eff = effective_stats(user)
         dmg = int((eff["str"] * 2 + eff["dex"] + random.randint(0, 5)) * faction_mult(user, "dmg_mult"))
-        # Сова: +15% крита
         crit_chance = eff["dex"]
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
         if is_crit:
             dmg = int(dmg * 2)
-        # Атака питомца
         pet_dmg, pet_text = pet_attack_damage(user, combat["round_num"])
         total_dmg = dmg + pet_dmg
         new_enemy_hp = combat["enemy_hp"] - total_dmg
@@ -1614,7 +1663,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         await handle_victory(chat_id, user, combat, extra_text)
         return False
 
-    # Феникс лечит
     if user.get("pet_type") == "phoenix":
         plvl = user.get("pet_level", 1)
         heal = int(user["max_hp"] * 0.05) + plvl
@@ -1650,7 +1698,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         gold *= 3
     gold = int(gold * faction_mult(user, "gold_mult"))
 
-    # XP питомцу
     if user.get("pet_type"):
         await db.add_pet_xp(user["user_id"], combat["enemy_level"] * 5)
 
@@ -1703,7 +1750,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await db.add_item(user["user_id"], item)
         text += f"\n\n🎒 <b>Добыча:</b> {item}"
 
-    # Питомец может дать материал
     if user.get("pet_type") == "owl" and random.randint(1, 100) <= 20:
         mat = random.choice(["iron", "leather", "dust", "crystal"])
         await db.add_material(user["user_id"], mat, 1)
@@ -2007,6 +2053,8 @@ async def start_web_server():
 
 async def main():
     await db.connect()
+    dp.message.middleware(ErrorMiddleware())
+    dp.callback_query.middleware(ErrorMiddleware())
     await start_web_server()
     await dp.start_polling(bot)
 
