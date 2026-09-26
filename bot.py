@@ -2455,7 +2455,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
             await dungeon_finish(chat_id, user["user_id"], "Подземелье пройдено!")
             return
-        await bot.send_message(chat_id, text, reply_markup
               await bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
                                parse_mode=ParseMode.HTML)
         if combat["is_boss"]:
