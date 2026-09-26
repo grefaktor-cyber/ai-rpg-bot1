@@ -1,4 +1,4 @@
 aiogram==3.13.1
 aiohttp==3.10.5
 gigachat
-asyncpg==0.30.0
+asyncpg>=0.30.0
