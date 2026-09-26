@@ -1,85 +1,95 @@
-import sqlite3
+import asyncpg
+import os
 from datetime import date
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
 class DB:
-    def __init__(self, path="game.db"):
-        self.conn = sqlite3.connect(path)
-        self._init()
+    def __init__(self):
+        self.pool = None
 
-    def _init(self):
-        self.conn.execute("""CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            is_premium INTEGER DEFAULT 0,
-            requests_today INTEGER DEFAULT 0,
-            last_reset TEXT,
-            story TEXT DEFAULT '',
-            consent_given INTEGER DEFAULT 0,
-            consent_date TEXT,
-            referred_by INTEGER DEFAULT 0,
-            referral_count INTEGER DEFAULT 0
-        )""")
-        self.conn.commit()
+    async def connect(self):
+        self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    is_premium INTEGER DEFAULT 0,
+                    requests_today INTEGER DEFAULT 0,
+                    last_reset TEXT,
+                    story TEXT DEFAULT '',
+                    consent_given INTEGER DEFAULT 0,
+                    consent_date TEXT,
+                    referred_by BIGINT DEFAULT 0,
+                    referral_count INTEGER DEFAULT 0
+                )
+            """)
 
-    def get_user(self, user_id, username=""):
+    async def get_user(self, user_id, username=""):
         today = str(date.today())
-        c = self.conn.cursor()
-        c.execute("""SELECT user_id, username, is_premium, requests_today,
-                     last_reset, story, consent_given, referred_by, referral_count
-                     FROM users WHERE user_id=?""", (user_id,))
-        row = c.fetchone()
-        if not row:
-            c.execute("""INSERT INTO users (user_id, username, last_reset)
-                         VALUES (?,?,?)""", (user_id, username, today))
-            self.conn.commit()
-            return {"user_id": user_id, "is_premium": 0, "requests_today": 0,
-                    "story": "", "consent_given": 0, "referred_by": 0, "referral_count": 0}
-        if row[4] != today:
-            c.execute("UPDATE users SET requests_today=0, last_reset=? WHERE user_id=?",
-                      (today, user_id))
-            self.conn.commit()
-            return {"user_id": row[0], "is_premium": row[2], "requests_today": 0,
-                    "story": row[5], "consent_given": row[6], "referred_by": row[7],
-                    "referral_count": row[8]}
-        return {"user_id": row[0], "is_premium": row[2], "requests_today": row[3],
-                "story": row[5], "consent_given": row[6], "referred_by": row[7],
-                "referral_count": row[8]}
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT user_id, is_premium, requests_today, last_reset, story,
+                       consent_given, referred_by, referral_count
+                FROM users WHERE user_id=$1
+            """, user_id)
+            if not row:
+                await conn.execute("""
+                    INSERT INTO users (user_id, username, last_reset)
+                    VALUES ($1, $2, $3)
+                """, user_id, username, today)
+                return {"user_id": user_id, "is_premium": 0, "requests_today": 0,
+                        "story": "", "consent_given": 0, "referred_by": 0, "referral_count": 0}
+            if row["last_reset"] != today:
+                await conn.execute("""
+                    UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2
+                """, today, user_id)
+                return {"user_id": row["user_id"], "is_premium": row["is_premium"],
+                        "requests_today": 0, "story": row["story"],
+                        "consent_given": row["consent_given"],
+                        "referred_by": row["referred_by"], "referral_count": row["referral_count"]}
+            return {"user_id": row["user_id"], "is_premium": row["is_premium"],
+                    "requests_today": row["requests_today"], "story": row["story"],
+                    "consent_given": row["consent_given"],
+                    "referred_by": row["referred_by"], "referral_count": row["referral_count"]}
 
-    def give_consent(self, user_id):
-        self.conn.execute("""UPDATE users SET consent_given=1, consent_date=?
-                             WHERE user_id=?""", (str(date.today()), user_id))
-        self.conn.commit()
+    async def give_consent(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE users SET consent_given=1, consent_date=$1 WHERE user_id=$2
+            """, str(date.today()), user_id)
 
-    def revoke_consent(self, user_id):
-        self.conn.execute("""UPDATE users SET consent_given=0, story=''
-                             WHERE user_id=?""", (user_id,))
-        self.conn.commit()
+    async def revoke_consent(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE users SET consent_given=0, story='' WHERE user_id=$1
+            """, user_id)
 
-    def set_referrer(self, user_id, referrer_id):
-        c = self.conn.cursor()
-        c.execute("SELECT referred_by FROM users WHERE user_id=?", (user_id,))
-        row = c.fetchone()
-        if row and row[0] == 0 and referrer_id != user_id:
-            self.conn.execute("UPDATE users SET referred_by=? WHERE user_id=?",
-                              (referrer_id, user_id))
-            # МИНУС 10 (бонус), но не ниже 0
-            self.conn.execute("""UPDATE users SET referral_count=referral_count+1,
-                                 requests_today=MAX(0, requests_today-10)
-                                 WHERE user_id=?""", (referrer_id,))
-            self.conn.commit()
-            return True
-        return Falsese
+    async def set_referrer(self, user_id, referrer_id):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT referred_by FROM users WHERE user_id=$1", user_id)
+            if row and row["referred_by"] == 0 and referrer_id != user_id:
+                await conn.execute("UPDATE users SET referred_by=$1 WHERE user_id=$2",
+                                   referrer_id, user_id)
+                await conn.execute("""
+                    UPDATE users SET referral_count=referral_count+1,
+                    requests_today=GREATEST(0, requests_today-10)
+                    WHERE user_id=$1
+                """, referrer_id)
+                return True
+            return False
 
-    def increment(self, user_id):
-        self.conn.execute("UPDATE users SET requests_today=requests_today+1 WHERE user_id=?",
-                          (user_id,))
-        self.conn.commit()
+    async def increment(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET requests_today=requests_today+1 WHERE user_id=$1",
+                               user_id)
 
-    def update_story(self, user_id, story):
-        self.conn.execute("UPDATE users SET story=? WHERE user_id=?", (story, user_id))
-        self.conn.commit()
+    async def update_story(self, user_id, story):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET story=$1 WHERE user_id=$2", story, user_id)
 
-    def set_premium(self, user_id, value=1):
-        self.conn.execute("UPDATE users SET is_premium=? WHERE user_id=?",
-                          (value, user_id))
-        self.conn.commit()
+    async def set_premium(self, user_id, value=1):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET is_premium=$1 WHERE user_id=$2",
+                               value, user_id)
