@@ -37,7 +37,7 @@ def _get_client():
         _client = GigaChat(
             credentials=GIGACHAT_CREDENTIALS,
             verify_ssl_certs=False,
-            model="GigaChat",
+            model="GigaChat-2",
         )
     return _client
 
