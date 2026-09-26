@@ -40,10 +40,10 @@ async def start(m: Message):
         except ValueError:
             pass
 
-    user = db.get_user(m.from_user.id, m.from_user.username or "")
+    user = await db.get_user(m.from_user.id, m.from_user.username or "")
 
     if referrer_id and user["referred_by"] == 0:
-        if db.set_referrer(m.from_user.id, referrer_id):
+        if await db.set_referrer(m.from_user.id, referrer_id):
             await m.answer("🎉 Вы пришли по приглашению! Ваш друг получил +10 действий.")
             try:
                 await bot.send_message(
@@ -72,7 +72,7 @@ async def start(m: Message):
 
 @dp.callback_query(F.data == "consent_yes")
 async def consent_yes(c: CallbackQuery):
-    db.give_consent(c.from_user.id)
+    await db.give_consent(c.from_user.id)
     me = await bot.get_me()
     ref_link = f"https://t.me/{me.username}?start=ref_{c.from_user.id}"
     await c.message.edit_text(
@@ -96,12 +96,12 @@ async def consent_no(c: CallbackQuery):
 
 @dp.message(Command("revoke"))
 async def revoke(m: Message):
-    db.revoke_consent(m.from_user.id)
+    await db.revoke_consent(m.from_user.id)
     await m.answer("🗑 Согласие отозвано, история удалена. Вернуться — /start.")
 
 @dp.message(Command("reset"))
 async def reset(m: Message):
-    db.update_story(m.from_user.id, "")
+    await db.update_story(m.from_user.id, "")
     await m.answer("🔄 История сброшена.")
 
 @dp.message(Command("premium"))
@@ -132,7 +132,7 @@ async def pre_checkout(q):
 
 @dp.message(F.successful_payment)
 async def on_payment(m: Message):
-    db.set_premium(m.from_user.id, 1)
+    await db.set_premium(m.from_user.id, 1)
     await m.answer(
         "💎 <b>Оплата получена!</b>\n\n"
         "Премиум активирован на 30 дней.\n"
@@ -143,7 +143,7 @@ async def on_payment(m: Message):
 @dp.message(F.text)
 async def handle(m: Message):
     uid = m.from_user.id
-    user = db.get_user(uid, m.from_user.username or "")
+    user = await db.get_user(uid, m.from_user.username or "")
 
     if not user["consent_given"]:
         await m.answer("⚠️ Сначала примите условия: /start")
@@ -162,8 +162,8 @@ async def handle(m: Message):
     response = await ai.generate(user["story"], action)
 
     new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
-    db.update_story(uid, new_story)
-    db.increment(uid)
+    await db.update_story(uid, new_story)
+    await db.increment(uid)
 
     left = "∞" if user["is_premium"] else FREE_DAILY_LIMIT - user["requests_today"] - 1
     await m.answer(
@@ -185,6 +185,8 @@ async def start_web_server():
     logging.info(f"✅ Веб-сервер запущен на порту {port}")
 
 async def main():
+    await db.connect()
+    logging.info("✅ Подключение к базе данных установлено")
     await start_web_server()
     await dp.start_polling(bot)
 
