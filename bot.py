@@ -4,6 +4,7 @@ import os
 import random
 import json
 import traceback
+from datetime import datetime, timedelta
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import Command
@@ -14,6 +15,7 @@ from aiogram.enums import ParseMode
 
 from db import DB
 import ai
+import world as W
 from config import (BOT_TOKEN, GIGACHAT_CREDENTIALS, ADMIN_IDS,
                     FREE_DAILY_LIMIT, PREMIUM_PRICE_STARS, AI_MARKER)
 
@@ -32,12 +34,9 @@ class ErrorMiddleware(BaseMiddleware):
             logging.error(f"Handler error: {e}\n{tb}")
             for admin_id in ADMIN_IDS:
                 try:
-                    await bot.send_message(
-                        admin_id,
-                        f"⚠️ <b>Ошибка</b>\n\n<code>{e}</code>\n\n"
-                        f"<pre>{tb[-800:]}</pre>",
-                        parse_mode=ParseMode.HTML
-                    )
+                    await bot.send_message(admin_id,
+                        f"⚠️ <b>Ошибка</b>\n\n<code>{e}</code>\n\n<pre>{tb[-800:]}</pre>",
+                        parse_mode=ParseMode.HTML)
                 except Exception:
                     pass
             try:
@@ -52,7 +51,6 @@ class ErrorMiddleware(BaseMiddleware):
 POTION_PRICE = 25
 POTION_HEAL = 30
 
-# ================= СПРАВОЧНИКИ =================
 RACES = {
     "human":    {"name": "Человек",     "desc": "Универсал.",
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
@@ -74,18 +72,21 @@ CLASSES = {
 }
 
 FACTIONS = {
-    "light": {"name": "Орден Света",     "desc": "+10% HP, скидка 10% в магазине, −10% золота",
+    "light": {"name": "Орден Света",     "desc": "+10% HP, скидка 10%",
               "hp_mult": 1.10, "shop_mult": 0.90, "gold_mult": 0.90, "dmg_mult": 1.00},
-    "dark":  {"name": "Тёмное Братство", "desc": "+15% урона, +20% золота, −20% HP",
+    "dark":  {"name": "Тёмное Братство", "desc": "+15% урона, +20% золота",
               "hp_mult": 0.80, "shop_mult": 1.00, "gold_mult": 1.20, "dmg_mult": 1.15},
 }
 
 ACHIEVEMENTS = {
     "first_step":  "🌟 Первый шаг",
     "explorer_5":  "🗺 Исследователь — 5 локаций",
+    "explorer_10": "🗺 Странник — 10 локаций",
+    "explorer_all":"🌍 Покоритель мира — все локации",
     "collector_5": "🎒 Коллекционер — 5 предметов",
     "level_5":     "⭐ Опытный — 5 уровень",
     "level_10":    "👑 Ветеран — 10 уровень",
+    "level_20":    "🔥 Легенда — 20 уровень",
     "first_boss":  "⚔️ Убийца боссов",
     "boss_5":      "🐉 Легенда — 5 боссов",
     "referral_3":  "👥 Друг друзей",
@@ -94,17 +95,22 @@ ACHIEVEMENTS = {
     "equipped":    "⚔️ Снаряжён",
     "survivor":    "💀 Выживший",
     "first_blood": "🩸 Первая кровь",
-    "duelist":     "🗡 Дуэлянт — первая PvP-победа",
+    "duelist":     "🗡 Дуэлянт",
     "arena_king":  "⚜️ Гроза арены — 5 PvP-побед",
-    "coward":      "🏳️ Трус — отказался от дуэли",
-    "graffiti":    "✍️ Летописец — оставил первую запись",
-    "social":      "👥 Общительный — 10 локаций",
-    "pet_owner":   "🐾 Хозяин — первый питомец",
-    "pet_10":      "🐕 Друг навек — питомец 10 уровня",
-    "dungeon_1":   "🏰 Пещерный ход — первое подземелье",
-    "dungeon_5":   "🏰 Покоритель подземелий — 5 подземелий",
-    "crafter":     "⚒️ Кузнец — первый крафт",
-    "upgrader":    "🔨 Улучшатель — +1 предмет",
+    "coward":      "🏳️ Трус",
+    "graffiti":    "✍️ Летописец",
+    "social":      "👥 Общительный",
+    "pet_owner":   "🐾 Хозяин",
+    "pet_10":      "🐕 Друг навек",
+    "dungeon_1":   "🏰 Пещерный ход",
+    "dungeon_5":   "🏰 Покоритель подземелий",
+    "crafter":     "⚒️ Кузнец",
+    "upgrader":    "🔨 Улучшатель",
+    "guild_founder":"🏛 Основатель гильдии",
+    "guild_member":"🏛 Член гильдии",
+    "conqueror":   "⚔️ Захватчик — захватил локацию",
+    "event_hunter":"🎯 Охотник за событиями",
+    "quest_master":"📜 Мастер квестов — 5 NPC-квестов",
 }
 
 SHOP = {
@@ -128,11 +134,11 @@ DROP_TABLE = ["Кожаная броня", "Железный меч", "Амул�
               "Кольцо ловкости", "Перстень мудрости", "Посох мага", "Лук охотника"]
 
 PETS = {
-    "wolf":    {"name": "Волк",      "price": 500,  "desc": "Атака +5×(уровень)",
+    "wolf":    {"name": "Волк",      "price": 500,  "desc": "Атака +5×(ур)",
                 "bonus": {"str": 2, "dex": 1}},
     "owl":     {"name": "Сова",      "price": 500,  "desc": "+15% крита, видит материалы",
                 "bonus": {"wit": 2, "int": 1}},
-    "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход +10×(уровень)",
+    "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход +10×(ур)",
                 "bonus": {"str": 3, "con": 1}},
     "phoenix": {"name": "Феникс",    "price": 3000, "desc": "Лечит 5% HP каждый раунд",
                 "bonus": {"men": 3, "con": 2}},
@@ -176,8 +182,9 @@ MAIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="🚶 Идти"),      KeyboardButton(text="🌍 Мир")],
         [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="🐾 Питомец")],
         [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
-        [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
-        [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
+        [KeyboardButton(text="🏛 Гильдия"),   KeyboardButton(text="🎁 Награда")],
+        [KeyboardButton(text="🏅 Рейтинг"),   KeyboardButton(text="💎 Премиум")],
+        [KeyboardButton(text="❓ Помощь")],
     ],
     resize_keyboard=True,
     input_field_placeholder="Что делает герой?"
@@ -185,7 +192,7 @@ MAIN_KB = ReplyKeyboardMarkup(
 
 CONSENT_TEXT = (
     "📋 <b>Перед началом — важное</b>\n\n"
-    "Бот обрабатывает ваши данные (Telegram ID, username) для сохранения прогресса.\n\n"
+    "Бот обрабатывает ваши данные для сохранения прогресса.\n\n"
     "• Данные хранятся в РФ.\n"
     "• Контент сгенерирован ИИ и маркируется.\n"
     "• Игра для лиц <b>18+</b>.\n"
@@ -195,20 +202,16 @@ CONSENT_TEXT = (
 
 HELP_TEXT = (
     "🎮 <b>Как играть</b>\n\n"
-    "Пиши, что делает герой: «Осматриваюсь», «Иду в лес».\n\n"
-    "<b>🚶 Путешествия:</b>\n"
-    "Кнопка «🚶 Идти» или /travel — перейти в другую локацию.\n"
-    "Напиши, куда идёшь: «Иду в лес», «Вхожу в таверну».\n\n"
-    "<b>⚔️ Бой:</b> ⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
-    "<b>📋 Квесты:</b> 3 задания каждый день\n\n"
-    "<b>🌍 Мир:</b>\n"
-    "/who — кто в локации\n"
-    "/write текст — оставить запись\n"
-    "/read — прочитать записи\n"
-    "/duel Имя — вызвать на дуэль\n\n"
-    "<b>🐾 Питомец:</b> кнопка внизу\n"
-    "<b>🏰 Подземелья:</b> кнопка внизу\n"
-    "<b>⚒️ Кузница:</b> разбор, крафт, улучшение\n"
+    "Пиши, что делает герой: «Осматриваюсь», «Атакую гоблина».\n\n"
+    "<b>🚶 Путешествия:</b> /travel или кнопка внизу.\n"
+    "Мир — 12 локаций, соединённых дорогами.\n\n"
+    "<b>📜 NPC-квесты:</b> NPC в локациях дают задания\n"
+    "<b>🏛 Гильдии:</b> создавай, воюй, захватывай локации\n"
+    "<b>🌍 События:</b> в локациях случаются нашествия и клады\n"
+    "<b>🐉 Боссы локаций:</b> уникальные враги с respawn-таймером\n\n"
+    "<b>⚔️ Бой:</b> ⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n"
+    "<b>📋 Ежедневные квесты:</b> /quests\n"
+    "<b>🏆 Достижения:</b> /achievements\n"
 )
 
 
@@ -220,36 +223,6 @@ def parse_item(s):
     if m:
         return m.group(1), int(m.group(2))
     return s, 0
-
-
-def normalize_location(name):
-    """Приводит название локации к общему виду, чтобы игроки встречались."""
-    if not name:
-        return "Неизвестное место"
-    low = name.lower().strip()
-    known = {
-        "Начальная деревня": ["начальная деревня", "стартовая деревня"],
-        "Деревня":          ["деревня", "поселок", "посёлок", "село"],
-        "Город":            ["город", "столица", "крепость"],
-        "Таверна":          ["таверна", "трактир", "кабак", "постоялый двор", "корчма"],
-        "Тёмный лес":       ["темный лес", "тёмный лес", "чаща", "дремучий лес"],
-        "Лес":              ["лес", "роща", "лесная"],
-        "Поляна":           ["поляна", "луг", "поля"],
-        "Пещера":           ["пещера", "грот", "катакомбы", "подземелье"],
-        "Горы":             ["горы", "горная", "утес", "утёс", "пик", "перевал"],
-        "Болото":           ["болото", "топь", "трясина"],
-        "Руины":            ["руины", "развалины", "древние"],
-        "Кладбище":         ["кладбище", "погост", "склеп"],
-        "Храм":             ["храм", "церковь", "святилище", "алтарь"],
-        "Пустошь":          ["пустошь", "пустыня", "выжженная"],
-        "Берег":            ["берег", "река", "озеро", "море", "побережье"],
-    }
-    for canonical, variants in known.items():
-        for v in variants:
-            if v in low:
-                return canonical
-    # Если не нашли — берём первое слово с заглавной буквы
-    return name.strip().split(",")[0][:30].strip().capitalize()
 
 
 def calc_stats(race_code, class_code):
@@ -355,12 +328,67 @@ def duel_offer_kb(offer_id, is_caller=False):
     ])
 
 
-async def send_combat_state(chat_id, user, combat, round_text=""):
+def travel_kb(location_code, player_level):
+    """Кнопки для перехода в соседние локации."""
+    rows = []
+    for code, info in W.get_neighbors(location_code):
+        can, reason = W.can_enter(code, player_level)
+        if can:
+            label = f"→ {info['name']}"
+            cb = f"travel_to_{code}"
+        else:
+            label = f"🔒 {info['name']} (ур.{info['level_req']}+)"
+            cb = "travel_locked"
+        rows.append([InlineKeyboardButton(text=label, callback_data=cb)])
+    rows.append([InlineKeyboardButton(text="❌ Остаться", callback_data="travel_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def npc_list_kb(location_code):
+    rows = []
+    for code, info in W.get_npcs_in_location(location_code):
+        rows.append([InlineKeyboardButton(text=f"👤 {info['name']}", callback_data=f"npc_{code}")])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="npc_close")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def npc_menu_kb(npc_code):
+    npc = W.get_npc(npc_code)
+    if not npc:
+        return None
+    rows = []
+    for qcode in npc.get("quests", []):
+        q = W.get_quest(qcode)
+        if not q:
+            continue
+        rows.append([InlineKeyboardButton(text=f"📜 {q['title']}", callback_data=f"npcquest_{qcode}")])
+    rows.append([InlineKeyboardButton(text="💬 Поговорить", callback_data=f"npctalk_{npc_code}")])
+    rows.append([InlineKeyboardButton(text="❌ Уйти", callback_data="npc_close")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def guild_menu_kb(has_guild):
+    if has_guild:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Инфо", callback_data="guild_info")],
+            [InlineKeyboardButton(text="👥 Участники", callback_data="guild_members")],
+            [InlineKeyboardButton(text="⚔️ Захватить локацию", callback_data="guild_capture")],
+            [InlineKeyboardButton(text="🚪 Выйти из гильдии", callback_data="guild_leave")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏛 Создать гильдию (1000💰)", callback_data="guild_create_start")],
+        [InlineKeyboardButton(text="🏆 Топ гильдий", callback_data="guild_top")],
+    ])
+
+
+async def send_combat_state(chat_id, user, combat, round_text="", event=None):
     enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
     player_bar = hp_bar(user["hp"], user["max_hp"])
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
     boss_label = " 🐉 БОСС" if combat["is_boss"] else ""
     header = f"⚔️ <b>РАУНД {combat['round_num']}</b>"
+    if event:
+        header += f" · {event['event_name']}"
     enemy_block = (f"{emoji} <b>{combat['enemy_name']}</b> (Ур. {combat['enemy_level']}){boss_label}\n"
                    f"{enemy_bar} {combat['enemy_hp']}/{combat['enemy_max_hp']}")
     pet_line = ""
@@ -382,10 +410,7 @@ async def send_pvp_state(uid, user, combat):
     enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
     player_bar = hp_bar(user["hp"], user["max_hp"])
     header = f"⚔️ <b>ДУЭЛЬ · РАУНД {combat['round_num']}</b>"
-    if combat["my_turn"]:
-        turn_text = "🎯 <b>Твой ход!</b>"
-    else:
-        turn_text = "⏳ Ждём хода противника..."
+    turn_text = "🎯 <b>Твой ход!</b>" if combat["my_turn"] else "⏳ Ждём хода противника..."
     enemy_block = (f"🛡 <b>{combat['enemy_name']}</b> (Ур. {combat['enemy_level']})\n"
                    f"{enemy_bar} {combat['enemy_hp']}/{combat['enemy_max_hp']}")
     player_block = (f"❤️ <b>{user['char_name']}</b> (Ур. {user['level']})\n"
@@ -397,6 +422,16 @@ async def send_pvp_state(uid, user, combat):
                                parse_mode=ParseMode.HTML)
     except Exception as e:
         logging.error(f"send_pvp_state error: {e}")
+
+
+async def broadcast_to_location(location_code, text, exclude_uid=0):
+    """Отправить сообщение всем игрокам в локации (кроме exclude_uid)."""
+    players = await db.get_players_at_location(location_code, exclude_uid)
+    for p in players:
+        try:
+            await bot.send_message(p["user_id"], text, parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
 
 
 # ================= START / CONSENT =================
@@ -448,28 +483,30 @@ async def start(m: Message):
             await send_combat_state(m.chat.id, user, combat, "Ты в бою!")
         return
 
-    is_admin = m.from_user.id in ADMIN_IDS
-    admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
-    faction_name = FACTIONS.get(user["faction"], {}).get("name", "")
-    pet_line = ""
-    if user.get("pet_type"):
-        pet = PETS.get(user["pet_type"], {})
-        pet_line = f"\n🐾 {user.get('pet_name', pet.get('name', 'Питомец'))} (ур. {user.get('pet_level', 1)})"
-    dungeon_line = ""
-    if user.get("dungeon_id"):
-        d = DUNGEONS.get(user["dungeon_id"], {})
-        dungeon_line = f"\n🏰 Подземелье: {d.get('name', '?')} (комната {user.get('dungeon_room', 0)})"
+    await show_main_menu(m, user)
 
-    await m.answer(
-        f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
-        f"⭐ Ур. {user['level']} · XP: {user['xp']}\n"
-        f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
-        f"💰 Золото: {user['gold']}\n"
-        f"⚔️ {faction_name}\n"
-        f"📍 {user['location']}{pet_line}{dungeon_line}\n\n"
-        f"Опиши действие или жми кнопки 👇",
-        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
-    )
+
+async def show_main_menu(m, user):
+    loc_code = user.get("location_code", "village")
+    loc = W.get_location(loc_code) or {}
+    event = await db.get_active_event(loc_code)
+    owner = await db.get_location_owner(loc_code)
+    is_admin = user["user_id"] in ADMIN_IDS
+    admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
+
+    header = f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
+    header += f"⭐ Ур. {user['level']} · XP: {user['xp']}\n"
+    header += f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
+    header += f"💰 Золото: {user['gold']}\n"
+    header += f"📍 <b>{loc.get('name', '?')}</b>"
+    if owner:
+        header += f" 🏴 [{owner.get('guild_tag', '?')}]"
+    header += "\n"
+    if event:
+        header += f"\n{event['event_name']}: <i>{event['event_desc']}</i>\n"
+    header += "\nОпиши действие или жми кнопки 👇"
+
+    await m.answer(header, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
 @dp.callback_query(F.data == "consent_yes")
@@ -561,26 +598,34 @@ async def stats(m: Message):
         pet = PETS.get(u["pet_type"], {})
         pet_line = f"\n🐾 Питомец: {u.get('pet_name')} ({pet.get('name')}, ур. {u.get('pet_level', 1)})"
 
-    materials = (f"🔩 Железо: {u['mat_iron']} · 🧵 Кожа: {u['mat_leather']} · "
-                 f"✨ Пыль: {u['mat_dust']} · 💎 Кристалл: {u['mat_crystal']}")
+    guild = await db.get_user_guild(m.from_user.id)
+    guild_line = ""
+    if guild:
+        guild_line = f"\n🏛 Гильдия: <b>{guild['name']}</b> [{guild['tag']}]"
+
+    materials = (f"🔩 {u['mat_iron']} · 🧵 {u['mat_leather']} · "
+                 f"✨ {u['mat_dust']} · 💎 {u['mat_crystal']}")
+
+    loc_code = u.get("location_code", "village")
+    loc_name = W.get_location(loc_code).get("name", "?")
 
     await m.answer(
         f"⭐ <b>{u['char_name']}</b>\n\n"
         f"Раса: {RACES.get(u['race'], {}).get('name', '?')}\n"
         f"Класс: {CLASSES.get(u['class'], {}).get('name', '?')}\n"
-        f"Фракция: {faction_name}\n"
+        f"Фракция: {faction_name}{guild_line}\n"
         f"Уровень: {u['level']} (XP {u['xp']}/{need})\n"
         f"❤️ HP: {u['hp']}/{u['max_hp']}\n"
         f"💰 Золото: {u['gold']}\n"
         f"🏅 Репутация: {u['reputation']}{pet_line}\n\n"
-        f"<b>Характеристики:</b>\n"
+        f"<b>Статы:</b>\n"
         f"STR {eff['str']} · DEX {eff['dex']} · CON {eff['con']}\n"
         f"INT {eff['int']} · WIT {eff['wit']} · MEN {eff['men']}\n\n"
         f"<b>Экипировка:</b>\n" + "\n".join(equip_lines) + f"\n\n"
-        f"<b>Материалы:</b>\n{materials}\n\n"
-        f"📍 {u['location']}\n"
+        f"<b>Материалы:</b> {materials}\n\n"
+        f"📍 {loc_name}\n"
         f"⚔️ Боссов: {u['bosses_defeated']} · 💀 Смертей: {u['deaths']}\n"
-        f"🗡 PvP: {u['pvp_wins']} / {u['pvp_losses']}",
+        f"🗡 PvP: {u['pvp_wins']}/{u['pvp_losses']}",
         reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
     )
 
@@ -593,7 +638,7 @@ async def shop(m: Message):
     shop_mult = faction_mult(u, "shop_mult")
     text = f"🛒 <b>Магазин</b>\n\n💰 Золото: <b>{u['gold']}</b>"
     if shop_mult < 1:
-        text += f" (скидка фракции: −{int((1-shop_mult)*100)}%)"
+        text += f" (−{int((1-shop_mult)*100)}% фракция)"
     text += "\n\n"
     for category, label in [("weapon", "🗡 Оружие"), ("armor", "🛡 Броня"),
                             ("accessory", "💍 Аксессуары")]:
@@ -679,7 +724,7 @@ async def unequip(m: Message):
     await db.update_hp_max(m.from_user.id, min(u["hp"], new_max), new_max)
 
 
-# ================= РЕЙТИНГ =================
+# ================= РЕЙТИНГИ =================
 @dp.message(Command("top"))
 @dp.message(F.text == "🏅 Рейтинг")
 async def top_cmd(m: Message):
@@ -693,8 +738,7 @@ async def top_cmd(m: Message):
         name = p["char_name"] or "Аноним"
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
-        fac = FACTIONS.get(p.get("faction", ""), {}).get("name", "")[:3]
-        lines.append(f"{medal} <b>{name}</b> ({race} {cls}, {fac}) — Ур.{p['level']}")
+        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
     await m.answer("🏅 <b>Топ-10</b>\n\n" + "\n".join(lines),
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
@@ -713,7 +757,7 @@ async def pvp_top_cmd(m: Message):
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# ================= ИНВЕНТАРЬ / КАРТА =================
+# ================= ИНВЕНТАРЬ =================
 @dp.message(Command("inventory"))
 @dp.message(F.text == "🎒 Инвентарь")
 async def inventory(m: Message):
@@ -733,25 +777,34 @@ async def inventory(m: Message):
     await m.answer(text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
+# ================= КАРТА / ПУТЕШЕСТВИЯ =================
 @dp.message(Command("map"))
 @dp.message(F.text == "🗺 Карта")
 async def map_cmd(m: Message):
-    locs = await db.get_locations(m.from_user.id)
-    if not locs:
-        await m.answer(
-            "🗺 <b>Карта пуста</b>\n\n"
-            "Ты пока нигде не был. Нажми <b>🚶 Идти</b> и напиши, куда "
-            "направляется герой — например, «Иду в лес» или «Вхожу в таверну».",
-            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
-        )
-        return
     u = await db.get_user(m.from_user.id)
-    lst = "\n".join(f"📍 {l}" for l in locs)
-    await m.answer(
-        f"🗺 <b>Карта</b>\n\n{lst}\n\n"
-        f"<b>Текущая локация:</b> {u['location']}",
-        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
-    )
+    loc_code = u.get("location_code", "village")
+    visited = await db.get_all_location_codes_visited(m.from_user.id)
+    visited_set = set(visited)
+
+    lines = ["🗺 <b>Карта мира</b>\n"]
+    for code, info in W.LOCATIONS.items():
+        marker = "📍" if code == loc_code else ("✅" if info["name"] in visited_set else "❓")
+        if code == loc_code or info["name"] in visited_set:
+            lines.append(f"{marker} {info['name']}")
+        else:
+            lines.append(f"❓ Неизвестная локация")
+
+    captured = await db.get_all_captured_locations()
+    captured_map = {c["location_code"]: c for c in captured}
+    if captured:
+        lines.append("\n<b>Захвачено гильдиями:</b>")
+        for code, c in captured_map.items():
+            loc_name = W.get_location(code).get("name", code)
+            lines.append(f"🏴 {loc_name} — [{c['tag']}] {c['name']}")
+
+    lines.append(f"\n📍 Ты в: <b>{W.get_location(loc_code).get('name', '?')}</b>")
+    lines.append(f"\nВсего открыто: {len(visited_set)}/{len(W.LOCATIONS)}")
+    await m.answer("\n".join(lines), reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("travel"))
@@ -762,22 +815,160 @@ async def travel_cmd(m: Message):
         await m.answer("Сначала создай героя."); return
     if await db.get_combat(m.from_user.id):
         await m.answer("⚔️ Сначала закончи бой!"); return
-    locs = await db.get_locations(m.from_user.id)
-    known = ""
-    if locs:
-        known = "\n\n<b>Ты уже был в:</b>\n" + "\n".join(f"📍 {l}" for l in locs[:8])
+
+    loc_code = u.get("location_code", "village")
+    loc = W.get_location(loc_code)
+    neighbors = W.get_neighbors(loc_code)
+    if not neighbors:
+        await m.answer(f"📍 Ты в <b>{loc['name']}</b>. Отсюда нет пути.",
+                       reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+        return
+
     await m.answer(
         f"🚶 <b>Куда идёшь?</b>\n\n"
-        f"📍 Сейчас ты в: <b>{u['location']}</b>\n\n"
-        f"Напиши, куда направляется герой:\n"
-        f"• «Иду в лес»\n"
-        f"• «Вхожу в таверну»\n"
-        f"• «Иду в горы на север»\n"
-        f"• «Спускаюсь в пещеру»{known}",
-        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        f"📍 Сейчас ты в: <b>{loc['name']}</b>\n"
+        f"<i>{loc['desc']}</i>",
+        reply_markup=travel_kb(loc_code, u["level"]),
+        parse_mode=ParseMode.HTML
     )
 
 
+@dp.callback_query(F.data.startswith("travel_to_"))
+async def travel_do(c: CallbackQuery):
+    code = c.data.replace("travel_to_", "")
+    if code not in W.LOCATIONS:
+        await c.answer("Не найдено"); return
+    u = await db.get_user(c.from_user.id)
+    if await db.get_combat(c.from_user.id):
+        await c.answer("⚔️ Ты в бою!"); return
+
+    cur_code = u.get("location_code", "village")
+    if code not in W.LOCATIONS[cur_code]["exits"]:
+        await c.answer("Отсюда туда не попасть!", show_alert=True); return
+    can, reason = W.can_enter(code, u["level"])
+    if not can:
+        await c.answer(reason, show_alert=True); return
+
+    old_name = W.get_location(cur_code).get("name", "?")
+    new_loc = W.get_location(code)
+    await db.set_location_code(c.from_user.id, code)
+    await db.add_location(c.from_user.id, new_loc["name"])
+    await db.progress_quest(c.from_user.id, "visit_locations", 1)
+
+    u = await db.get_user(c.from_user.id)
+    loc = W.get_location(code)
+    event = await db.get_active_event(code)
+    owner = await db.get_location_owner(code)
+
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    text = f"🚶 <i>{old_name} → {loc['name']}</i>\n\n"
+    text += f"📍 <b>{loc['name']}</b>\n<i>{loc['desc']}</i>\n"
+    if owner:
+        text += f"\n🏴 Владелец: <b>[{owner['guild_tag']}]</b> {owner['guild_name']}"
+    if event:
+        text += f"\n\n{event['event_name']}: <i>{event['event_desc']}</i>"
+    npcs = W.get_npcs_in_location(code)
+    if npcs:
+        text += "\n\n👤 <b>Здесь есть:</b>"
+        for c2, info in npcs:
+            text += f"\n• {info['name']}"
+    if loc.get("enemies"):
+        text += f"\n\n⚔️ <i>Врагов можно встретить: {', '.join(loc['enemies'])}</i>"
+
+    await bot.send_message(c.from_user.id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    await c.answer(f"→ {loc['name']}")
+
+    # Уведомляем других игроков
+    await broadcast_to_location(
+        code,
+        f"👤 <b>{u['char_name']}</b> прибыл в локацию.",
+        exclude_uid=c.from_user.id
+    )
+
+
+@dp.callback_query(F.data == "travel_locked")
+async def travel_locked(c: CallbackQuery):
+    await c.answer("Уровень слишком низкий для этой локации", show_alert=True)
+
+
+@dp.callback_query(F.data == "travel_cancel")
+async def travel_cancel(c: CallbackQuery):
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer("Остаёшься здесь")
+
+
+# ================= КТО ЗДЕСЬ =================
+@dp.message(Command("who"))
+@dp.message(F.text == "👥 Кто здесь")
+async def who_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    code = u.get("location_code", "village")
+    players = await db.get_players_at_location(code, u["user_id"])
+    loc_name = W.get_location(code).get("name", "?")
+    if not players:
+        await m.answer(
+            f"👥 В «{loc_name}» больше никого нет.\n\n"
+            f"<i>Когда другие игроки зайдут сюда, ты их увидишь.</i>",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+        return
+    lines = []
+    for p in players:
+        race = RACES.get(p["race"], {}).get("name", "?")
+        cls = CLASSES.get(p["class"], {}).get("name", "?")
+        gtag = ""
+        if p.get("guild_id"):
+            g = await db.get_guild(p["guild_id"])
+            if g:
+                gtag = f" [{g['tag']}]"
+        lines.append(f"• <b>{p['char_name']}</b>{gtag} (Ур.{p['level']}, {race} {cls})")
+    await m.answer(f"👥 <b>В «{loc_name}»:</b>\n\n" + "\n".join(lines) +
+                   f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
+                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+
+
+# ================= ГРАФФИТИ =================
+@dp.message(Command("write"))
+async def write_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    parts = m.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await m.answer("Использование: /write текст"); return
+    text = parts[1].strip()[:200]
+    loc_name = W.get_location(u.get("location_code", "village")).get("name", "?")
+    await db.add_graffiti(m.from_user.id, u["char_name"], loc_name, text)
+    await m.answer(f"✍️ Запись оставлена в «{loc_name}».",
+                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    if await db.add_achievement(m.from_user.id, "graffiti"):
+        await m.answer("🏆 Достижение: ✍️ Летописец", parse_mode=ParseMode.HTML)
+
+
+@dp.message(Command("read"))
+async def read_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    loc_name = W.get_location(u.get("location_code", "village")).get("name", "?")
+    notes = await db.get_graffiti(loc_name, 15)
+    if not notes:
+        await m.answer(f"📜 В «{loc_name}» нет записей.",
+                       reply_markup=MAIN_KB); return
+    lines = [f"• <b>{n['username']}</b>: <i>{n['text']}</i>" for n in notes]
+    await m.answer(f"📜 <b>Записи в «{loc_name}»:</b>\n\n" + "\n".join(lines),
+                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+
+
+# ================= ДОСТИЖЕНИЯ =================
 @dp.message(Command("achievements"))
 @dp.message(F.text == "🏆 Достижения")
 async def achievements_cmd(m: Message):
@@ -790,71 +981,386 @@ async def achievements_cmd(m: Message):
     )
 
 
+# ================= МИР / СОБЫТИЯ =================
 @dp.message(Command("world"))
 @dp.message(F.text == "🌍 Мир")
 async def world_cmd(m: Message):
-    events = await db.get_world_events(10)
-    if not events:
-        await m.answer("🌍 Мир молчит.", reply_markup=MAIN_KB); return
-    lines = [f"• <b>{e['username'] or 'Аноним'}</b>: {e['event_text']}" for e in events]
-    await m.answer("🌍 <b>События мира</b>\n\n" + "\n".join(lines),
-                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    events = await db.get_all_active_events()
+    captured = await db.get_all_captured_locations()
+
+    text = "🌍 <b>Мир Lineage</b>\n\n"
+
+    if events:
+        text += "<b>🔥 Активные события:</b>\n"
+        for e in events:
+            loc_name = W.get_location(e["location_code"]).get("name", "?")
+            text += f"• {e['event_name']} в <b>{loc_name}</b> — {e['event_desc']}\n"
+        text += "\n"
+    else:
+        text += "<i>Сейчас в мире тихо.</i>\n\n"
+
+    if captured:
+        text += "<b>🏴 Захваченные локации:</b>\n"
+        for c in captured:
+            loc_name = W.get_location(c["location_code"]).get("name", "?")
+            text += f"• {loc_name} — [{c['tag']}] {c['name']}\n"
+        text += "\n"
+
+    recent = await db.get_world_events(8)
+    if recent:
+        text += "<b>📰 Последние события:</b>\n"
+        for e in recent:
+            text += f"• <b>{e['username'] or '?'}</b>: {e['event_text']}\n"
+
+    await m.answer(text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
-# ================= ЖИВОЙ МИР =================
-@dp.message(Command("who"))
-@dp.message(F.text == "👥 Кто здесь")
-async def who_cmd(m: Message):
+# ================= NPC =================
+@dp.message(Command("npc"))
+async def npc_cmd(m: Message):
     u = await db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
-    players = await db.get_players_in_location(u["location"], u["user_id"])
-    if not players:
-        await m.answer(
-            f"👥 В «{u['location']}» больше никого нет.\n\n"
-            f"<i>Когда другие игроки окажутся здесь, ты их увидишь.</i>",
-            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
-        )
+    if await db.get_combat(m.from_user.id):
+        await m.answer("⚔️ Ты в бою!"); return
+    code = u.get("location_code", "village")
+    npcs = W.get_npcs_in_location(code)
+    if not npcs:
+        await m.answer("👤 В этой локации нет NPC.", reply_markup=MAIN_KB); return
+    loc_name = W.get_location(code).get("name", "?")
+    await m.answer(
+        f"👤 <b>NPC в «{loc_name}»</b>\n\nВыбери, с кем поговорить:",
+        reply_markup=npc_list_kb(code),
+        parse_mode=ParseMode.HTML
+    )
+
+
+@dp.callback_query(F.data.startswith("npc_") & ~F.data.startswith("npcquest_") & ~F.data.startswith("npctalk_"))
+async def npc_pick(c: CallbackQuery):
+    if c.data == "npc_close":
+        try:
+            await c.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await c.answer()
         return
-    lines = []
-    for p in players:
-        race = RACES.get(p["race"], {}).get("name", "?")
-        cls = CLASSES.get(p["class"], {}).get("name", "?")
-        lines.append(f"• <b>{p['char_name']}</b> (Ур.{p['level']}, {race} {cls})")
-    await m.answer(f"👥 <b>В «{u['location']}»:</b>\n\n" + "\n".join(lines) +
-                   f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
-                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    code = c.data.replace("npc_", "")
+    npc = W.get_npc(code)
+    if not npc:
+        await c.answer("Не найдено"); return
+    text = f"👤 <b>{npc['name']}</b>\n\n<i>{npc['greeting']}</i>"
+    await c.message.edit_text(text, reply_markup=npc_menu_kb(code),
+                              parse_mode=ParseMode.HTML)
+    await c.answer()
 
 
-@dp.message(Command("write"))
-async def write_cmd(m: Message):
+@dp.callback_query(F.data == "npc_close")
+async def npc_close(c: CallbackQuery):
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer()
+
+
+@dp.callback_query(F.data.startswith("npctalk_"))
+async def npc_talk(c: CallbackQuery):
+    code = c.data.replace("npctalk_", "")
+    npc = W.get_npc(code)
+    if not npc:
+        await c.answer("Не найдено"); return
+    await c.answer()
+    await c.message.answer(
+        f"💬 <i>{npc['name']} смотрит на тебя, ожидая, что ты скажешь.</i>\n\n"
+        f"Просто напиши, что говоришь — ИИ ответит от лица NPC.",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+@dp.callback_query(F.data.startswith("npcquest_"))
+async def npc_quest_open(c: CallbackQuery):
+    qcode = c.data.replace("npcquest_", "")
+    q = W.get_quest(qcode)
+    if not q:
+        await c.answer("Не найдено"); return
+    u = await db.get_user(c.from_user.id)
+    if u["level"] < q.get("req_level", 1):
+        await c.answer(f"Нужен уровень {q['req_level']}+", show_alert=True); return
+
+    prog = await db.get_npc_quest(c.from_user.id, qcode)
+    if prog and prog["completed"]:
+        await c.answer("Этот квест уже выполнен", show_alert=True); return
+    if prog:
+        # Прогресс
+        text = (f"📜 <b>{q['title']}</b>\n\n{q['desc']}\n\n"
+                f"Прогресс: {prog['progress']}/{q['count']}\n"
+                f"Награда: {q['reward_gold']}💰 + {q['reward_xp']} XP")
+        await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Сдать (если готово)", callback_data=f"npcquest_done_{qcode}")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"npc_{q['npc']}")],
+        ]), parse_mode=ParseMode.HTML)
+        return
+
+    # Принять квест
+    text = (f"📜 <b>{q['title']}</b>\n\n{q['desc']}\n\n"
+            f"Награда: {q['reward_gold']}💰 + {q['reward_xp']} XP")
+    if q.get("reward_item"):
+        text += f"\n🎁 Предмет: {q['reward_item']}"
+    await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять", callback_data=f"npcquest_accept_{qcode}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"npc_{q['npc']}")],
+    ]), parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@dp.callback_query(F.data.startswith("npcquest_accept_"))
+async def npc_quest_accept(c: CallbackQuery):
+    qcode = c.data.replace("npcquest_accept_", "")
+    q = W.get_quest(qcode)
+    if not q:
+        await c.answer("Не найдено"); return
+    ok = await db.accept_npc_quest(c.from_user.id, qcode)
+    if not ok:
+        await c.answer("Квест уже активен", show_alert=True); return
+    await c.answer("Квест принят!")
+    await c.message.edit_text(
+        f"📜 <b>{q['title']}</b> — принят!\n\n{q['desc']}",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+@dp.callback_query(F.data.startswith("npcquest_done_"))
+async def npc_quest_done(c: CallbackQuery):
+    qcode = c.data.replace("npcquest_done_", "")
+    q = W.get_quest(qcode)
+    if not q:
+        await c.answer("Не найдено"); return
+    prog = await db.get_npc_quest(c.from_user.id, qcode)
+    if not prog or prog["completed"]:
+        await c.answer("Уже сдано или не активно", show_alert=True); return
+    if prog["progress"] < q["count"]:
+        await c.answer(f"Не готово: {prog['progress']}/{q['count']}", show_alert=True); return
+
+    await db.complete_npc_quest(c.from_user.id, qcode)
+    await db.add_gold(c.from_user.id, q["reward_gold"])
+    await db.add_xp(c.from_user.id, q["reward_xp"])
+    if q.get("reward_item"):
+        await db.add_item(c.from_user.id, q["reward_item"])
+
+    text = (f"✅ <b>Квест выполнен: {q['title']}</b>\n\n"
+            f"+{q['reward_gold']}💰 · +{q['reward_xp']} XP")
+    if q.get("reward_item"):
+        text += f"\n🎁 Получен: {q['reward_item']}"
+
+    # Проверяем достижение
+    all_q = await db.get_user_quests(c.from_user.id)
+    done_count = sum(1 for x in all_q if x["completed"])
+    if done_count >= 5:
+        if await db.add_achievement(c.from_user.id, "quest_master"):
+            text += "\n\n🏆 Достижение: 📜 Мастер квестов"
+
+    await c.answer("Квест сдан!")
+    await c.message.edit_text(text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+
+
+# ================= ГИЛЬДИИ =================
+@dp.message(Command("guild"))
+@dp.message(F.text == "🏛 Гильдия")
+async def guild_cmd(m: Message):
     u = await db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
+    g = await db.get_user_guild(m.from_user.id)
+    if g:
+        text = (f"🏛 <b>[{g['tag']}] {g['name']}</b>\n\n"
+                f"Уровень: {g['level']}\n"
+                f"Казна: {g['treasury']}💰")
+        await m.answer(text, reply_markup=guild_menu_kb(True), parse_mode=ParseMode.HTML)
+    else:
+        await m.answer(
+            "🏛 <b>Гильдии</b>\n\n"
+            "Ты не в гильдии. Создай свою или вступись в существующую.\n\n"
+            f"Стоимость создания: <b>{W.GUILD_CREATE_COST}💰</b>",
+            reply_markup=guild_menu_kb(False),
+            parse_mode=ParseMode.HTML
+        )
+
+
+@dp.callback_query(F.data == "guild_top")
+async def guild_top_cb(c: CallbackQuery):
+    guilds = await db.get_guilds_top(10)
+    if not guilds:
+        await c.answer("Пока нет гильдий", show_alert=True); return
+    lines = ["🏆 <b>Топ гильдий</b>\n"]
+    for i, g in enumerate(guilds):
+        medals = ["🥇", "🥈", "🥉"]
+        m = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{m} <b>[{g['tag']}] {g['name']}</b> — ур.{g['level']}, {g['members']} чел.")
+    await c.message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@dp.callback_query(F.data == "guild_create_start")
+async def guild_create_start(c: CallbackQuery):
+    u = await db.get_user(c.from_user.id)
+    if u["gold"] < W.GUILD_CREATE_COST:
+        await c.answer(f"Нужно {W.GUILD_CREATE_COST}💰", show_alert=True); return
+    if await db.get_user_guild(c.from_user.id):
+        await c.answer("Ты уже в гильдии", show_alert=True); return
+    await c.answer()
+    await c.message.answer(
+        f"🏛 Напиши название гильдии и тег:\n"
+        f"Формат: <code>Название | ТЕГ</code>\n"
+        f"Пример: <code>Тёмный Легион | TL</code>\n\n"
+        f"Тег до {W.GUILD_TAG_MAX} символов, название до {W.GUILD_NAME_MAX}.",
+        parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(F.text.regexp(r"^[^|]+\|[^|]+$"))
+async def guild_create_input(m: Message):
+    # Обрабатываем только если игрок не в гильдии и это похоже на "Name | TAG"
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        return
+    if await db.get_user_guild(m.from_user.id):
+        return
+    parts = m.text.split("|", 1)
+    name = parts[0].strip()[:W.GUILD_NAME_MAX]
+    tag = parts[1].strip()[:W.GUILD_TAG_MAX].upper()
+    if len(name) < 3 or len(tag) < 2:
+        await m.answer("Слишком коротко. Название 3+, тег 2+.")
+        return
+    if u["gold"] < W.GUILD_CREATE_COST:
+        await m.answer(f"Нужно {W.GUILD_CREATE_COST}💰"); return
+
+    gid = await db.create_guild(name, tag, m.from_user.id)
+    if not gid:
+        await m.answer("Название уже занято."); return
+    await db.spend_gold(m.from_user.id, W.GUILD_CREATE_COST)
+    await db.add_achievement(m.from_user.id, "guild_founder")
+    await m.answer(
+        f"🏛 <b>Гильдия создана!</b>\n\n"
+        f"<b>[{tag}] {name}</b>\n\n"
+        f"Приглашай друзей через /guild_invite Ник",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(Command("guild_invite"))
+async def guild_invite(m: Message):
+    u = await db.get_user(m.from_user.id)
+    g = await db.get_user_guild(m.from_user.id)
+    if not g:
+        await m.answer("Ты не в гильдии."); return
+    if g["leader_id"] != m.from_user.id:
+        await m.answer("Только лидер может приглашать."); return
     parts = m.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        await m.answer("Использование: /write текст"); return
-    text = parts[1].strip()[:200]
-    await db.add_graffiti(m.from_user.id, u["char_name"], u["location"], text)
-    await m.answer(f"✍️ Запись оставлена в «{u['location']}».",
-                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-    if await db.add_achievement(m.from_user.id, "graffiti"):
-        await m.answer("🏆 Достижение: ✍️ Летописец", parse_mode=ParseMode.HTML)
+    if len(parts) < 2:
+        await m.answer("Использование: /guild_invite Ник"); return
+    target = await db.get_user_by_char_name(parts[1].strip())
+    if not target:
+        await m.answer("Игрок не найден."); return
+    if await db.get_user_guild(target["user_id"]):
+        await m.answer("Он уже в гильдии."); return
+    await db.add_guild_member(target["user_id"], g["id"])
+    await db.add_achievement(target["user_id"], "guild_member")
+    try:
+        await bot.send_message(target["user_id"],
+            f"🏛 Ты принят в гильдию <b>[{g['tag']}] {g['name']}</b>!",
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+    await m.answer(f"✅ {target['char_name']} принят в гильдию.")
 
 
-@dp.message(Command("read"))
-@dp.message(F.text == "📜 Записи")
-async def read_cmd(m: Message):
-    u = await db.get_user(m.from_user.id)
-    if not u["char_name"]:
-        await m.answer("Сначала создай героя."); return
-    notes = await db.get_graffiti(u["location"], 15)
-    if not notes:
-        await m.answer(f"📜 В «{u['location']}» нет записей.",
-                       reply_markup=MAIN_KB); return
-    lines = [f"• <b>{n['username']}</b>: <i>{n['text']}</i>" for n in notes]
-    await m.answer(f"📜 <b>Записи в «{u['location']}»:</b>\n\n" + "\n".join(lines),
-                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+@dp.callback_query(F.data == "guild_info")
+async def guild_info_cb(c: CallbackQuery):
+    g = await db.get_user_guild(c.from_user.id)
+    if not g:
+        await c.answer("Не в гильдии"); return
+    members = await db.get_guild_members(g["id"])
+    owned = [x for x in await db.get_all_captured_locations() if x["guild_id"] == g["id"]]
+    text = (f"🏛 <b>[{g['tag']}] {g['name']}</b>\n\n"
+            f"Уровень: {g['level']}\n"
+            f"Участников: {len(members)}\n"
+            f"Захвачено локаций: {len(owned)}")
+    await c.message.answer(text, parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@dp.callback_query(F.data == "guild_members")
+async def guild_members_cb(c: CallbackQuery):
+    g = await db.get_user_guild(c.from_user.id)
+    if not g:
+        await c.answer("Не в гильдии"); return
+    members = await db.get_guild_members(g["id"])
+    lines = [f"👥 <b>Участники [{g['tag']}] {g['name']}</b>\n"]
+    for m in members:
+        rank_icon = "👑" if m["rank"] == "leader" else "•"
+        lines.append(f"{rank_icon} <b>{m['char_name']}</b> — ур.{m['level']}")
+    await c.message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@dp.callback_query(F.data == "guild_leave")
+async def guild_leave_cb(c: CallbackQuery):
+    g = await db.get_user_guild(c.from_user.id)
+    if not g:
+        await c.answer("Не в гильдии"); return
+    if g["leader_id"] == c.from_user.id:
+        await c.answer("Лидер не может выйти. Передай лидерство или распусти.", show_alert=True)
+        return
+    await db.remove_guild_member(c.from_user.id)
+    await c.answer("Ты вышел из гильдии")
+    try:
+        await c.message.edit_text("🚪 Ты покинул гильдию.")
+    except Exception:
+        pass
+
+
+@dp.callback_query(F.data == "guild_capture")
+async def guild_capture_cb(c: CallbackQuery):
+    g = await db.get_user_guild(c.from_user.id)
+    if not g:
+        await c.answer("Не в гильдии"); return
+    u = await db.get_user(c.from_user.id)
+    code = u.get("location_code", "village")
+    loc = W.get_location(code)
+    if loc.get("type") == "safe":
+        await c.answer("Мирные локации нельзя захватывать", show_alert=True); return
+
+    # Нужно 3+ членов гильдии в локации
+    players = await db.get_players_at_location(code, 0)
+    my_guild_members = [p for p in players if p.get("guild_id") == g["id"]]
+    # Плюс сам игрок
+    if len(my_guild_ids := [p["guild_id"] for p in players]) + 1 < 3:
+        pass
+    my_count = len([p for p in players if p.get("guild_id") == g["id"]]) + 1
+    if my_count < 3:
+        await c.answer(f"Нужно 3+ членов гильдии в локации (сейчас {my_count})", show_alert=True)
+        return
+
+    owner = await db.get_location_owner(code)
+    if owner and owner["guild_id"] == g["id"]:
+        await c.answer("Локация уже твоя", show_alert=True); return
+
+    # Захват
+    await db.capture_location(code, g["id"])
+    await db.add_achievement(c.from_user.id, "conqueror")
+    await db.add_world_event(c.from_user.id, u["username"],
+                             f"гильдия [{g['tag']}] захватила «{loc['name']}»")
+    await broadcast_to_location(
+        code,
+        f"🏴 <b>Гильдия [{g['tag']}] {g['name']}</b> захватила локацию «{loc['name']}»!",
+        0
+    )
+    await c.answer("Захвачено!")
+    await c.message.answer(
+        f"🏴 <b>Локация «{loc['name']}» захвачена!</b>\n\n"
+        f"Члены гильдии получают +15% золота и +10% XP здесь.",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
 
 
 # ================= ДУЭЛИ =================
@@ -868,14 +1374,13 @@ async def duel_cmd(m: Message):
     parts = m.text.split()
     if len(parts) < 2:
         await m.answer("/duel Имя — ставка 10%\n/duel Имя 100 — своя"); return
-    target_name = parts[1]
-    target = await db.get_user_by_char_name(target_name)
+    target = await db.get_user_by_char_name(parts[1])
     if not target:
-        await m.answer(f"❌ «{target_name}» не найден."); return
+        await m.answer(f"❌ «{parts[1]}» не найден."); return
     if target["user_id"] == u["user_id"]:
         await m.answer("❌ Нельзя себя."); return
-    if target["location"] != u["location"]:
-        await m.answer(f"❌ {target['char_name']} в другой локации ({target['location']})."); return
+    if target.get("location_code") != u.get("location_code"):
+        await m.answer(f"❌ {target['char_name']} в другой локации."); return
     if await db.get_combat(target["user_id"]):
         await m.answer(f"❌ {target['char_name']} уже в бою."); return
 
@@ -898,10 +1403,8 @@ async def duel_cmd(m: Message):
                                      target["user_id"], target["char_name"], stake)
     try:
         await bot.send_message(target["user_id"],
-            f"⚔️ <b>Тебя вызывает {u['char_name']}!</b>\n\n"
-            f"Ставка: <b>{stake}💰</b>\n📍 {u['location']}",
-            reply_markup=duel_offer_kb(oid, is_caller=False),
-            parse_mode=ParseMode.HTML)
+            f"⚔️ <b>Тебя вызывает {u['char_name']}!</b>\n\nСтавка: <b>{stake}💰</b>",
+            reply_markup=duel_offer_kb(oid, is_caller=False), parse_mode=ParseMode.HTML)
     except Exception:
         await m.answer("❌ Не удалось отправить вызов."); return
     await m.answer(f"⚔️ Вызов отправлен <b>{target['char_name']}</b>!",
@@ -953,8 +1456,7 @@ async def duel_decline(c: CallbackQuery):
     except Exception:
         pass
     try:
-        await bot.send_message(offer["challenger_id"],
-            f"🏳️ {offer['opponent_name']} отказался.")
+        await bot.send_message(offer["challenger_id"], f"🏳️ {offer['opponent_name']} отказался.")
     except Exception:
         pass
     if await db.add_achievement(c.from_user.id, "coward"):
@@ -1025,13 +1527,12 @@ async def counter_stake_handler(m: Message):
     try:
         await bot.send_message(offer["challenger_id"],
             f"💰 <b>{offer['opponent_name']}</b> предлагает {new_stake}💰",
-            reply_markup=duel_offer_kb(new_oid, is_caller=False),
-            parse_mode=ParseMode.HTML)
+            reply_markup=duel_offer_kb(new_oid, is_caller=False), parse_mode=ParseMode.HTML)
     except Exception:
         pass
 
 
-# ================= PVP-БОЙ =================
+# ================= PVP =================
 @dp.callback_query(F.data == "pvp_attack")
 async def pvp_attack_cb(c: CallbackQuery):
     user = await db.get_user(c.from_user.id)
@@ -1062,8 +1563,7 @@ async def pvp_attack_cb(c: CallbackQuery):
         opp_user = await db.get_user(opp_id)
         opp_combat = await db.get_combat(opp_id)
         await bot.send_message(opp_id,
-            f"💔 <b>{user['char_name']}</b> бьёт на {dmg}!"
-            + (" 💥 КРИТ" if is_crit else ""),
+            f"💔 <b>{user['char_name']}</b> бьёт на {dmg}!" + (" 💥 КРИТ" if is_crit else ""),
             parse_mode=ParseMode.HTML)
         await send_pvp_state(opp_id, opp_user, opp_combat)
     except Exception:
@@ -1126,14 +1626,7 @@ async def pvp_end(winner_id, loser_id, stake):
                 await bot.send_message(winner_id, "🏆 ⚜️ Гроза арены", parse_mode=ParseMode.HTML)
             except Exception:
                 pass
-    q = await db.progress_quest(winner_id, "win_duels", 1)
-    if q and q.get("completed"):
-        try:
-            await bot.send_message(winner_id,
-                f"✅ <b>Квест выполнен:</b> Победить в дуэлях\n+{q['gold']}💰 · +{q['xp']} XP",
-                parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
+    await db.progress_quest(winner_id, "win_duels", 1)
     try:
         await bot.send_message(winner_id,
             f"🏆 <b>ПОБЕДА!</b> над {l['char_name']}\n+{real}💰 · Репутация +1",
@@ -1142,8 +1635,7 @@ async def pvp_end(winner_id, loser_id, stake):
         pass
     try:
         await bot.send_message(loser_id,
-            f"💀 <b>Поражение</b> от {w['char_name']}\n−{real}💰 · Репутация −1\n"
-            f"❤️ HP не пострадало.",
+            f"💀 <b>Поражение</b> от {w['char_name']}\n−{real}💰 · Репутация −1",
             reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
     except Exception:
         pass
@@ -1183,7 +1675,6 @@ async def pet_buy(c: CallbackQuery):
     if code not in PETS:
         await c.answer("Нет"); return
     p = PETS[code]
-    u = await db.get_user(c.from_user.id)
     is_admin = c.from_user.id in ADMIN_IDS
     if not is_admin:
         ok = await db.spend_gold(c.from_user.id, p["price"])
@@ -1192,8 +1683,7 @@ async def pet_buy(c: CallbackQuery):
     await db.add_pet(c.from_user.id, code, p["name"])
     await c.answer(f"✅ {p['name']} теперь с тобой!")
     await c.message.answer(
-        f"🐾 <b>{p['name']}</b> присоединился к тебе!\n\n"
-        f"Эффект: {p['desc']}\n\nПереименовать: /pet_name Имя",
+        f"🐾 <b>{p['name']}</b> присоединился!\n\nЭффект: {p['desc']}",
         reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
     if await db.add_achievement(c.from_user.id, "pet_owner"):
         await c.message.answer("🏆 Достижение: 🐾 Хозяин", parse_mode=ParseMode.HTML)
@@ -1206,7 +1696,7 @@ async def pet_name_cmd(m: Message):
         await m.answer("У тебя нет питомца."); return
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2 or len(parts[1].strip()) < 2:
-        await m.answer("Использование: /pet_name Имя (2–20 символов)"); return
+        await m.answer("Использование: /pet_name Имя (2–20)"); return
     name = parts[1].strip()[:20]
     await db.set_pet_name(m.from_user.id, name)
     await m.answer(f"🐾 Питомец теперь зовётся <b>{name}</b>!", parse_mode=ParseMode.HTML)
@@ -1236,11 +1726,11 @@ async def dungeon_cmd(m: Message):
         can = u["level"] >= d["level_req"] and u["gold"] >= d["entry"]
         mark = "✅" if can else "🔒"
         text += (f"{mark} <b>{d['name']}</b>\n"
-                 f"  Ур.{d['level_req']}+ · вход {d['entry']}💰 · комнат {d['rooms']} · ×{d['reward_mult']}\n")
+                 f"  Ур.{d['level_req']}+ · вход {d['entry']}💰 · комнат {d['rooms']}\n")
         if can:
             buttons.append([InlineKeyboardButton(text=f"{d['name']} — {d['entry']}💰",
                                                  callback_data=f"dungeon_enter_{code}")])
-    text += "\n<i>Внутри: цепочка боёв. В конце — босс. Смерть = потеря добычи.</i>"
+    text += "\n<i>Цепочка боёв, в конце босс. Смерть = потеря добычи.</i>"
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
                    parse_mode=ParseMode.HTML)
 
@@ -1260,8 +1750,7 @@ async def dungeon_enter(c: CallbackQuery):
             await c.answer(f"Нужно {d['entry']}💰", show_alert=True); return
     await db.start_dungeon(c.from_user.id, code)
     await c.answer("Вход!")
-    await c.message.answer(f"🏰 Ты входишь в <b>{d['name']}</b>...",
-                           parse_mode=ParseMode.HTML)
+    await c.message.answer(f"🏰 Входишь в <b>{d['name']}</b>...", parse_mode=ParseMode.HTML)
     await spawn_dungeon_enemy(c.message.chat.id, c.from_user.id, code, 1)
 
 
@@ -1331,7 +1820,6 @@ async def dungeon_leave_cb(c: CallbackQuery):
 
 async def dungeon_finish(chat_id, uid, msg):
     u = await db.get_user(uid)
-    d = DUNGEONS.get(u.get("dungeon_id", ""))
     loot_gold = u.get("dungeon_loot_gold", 0)
     try:
         loot_items = json.loads(u.get("dungeon_loot_items") or "[]")
@@ -1341,16 +1829,12 @@ async def dungeon_finish(chat_id, uid, msg):
         await db.add_gold(uid, loot_gold)
     for it in loot_items:
         await db.add_item(uid, it)
-    dungeon_id = u.get("dungeon_id", "")
     await db.exit_dungeon(uid)
     text = f"🏁 <b>{msg}</b>\n\n💰 Золото: +{loot_gold}"
     if loot_items:
         text += f"\n🎒 Предметы: {', '.join(loot_items)}"
-    else:
-        text += "\n🎒 Предметов нет"
     await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-    if dungeon_id:
-        await db.add_achievement(uid, "dungeon_1")
+    await db.add_achievement(uid, "dungeon_1")
 
 
 # ================= КУЗНИЦА =================
@@ -1360,23 +1844,17 @@ async def craft_cmd(m: Message):
     u = await db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
-    inv = await db.get_inventory(m.from_user.id)
     text = (f"⚒️ <b>Кузница</b>\n\n"
-            f"🔩 Железо: {u['mat_iron']} · 🧵 Кожа: {u['mat_leather']}\n"
-            f"✨ Пыль: {u['mat_dust']} · 💎 Кристалл: {u['mat_crystal']}\n\n"
+            f"🔩 {u['mat_iron']} · 🧵 {u['mat_leather']} · ✨ {u['mat_dust']} · 💎 {u['mat_crystal']}\n\n"
             f"<b>Действия:</b>\n"
-            f"/dismantle Название — разобрать на материалы\n"
-            f"/upgrade Название — улучшить (+1, +2, +3)\n"
-            f"/craft Название — создать предмет\n\n"
+            f"/dismantle Название — разобрать\n"
+            f"/upgrade Название — улучшить (+1..+3)\n\n"
             f"<b>Рецепты:</b>\n")
     for result, r in CRAFT_RECIPES.items():
         text += (f"• <b>{result}</b> ← {r['count']}× {r['base']} + "
                  f"{r['mat_count']}× {MATERIAL_NAMES[r['mat']]}\n")
-
-    buttons = []
-    for result in CRAFT_RECIPES.keys():
-        buttons.append([InlineKeyboardButton(text=f"Создать {result}",
-                                             callback_data=f"craft_{result}")])
+    buttons = [[InlineKeyboardButton(text=f"Создать {result}", callback_data=f"craft_{result}")]
+               for result in CRAFT_RECIPES.keys()]
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
                    parse_mode=ParseMode.HTML)
 
@@ -1427,8 +1905,7 @@ async def upgrade_cmd(m: Message):
     mat = {"weapon": "iron", "armor": "leather", "accessory": "crystal"}[itype]
     u = await db.get_user(m.from_user.id)
     if u[f"mat_{mat}"] < mat_needed:
-        await m.answer(f"❌ Нужно {mat_needed}× {MATERIAL_NAMES[mat]} (есть {u[f'mat_{mat}']})")
-        return
+        await m.answer(f"❌ Нужно {mat_needed}× {MATERIAL_NAMES[mat]}"); return
     if u["gold"] < gold_needed:
         await m.answer(f"❌ Нужно {gold_needed}💰"); return
     await db.spend_material(m.from_user.id, mat, mat_needed)
@@ -1436,10 +1913,8 @@ async def upgrade_cmd(m: Message):
     await db.remove_item(m.from_user.id, item_name)
     new_name = f"{base_name}+{lvl + 1}"
     await db.add_item(m.from_user.id, new_name)
-    await m.answer(
-        f"🔨 <b>{item_name}</b> → <b>{new_name}</b>\n"
-        f"Бонусы увеличены на 10%.",
-        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    await m.answer(f"🔨 <b>{item_name}</b> → <b>{new_name}</b>",
+                   reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
     if await db.add_achievement(m.from_user.id, "upgrader"):
         await m.answer("🏆 Достижение: 🔨 Улучшатель", parse_mode=ParseMode.HTML)
 
@@ -1478,44 +1953,46 @@ async def run_tutorial(uid, chat_id):
     if step == 0:
         await bot.send_message(chat_id,
             "👋 <b>Добро пожаловать в мир!</b>\n\n"
-            "Я — мастер игры. Ты — герой, который будет исследовать мир, "
-            "сражаться и становиться сильнее.\n\n"
-            "🎮 <b>Как играть:</b> просто пиши, что делает твой герой. "
-            "Например: «Иду в лес», «Атакую гоблина», «Говорю с купцом».",
+            "Ты — герой в мире Lineage. Мир состоит из 12 локаций, "
+            "соединённых дорогами. Исследуй, сражайся, становись сильнее.",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 1)
     elif step == 1:
         await bot.send_message(chat_id,
-            "⚔️ <b>Бой</b>\n\n"
-            "Когда встретишь врага — появятся кнопки:\n"
-            "⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
-            "Оценка опасности: 🟢 легко · 🟡 средне · 🟠 равный · 🔴 опасно · 🐉 босс.",
+            "🚶 <b>Путешествия</b>\n\n"
+            "Кнопка <b>🚶 Идти</b> — перемещает между локациями.\n"
+            "Стартовая — Начальная деревня. Отсюда есть путь в Таверну, Лес и на Тракт.",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 2)
     elif step == 2:
         await bot.send_message(chat_id,
-            "🚶 <b>Путешествия</b>\n\n"
-            "Кнопка <b>🚶 Идти</b> внизу — так ты перемещаешься между локациями.\n"
-            "Пиши, куда идёт герой: «Иду в лес», «Вхожу в таверну».\n"
-            "Карта (🗺) покажет, где ты уже был.",
+            "📜 <b>NPC и квесты</b>\n\n"
+            "В локациях живут NPC — Кузнец, Старейшина, Лесник. "
+            "Команда /npc — открыть список NPC в локации и взять квест.",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 3)
     elif step == 3:
         await bot.send_message(chat_id,
-            "📋 <b>Ежедневные квесты</b>\n\n"
-            "Каждый день тебе выдаются 3 задания. Выполняй — получай золото и опыт.\n"
-            "Кнопка <b>📋 Квесты</b> внизу — там всё видно.",
+            "🏛 <b>Гильдии</b>\n\n"
+            "Собери 1000💰 и создай гильдию. Гильдия может захватывать локации — "
+            "её члены получают +15% золота и +10% XP в родных землях.",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 4)
     elif step == 4:
         await bot.send_message(chat_id,
+            "🌍 <b>События</b>\n\n"
+            "В локациях случаются нашествия, клады и мор. "
+            "Проверяй /world — там видно, где сейчас жарко.",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 5)
+    elif step == 5:
+        await bot.send_message(chat_id,
             "💡 <b>Советы</b>\n\n"
-            "• Заходи каждый день → 🎁 Награда — бонус за серию\n"
-            "• Покупай экипировку в 🛒 Магазине\n"
-            "• Улучшай предметы в ⚒️ Кузнице\n"
-            "• Купи питомца — он помогает в бою\n"
-            "• Сражайся с другими игроками через /duel\n"
-            "• Ищи других игроков — 👥 Кто здесь\n\n"
+            "• Заходи каждый день → 🎁 Награда\n"
+            "• ⚒️ Кузница — крафт и улучшение предметов\n"
+            "• 🐾 Питомец помогает в бою\n"
+            "• /duel — сражайся с другими игроками\n"
+            "• /quests — ежедневные квесты\n\n"
             "Удачи, герой! 🎮",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 99, finished=True)
@@ -1527,7 +2004,9 @@ async def quests_cmd(m: Message):
     u = await db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя: /start"); return
-    quests = await db.get_daily_quests(m.from_user.id)
+    daily = await db.get_daily_quests(m.from_user.id)
+    npc_active = await db.get_user_quests(m.from_user.id)
+
     quest_names = {
         "kill_enemies": "⚔️ Убить врагов",
         "visit_locations": "🗺 Посетить локации",
@@ -1535,16 +2014,26 @@ async def quests_cmd(m: Message):
         "craft_items": "⚒️ Создать предметы",
         "earn_gold": "💰 Заработать золото",
     }
-    lines = ["📋 <b>Ежедневные квесты</b>\n"]
-    for q in quests:
+
+    text = "📋 <b>Ежедневные квесты</b>\n\n"
+    for q in daily:
         name = quest_names.get(q["quest_type"], q["quest_type"])
         done = "✅" if q["completed"] else "⏳"
-        lines.append(
-            f"{done} <b>{name}</b>\n"
-            f"   {q['progress']}/{q['target']} · Награда: {q['reward_gold']}💰 + {q['reward_xp']} XP"
-        )
-    lines.append("\n<i>Обновляются каждый день в полночь.</i>")
-    await m.answer("\n".join(lines), reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+        text += (f"{done} <b>{name}</b>\n"
+                 f"   {q['progress']}/{q['target']} · {q['reward_gold']}💰 +{q['reward_xp']} XP\n\n")
+
+    active_npc = [x for x in npc_active if not x["completed"]]
+    done_npc = [x for x in npc_active if x["completed"]]
+    if active_npc:
+        text += "\n📜 <b>Активные NPC-квесты:</b>\n"
+        for x in active_npc:
+            q = W.get_quest(x["quest_code"])
+            if q:
+                text += f"• {q['title']} — {x['progress']}/{q['count']}\n"
+    if done_npc:
+        text += f"\n✅ Выполнено NPC-квестов: {len(done_npc)}"
+
+    await m.answer(text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
 # ================= НАГРАДА / ПРЕМИУМ / ПОМОЩЬ =================
@@ -1645,7 +2134,9 @@ async def admin_help(m: Message):
         "/admin_mats — +10 всех материалов\n"
         "/admin_resetquests — сбросить квесты\n"
         "/admin_resettutorial — сбросить туториал\n"
-        "/admin_teleport Название — переместить в локацию",
+        "/admin_teleport Код — переместить в локацию\n"
+        "/admin_event Код — запустить событие\n"
+        "/admin_spawn_event — случайное событие в случайной локации",
         parse_mode=ParseMode.HTML)
 
 
@@ -1658,7 +2149,7 @@ async def admin_reset(m: Message):
     await db.update_hp_max(m.from_user.id, nm, nm)
     async with db.pool.acquire() as conn:
         await conn.execute("UPDATE users SET requests_today=0 WHERE user_id=$1", m.from_user.id)
-    await m.answer(f"🛠 Сброшено. HP: {nm}/{nm}", parse_mode=ParseMode.HTML)
+    await m.answer(f"🛠 HP: {nm}/{nm}", parse_mode=ParseMode.HTML)
 
 
 @dp.message(Command("admin_gold"))
@@ -1674,7 +2165,7 @@ async def admin_gold(m: Message):
         await m.answer("Число."); return
     await db.add_gold(m.from_user.id, amount)
     u = await db.get_user(m.from_user.id)
-    await m.answer(f"🛠 Золото: {amount:+d}. Теперь: {u['gold']}💰")
+    await m.answer(f"🛠 {amount:+d}. Теперь: {u['gold']}💰")
 
 
 @dp.message(Command("admin_hp"))
@@ -1752,7 +2243,7 @@ async def admin_resetquests(m: Message):
         await m.answer("❌"); return
     async with db.pool.acquire() as conn:
         await conn.execute("DELETE FROM daily_quests WHERE user_id=$1", m.from_user.id)
-    await m.answer("🛠 Квесты сброшены. Открой /quests заново.")
+    await m.answer("🛠 Квесты сброшены.")
 
 
 @dp.message(Command("admin_resettutorial"))
@@ -1761,7 +2252,7 @@ async def admin_resettutorial(m: Message):
         await m.answer("❌"); return
     async with db.pool.acquire() as conn:
         await conn.execute("DELETE FROM tutorial_progress WHERE user_id=$1", m.from_user.id)
-    await m.answer("🛠 Туториал сброшен. Следующий /start запустит его заново.")
+    await m.answer("🛠 Туториал сброшен.")
 
 
 @dp.message(Command("admin_teleport"))
@@ -1770,10 +2261,62 @@ async def admin_teleport(m: Message):
         await m.answer("❌"); return
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
-        await m.answer("Использование: /admin_teleport Тёмный лес"); return
-    loc = normalize_location(parts[1])
-    await db.add_location(m.from_user.id, loc)
-    await m.answer(f"🛠 Ты перемещён в: {loc}")
+        codes = ", ".join(W.LOCATIONS.keys())
+        await m.answer(f"Коды: {codes}"); return
+    code = parts[1].strip().lower()
+    if code not in W.LOCATIONS:
+        await m.answer("Неизвестный код."); return
+    loc = W.get_location(code)
+    await db.set_location_code(m.from_user.id, code)
+    await db.add_location(m.from_user.id, loc["name"])
+    await m.answer(f"🛠 Перемещён в: {loc['name']}")
+
+
+@dp.message(Command("admin_event"))
+async def admin_event(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌"); return
+    parts = m.text.split()
+    if len(parts) < 2:
+        codes = ", ".join(W.LOCATIONS.keys())
+        await m.answer(f"Использование: /admin_event <code локации>\nКоды: {codes}")
+        return
+    loc_code = parts[1].strip().lower()
+    if loc_code not in W.LOCATIONS:
+        await m.answer("Неизвестная локация."); return
+    tpl = random.choice(W.EVENT_TEMPLATES)
+    await db.create_world_event(
+        loc_code, tpl["code"], tpl["name"], tpl["desc"],
+        tpl["duration_min"], tpl["xp_mult"], tpl["gold_mult"],
+        tpl["spawn_mult"], tpl.get("enemy_dmg_mult", 1.0)
+    )
+    loc_name = W.get_location(loc_code)["name"]
+    await broadcast_to_location(
+        loc_code,
+        f"🌍 <b>Событие в {loc_name}</b>\n{tpl['name']}: <i>{tpl['desc']}</i>",
+        0
+    )
+    await m.answer(f"🛠 Событие {tpl['name']} в {loc_name}.")
+
+
+@dp.message(Command("admin_spawn_event"))
+async def admin_spawn_event(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌"); return
+    loc_code = random.choice(list(W.LOCATIONS.keys()))
+    tpl = random.choice(W.EVENT_TEMPLATES)
+    await db.create_world_event(
+        loc_code, tpl["code"], tpl["name"], tpl["desc"],
+        tpl["duration_min"], tpl["xp_mult"], tpl["gold_mult"],
+        tpl["spawn_mult"], tpl.get("enemy_dmg_mult", 1.0)
+    )
+    loc_name = W.get_location(loc_code)["name"]
+    await broadcast_to_location(
+        loc_code,
+        f"🌍 <b>Событие в {loc_name}</b>\n{tpl['name']}: <i>{tpl['desc']}</i>",
+        0
+    )
+    await m.answer(f"🛠 Событие {tpl['name']} в {loc_name}.")
 
 
 # ================= БОЙ С МОБАМИ =================
@@ -1782,7 +2325,8 @@ async def start_combat_from_ai(chat_id, user, enemy):
                           enemy["hp"], 1 if enemy["is_boss"] else 0)
     combat = await db.get_combat(user["user_id"])
     intro = "🐉 <b>БОСС!</b>" if enemy["is_boss"] else "Бой начался!"
-    await send_combat_state(chat_id, user, combat, intro)
+    event = await db.get_active_event(user.get("location_code", "village"))
+    await send_combat_state(chat_id, user, combat, intro, event)
 
 
 def pet_attack_damage(user, round_num):
@@ -1804,6 +2348,9 @@ def pet_attack_damage(user, round_num):
 
 
 async def process_combat_round(chat_id, user, combat, action_type, extra_text=""):
+    event = await db.get_active_event(user.get("location_code", "village"))
+    enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
+
     if action_type == "attack":
         eff = effective_stats(user)
         dmg = int((eff["str"] * 2 + eff["dex"] + random.randint(0, 5)) * faction_mult(user, "dmg_mult"))
@@ -1819,7 +2366,7 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         await db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
         parts = []
         if is_crit:
-            parts.append(f"💥 <b>КРИТ!</b> {dmg} урона!")
+            parts.append(f"💥 <b>КРИТ!</b> {dmg}")
         else:
             parts.append(f"⚔️ {dmg} урона.")
         if pet_dmg > 0:
@@ -1833,438 +2380,11 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         new_hp = min(user["max_hp"], user["hp"] + heal)
         await db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
-        extra_text = f"🛡 +{heal} HP, удар слабее."
-        enemy_dmg = max(1, int((combat["enemy_level"] * 5 + random.randint(0, 5)) * 0.5))
+        extra_text = f"🛡 +{heal} HP."
+        enemy_dmg = max(1, int((combat["enemy_level"] * 5 + random.randint(0, 5)) * 0.5 * enemy_dmg_mult))
         new_hp = max(0, user["hp"] - enemy_dmg)
         await db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
         extra_text += f"\n💔 {combat['enemy_name']} бьёт на {enemy_dmg}."
-        combat = await db.get_combat(user["user_id"])
         if user["hp"] <= 0:
-            await handle_death(chat_id, user, combat); return False
-        await db.incr_combat_round(user["user_id"])
-        await send_combat_state(chat_id, user, await db.get_combat(user["user_id"]), extra_text)
-        return True
-
-    if new_enemy_hp <= 0:
-        await handle_victory(chat_id, user, combat, extra_text)
-        return False
-
-    if user.get("pet_type") == "phoenix":
-        plvl = user.get("pet_level", 1)
-        heal = int(user["max_hp"] * 0.05) + plvl
-        new_hp = min(user["max_hp"], user["hp"] + heal)
-        if new_hp > user["hp"]:
-            await db.update_hp(user["user_id"], new_hp)
-            user["hp"] = new_hp
-            extra_text += f"\n🔥 Феникс лечит +{heal} HP."
-
-    enemy_dmg = combat["enemy_level"] * 5 + random.randint(0, 5)
-    if combat["is_boss"]:
-        enemy_dmg = int(enemy_dmg * 1.5)
-    new_hp = max(0, user["hp"] - enemy_dmg)
-    await db.update_hp(user["user_id"], new_hp)
-    user["hp"] = new_hp
-    extra_text += f"\n💔 {combat['enemy_name']} наносит {enemy_dmg}."
-
-    if user["hp"] <= 0:
-        await handle_death(chat_id, user, combat); return False
-
-    await db.incr_combat_round(user["user_id"])
-    await send_combat_state(chat_id, user, await db.get_combat(user["user_id"]), extra_text)
-    return True
-
-
-async def handle_victory(chat_id, user, combat, prefix_text):
-    await db.end_combat(user["user_id"])
-
-    q = await db.progress_quest(user["user_id"], "kill_enemies", 1)
-    if q and q.get("completed"):
-        try:
-            await bot.send_message(user["user_id"],
-                f"✅ <b>Квест выполнен:</b> Убить врагов\n+{q['gold']}💰 · +{q['xp']} XP",
-                parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
-
-    exp = combat["enemy_level"] * 15
-    gold = combat["enemy_level"] * 10
-    is_dungeon = combat.get("is_dungeon", 0)
-    if combat["is_boss"]:
-        exp *= 3
-        gold *= 3
-    gold = int(gold * faction_mult(user, "gold_mult"))
-
-    if user.get("pet_type"):
-        await db.add_pet_xp(user["user_id"], combat["enemy_level"] * 5)
-
-    if is_dungeon:
-        d = DUNGEONS.get(user.get("dungeon_id", ""), {})
-        mult = d.get("reward_mult", 1.0)
-        gold = int(gold * mult)
-        try:
-            items = json.loads(user.get("dungeon_loot_items") or "[]")
-        except Exception:
-            items = []
-        if random.randint(1, 100) <= 40:
-            items.append(random.choice(DROP_TABLE))
-        await db.advance_dungeon(user["user_id"], gold, json.dumps(items))
-        text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
-                f"<b>{combat['enemy_name']}</b> повержен!\n"
-                f"💰 Добыча в подземелье: +{gold}")
-        u = await db.get_user(user["user_id"])
-        d = DUNGEONS.get(u.get("dungeon_id", ""))
-        if combat["is_boss"]:
-            text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b>"
-        text += f"\n\n<b>Комната {u['dungeon_room']}/{d.get('rooms', '?')}</b>"
-        if u["dungeon_room"] >= d.get("rooms", 1):
-            await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
-            await dungeon_finish(chat_id, user["user_id"], "Подземелье пройдено!")
-            return
-        await bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
-                               parse_mode=ParseMode.HTML)
-        if combat["is_boss"]:
-            await db.incr_bosses(user["user_id"])
-        return
-
-    await db.add_gold(user["user_id"], gold)
-    level, xp, leveled_up = await db.add_xp(user["user_id"], exp)
-    text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
-            f"<b>{combat['enemy_name']}</b> повержен!\n"
-            f"+{exp} XP · +{gold}💰")
-
-    if combat["is_boss"]:
-        await db.incr_bosses(user["user_id"])
-        await db.add_world_event(user["user_id"], user["username"],
-                                 f"победил босса «{combat['enemy_name']}»")
-        await db.update_hp(user["user_id"], user["max_hp"])
-        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
-        if await db.add_achievement(user["user_id"], "first_boss"):
-            text += "\n🏆 Достижение: ⚔️ Убийца боссов"
-
-    if random.randint(1, 100) <= 30:
-        item = random.choice(DROP_TABLE)
-        await db.add_item(user["user_id"], item)
-        text += f"\n\n🎒 <b>Добыча:</b> {item}"
-
-    if user.get("pet_type") == "owl" and random.randint(1, 100) <= 20:
-        mat = random.choice(["iron", "leather", "dust", "crystal"])
-        await db.add_material(user["user_id"], mat, 1)
-        text += f"\n🔨 Сова нашла: {MATERIAL_NAMES[mat]}"
-
-    if leveled_up:
-        u = await db.get_user(user["user_id"])
-        nm = calc_max_hp(u)
-        await db.update_hp_max(user["user_id"], nm, nm)
-        text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm}."
-        if level in (5, 10):
-            await db.add_world_event(user["user_id"], user["username"],
-                                     f"достиг {level} уровня!")
-
-    if await db.add_achievement(user["user_id"], "first_blood"):
-        text += "\n🏆 Достижение: 🩸 Первая кровь"
-    u = await db.get_user(user["user_id"])
-    if u["bosses_defeated"] >= 5:
-        if await db.add_achievement(user["user_id"], "boss_5"):
-            text += "\n🏆 Достижение: 🐉 Легенда"
-
-    await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-
-
-async def handle_death(chat_id, user, combat):
-    was_dungeon = combat.get("is_dungeon", 0)
-    await db.end_combat(user["user_id"])
-    if was_dungeon:
-        await db.exit_dungeon(user["user_id"])
-    lost = int(user["gold"] * 0.30)
-    await db.set_gold(user["user_id"], user["gold"] - lost)
-    u = await db.get_user(user["user_id"])
-    nm = calc_max_hp(u)
-    await db.update_hp_max(user["user_id"], nm, nm)
-    await db.update_story(user["user_id"], "")
-    await db.incr_deaths(user["user_id"])
-    await db.add_achievement(user["user_id"], "survivor")
-    await db.add_world_event(user["user_id"], user["username"],
-                             f"пал в бою с «{combat['enemy_name']}»")
-    text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
-            f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
-            f"Ты очнулся в Начальной деревне.\n"
-            f"Жрецы забрали <b>{lost}💰</b> (30%).")
-    if was_dungeon:
-        text += "\n\n⚠️ <b>Вся добыча из подземелья потеряна!</b>"
-    text += f"\n\n❤️ HP: {nm}/{nm}\n💰 Золото: {u['gold'] - lost}\n\n<i>Уровень и опыт сохранены.</i>"
-    await bot.send_message(chat_id, text, reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-
-
-@dp.callback_query(F.data == "combat_attack")
-async def cb_attack(c: CallbackQuery):
-    user = await db.get_user(c.from_user.id)
-    combat = await db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
-    await c.answer("⚔️ Атака!")
-    await process_combat_round(c.message.chat.id, user, combat, "attack")
-
-
-@dp.callback_query(F.data == "combat_defend")
-async def cb_defend(c: CallbackQuery):
-    user = await db.get_user(c.from_user.id)
-    combat = await db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
-    await c.answer("🛡 Защита")
-    await process_combat_round(c.message.chat.id, user, combat, "defend")
-
-
-@dp.callback_query(F.data == "combat_potion")
-async def cb_potion(c: CallbackQuery):
-    user = await db.get_user(c.from_user.id)
-    combat = await db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
-    if user["hp"] >= user["max_hp"]:
-        await c.answer("❤️ HP полное!", show_alert=True); return
-    is_admin = c.from_user.id in ADMIN_IDS
-    if not is_admin and user["gold"] < POTION_PRICE:
-        await c.answer(f"❌ Нужно {POTION_PRICE}💰", show_alert=True); return
-    if not is_admin:
-        await db.spend_gold(c.from_user.id, POTION_PRICE)
-    new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
-    await db.update_hp(c.from_user.id, new_hp)
-    user["hp"] = new_hp
-    await c.answer(f"💚 +{POTION_HEAL} HP")
-    enemy_dmg = combat["enemy_level"] * 5 + random.randint(0, 5)
-    if combat["is_boss"]:
-        enemy_dmg = int(enemy_dmg * 1.5)
-    new_hp = max(0, user["hp"] - enemy_dmg)
-    await db.update_hp(c.from_user.id, new_hp)
-    user["hp"] = new_hp
-    if user["hp"] <= 0:
-        await handle_death(c.message.chat.id, user, combat); return
-    await db.incr_combat_round(c.from_user.id)
-    await send_combat_state(c.message.chat.id, user, await db.get_combat(c.from_user.id),
-                            f"💚 Зелье +{POTION_HEAL}. 💔 Враг бьёт на {enemy_dmg}.")
-
-
-@dp.callback_query(F.data == "combat_flee")
-async def cb_flee(c: CallbackQuery):
-    user = await db.get_user(c.from_user.id)
-    combat = await db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
-    if combat["is_boss"]:
-        await c.answer("🐉 От босса не убежать!", show_alert=True); return
-    if combat.get("is_dungeon"):
-        await c.answer("🏰 Из подземелья не сбежать!", show_alert=True); return
-    if random.randint(1, 100) <= 50:
-        await db.end_combat(c.from_user.id)
-        await c.answer("🏃 Побег!")
-        await c.message.answer("🏃 Ты сбежал.", reply_markup=MAIN_KB)
-    else:
-        await c.answer("❌ Не удалось!")
-        enemy_dmg = (combat["enemy_level"] * 5 + random.randint(0, 5)) // 2
-        new_hp = max(0, user["hp"] - enemy_dmg)
-        await db.update_hp(c.from_user.id, new_hp)
-        user["hp"] = new_hp
-        if user["hp"] <= 0:
-            await handle_death(c.message.chat.id, user, combat); return
-        await db.incr_combat_round(c.from_user.id)
-        await send_combat_state(c.message.chat.id, user, await db.get_combat(c.from_user.id),
-                                f"❌ Побег не удался! -{enemy_dmg}.")
-
-
-# ================= ДОСТИЖЕНИЯ =================
-async def check_achievements(uid, user):
-    new = []
-    if user["action_count"] >= 1:
-        if await db.add_achievement(uid, "first_step"): new.append("first_step")
-    locs = await db.get_locations(uid)
-    if len(locs) >= 5:
-        if await db.add_achievement(uid, "explorer_5"): new.append("explorer_5")
-    if len(locs) >= 10:
-        if await db.add_achievement(uid, "social"): new.append("social")
-    items = await db.get_inventory(uid)
-    if len(items) >= 5:
-        if await db.add_achievement(uid, "collector_5"): new.append("collector_5")
-    if user["level"] >= 5:
-        if await db.add_achievement(uid, "level_5"): new.append("level_5")
-    if user["level"] >= 10:
-        if await db.add_achievement(uid, "level_10"): new.append("level_10")
-    if user["referral_count"] >= 3:
-        if await db.add_achievement(uid, "referral_3"): new.append("referral_3")
-    if user["daily_streak"] >= 7:
-        if await db.add_achievement(uid, "daily_7"): new.append("daily_7")
-    if user["gold"] >= 1000:
-        if await db.add_achievement(uid, "rich"): new.append("rich")
-    return new
-
-
-# ================= ОСНОВНОЙ ОБРАБОТЧИК =================
-@dp.message(F.text)
-async def handle(m: Message):
-    uid = m.from_user.id
-    user = await db.get_user(uid, m.from_user.username or "")
-
-    if not user["consent_given"]:
-        await m.answer("⚠️ Сначала /start"); return
-    if not user["race"]:
-        await show_race_selection(m); return
-    if not user["class"]:
-        await show_class_selection(m, user["race"]); return
-    if not user["faction"]:
-        await show_faction_selection(m); return
-    if not user["char_name"]:
-        name = m.text.strip()[:20]
-        if len(name) < 2:
-            await m.answer("✏️ Имя 2–20 символов:"); return
-        stats = calc_stats(user["race"], user["class"])
-        hp_base = stats["con"] * 20 + 15
-        user_tmp = {"faction": user["faction"], "level": 1, "stat_con": stats["con"],
-                    "stat_str": stats["str"], "stat_dex": stats["dex"],
-                    "stat_int": stats["int"], "stat_wit": stats["wit"],
-                    "stat_men": stats["men"], "pet_type": None}
-        hp = int(hp_base * faction_mult(user_tmp, "hp_mult"))
-        await db.set_char(uid, name, stats, hp)
-        await m.answer(
-            f"🎉 <b>Герой создан!</b>\n\n"
-            f"<b>{name}</b>\n"
-            f"{RACES[user['race']]['name']} · {CLASSES[user['class']]['name']}\n"
-            f"{FACTIONS[user['faction']]['name']}\n\n"
-            f"STR {stats['str']} · DEX {stats['dex']} · CON {stats['con']}\n"
-            f"INT {stats['int']} · WIT {stats['wit']} · MEN {stats['men']}\n"
-            f"❤️ HP: {hp} · 💰 100\n\n"
-            f"📍 Начальная деревня.",
-            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-        await run_tutorial(uid, m.chat.id)
-        return
-
-    combat = await db.get_combat(uid)
-    if combat:
-        if combat.get("is_pvp"):
-            await m.answer("⚔️ Ты в дуэли!",
-                           reply_markup=pvp_kb(combat["my_turn"]))
-        else:
-            await m.answer("⚔️ Ты в бою! Жми кнопки.", reply_markup=combat_kb())
-        return
-
-    is_admin = uid in ADMIN_IDS
-    if not is_admin and not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
-        await m.answer(
-            f"⏳ Лимит исчерпан ({FREE_DAILY_LIMIT}).\n\n"
-            "💎 Премиум · 👥 Друг · 🎁 Награда",
-            reply_markup=MAIN_KB)
-        return
-
-    await bot.send_chat_action(m.chat.id, "typing")
-    action = m.text.strip()[:500]
-
-    user_for_ai = dict(user)
-    eff = effective_stats(user)
-    for k in ["str", "dex", "con", "int", "wit", "men"]:
-        user_for_ai[f"stat_{k}"] = eff[k]
-    pet = await db.get_pet(uid)
-    if pet:
-        user_for_ai["pet_name"] = pet["name"]
-        user_for_ai["pet_type"] = pet["pet_type"]
-        user_for_ai["pet_level"] = pet["level"]
-
-    result = await ai.generate(user["story"], action, user["arc"], user_for_ai)
-    response = result["text"]
-
-    if result["enemy"]:
-        await db.increment(uid)
-        await db.incr_action_count(uid)
-        new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
-        await db.update_story(uid, new_story)
-        await m.answer(f"{response}\n\n<i>{AI_MARKER}</i>", parse_mode=ParseMode.HTML)
-        await start_combat_from_ai(m.chat.id, user, result["enemy"])
-        return
-
-    if result["item"]:
-        await db.add_item(uid, result["item"])
-        response += f"\n\n🎒 <i>+{result['item']}</i>"
-    if result["location"]:
-        loc = normalize_location(result["location"])
-        # Проверяем: это новая локация или та же самая?
-        old_loc = user["location"]
-        if loc != old_loc:
-            await db.add_location(uid, loc)
-            await db.progress_quest(uid, "visit_locations", 1)
-            response += f"\n\n📍 <i>Переход: {old_loc} → {loc}</i>"
-        else:
-            response += f"\n\n📍 <i>{loc}</i>"
-    if result.get("material"):
-        await db.add_material(uid, result["material"], 1)
-        response += f"\n\n🔨 <i>+{MATERIAL_NAMES[result['material']]}</i>"
-    if result["damage"] > 0:
-        nhp = user["hp"] - result["damage"]
-        await db.update_hp(uid, nhp)
-        response += f"\n\n💔 <i>-{result['damage']} HP</i>"
-        if nhp <= 0:
-            await db.update_hp_max(uid, user["max_hp"], user["max_hp"])
-            response += "\n\n💀 <i>Ты очнулся в деревне.</i>"
-    if result["heal"] > 0:
-        nhp = min(user["max_hp"], user["hp"] + result["heal"])
-        await db.update_hp(uid, nhp)
-        response += f"\n\n💚 <i>+{result['heal']} HP</i>"
-
-    gold_gain = int((5 + result["gold"]) * faction_mult(user, "gold_mult"))
-    await db.add_gold(uid, gold_gain)
-    if gold_gain > 0:
-        await db.progress_quest(uid, "earn_gold", gold_gain)
-
-    new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
-    await db.update_story(uid, new_story)
-    await db.increment(uid)
-    await db.incr_action_count(uid)
-
-    level, xp, leveled_up = await db.add_xp(uid, 10)
-    if leveled_up:
-        u = await db.get_user(uid)
-        nm = calc_max_hp(u)
-        await db.update_hp_max(uid, nm, nm)
-        response += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm}/{nm}"
-        if level in (5, 10):
-            await db.add_world_event(uid, user["username"], f"достиг {level} уровня!")
-
-    updated = await db.get_user(uid)
-    new_ach = await check_achievements(uid, updated)
-    if new_ach:
-        ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
-        response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
-
-    left = ("∞ (admin)" if is_admin
-            else "∞" if user["is_premium"]
-            else FREE_DAILY_LIMIT - user["requests_today"] - 1)
-    need = level * level * 100
-    await m.answer(
-        f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated['gold']} · "
-        f"❤️ {updated['hp']}/{updated['max_hp']} · Осталось: {left}</i>",
-        parse_mode=ParseMode.HTML)
-
-
-# ================= ВЕБ-СЕРВЕР =================
-async def handle_health(request):
-    return web.Response(text="Bot is running")
-
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    await web.TCPSite(runner, "0.0.0.0", port).start()
-    logging.info(f"✅ Веб-сервер на порту {port}")
-
-
-async def main():
-    await db.connect()
-    dp.message.middleware(ErrorMiddleware())
-    dp.callback_query.middleware(ErrorMiddleware())
-    await start_web_server()
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            await
