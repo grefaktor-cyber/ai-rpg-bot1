@@ -172,12 +172,12 @@ MAIN_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🎒 Инвентарь"), KeyboardButton(text="🛒 Магазин")],
         [KeyboardButton(text="⭐ Профиль"),   KeyboardButton(text="🏆 Достижения")],
-        [KeyboardButton(text="🗺 Карта"),     KeyboardButton(text="🌍 Мир")],
-        [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="📜 Записи")],
-        [KeyboardButton(text="🐾 Питомец"),   KeyboardButton(text="🏰 Подземелья")],
-        [KeyboardButton(text="⚒️ Кузница"),   KeyboardButton(text="🎁 Награда")],
-        [KeyboardButton(text="🏅 Рейтинг"),   KeyboardButton(text="💎 Премиум")],
-        [KeyboardButton(text="❓ Помощь")],
+        [KeyboardButton(text="📋 Квесты"),    KeyboardButton(text="🗺 Карта")],
+        [KeyboardButton(text="🌍 Мир"),       KeyboardButton(text="👥 Кто здесь")],
+        [KeyboardButton(text="📜 Записи"),    KeyboardButton(text="🐾 Питомец")],
+        [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
+        [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
+        [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
     ],
     resize_keyboard=True,
     input_field_placeholder="Что делает герой?"
@@ -197,6 +197,7 @@ HELP_TEXT = (
     "🎮 <b>Как играть</b>\n\n"
     "Пиши, что делает герой: «Осматриваюсь», «Иду в лес».\n\n"
     "<b>⚔️ Бой:</b> ⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
+    "<b>📋 Квесты:</b> 3 задания каждый день — золото и опыт за выполнение\n\n"
     "<b>🌍 Мир:</b>\n"
     "/who — кто в локации\n"
     "/write текст — оставить запись\n"
@@ -207,12 +208,11 @@ HELP_TEXT = (
     "<b>🏰 Подземелья:</b>\n"
     "Кнопка «🏰 Подземелья» — цепочки боёв с боссом в конце\n\n"
     "<b>⚒️ Кузница:</b>\n"
-    "Разбор предметов на материалы, крафт, улучшение (+1, +2, +3)\n"
+    "Разбор предметов, крафт, улучшение (+1, +2, +3)\n"
 )
 
 
 def parse_item(s):
-    """'Стальной меч+2' → ('Стальной меч', 2). 'Меч' → ('Меч', 0)."""
     if not s:
         return "", 0
     import re as _re
@@ -347,7 +347,6 @@ async def send_combat_state(chat_id, user, combat, round_text=""):
 
 
 async def send_pvp_state(uid, user, combat):
-    """Показать состояние PvP-дуэли игроку."""
     if not combat:
         return
     enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
@@ -1058,6 +1057,15 @@ async def pvp_end(winner_id, loser_id, stake):
                 await bot.send_message(winner_id, "🏆 ⚜️ Гроза арены", parse_mode=ParseMode.HTML)
             except Exception:
                 pass
+    # Прогресс квеста
+    q = await db.progress_quest(winner_id, "win_duels", 1)
+    if q and q.get("completed"):
+        try:
+            await bot.send_message(winner_id,
+                f"✅ <b>Квест выполнен:</b> Победить в дуэлях\n+{q['gold']}💰 · +{q['xp']} XP",
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
     try:
         await bot.send_message(winner_id,
             f"🏆 <b>ПОБЕДА!</b> над {l['char_name']}\n+{real}💰 · Репутация +1",
@@ -1391,6 +1399,76 @@ async def craft_cb(c: CallbackQuery):
     await c.message.answer(f"⚒️ Ты создал <b>{result}</b>!", parse_mode=ParseMode.HTML)
     if await db.add_achievement(c.from_user.id, "crafter"):
         await c.message.answer("🏆 Достижение: ⚒️ Кузнец", parse_mode=ParseMode.HTML)
+    # Прогресс квеста
+    await db.progress_quest(c.from_user.id, "craft_items", 1)
+
+
+# ================= ОНБОРДИНГ =================
+async def run_tutorial(uid, chat_id):
+    step, finished = await db.get_tutorial_step(uid)
+    if finished:
+        return
+    if step == 0:
+        await bot.send_message(chat_id,
+            "👋 <b>Добро пожаловать в мир!</b>\n\n"
+            "Я — мастер игры. Ты — герой, который будет исследовать мир, "
+            "сражаться и становиться сильнее.\n\n"
+            "🎮 <b>Как играть:</b> просто пиши, что делает твой герой. "
+            "Например: «Иду в лес», «Атакую гоблина», «Говорю с купцом».",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 1)
+    elif step == 1:
+        await bot.send_message(chat_id,
+            "⚔️ <b>Бой</b>\n\n"
+            "Когда встретишь врага — появятся кнопки:\n"
+            "⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
+            "Оценка опасности: 🟢 легко · 🟡 средне · 🟠 равный · 🔴 опасно · 🐉 босс.",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 2)
+    elif step == 2:
+        await bot.send_message(chat_id,
+            "📋 <b>Ежедневные квесты</b>\n\n"
+            "Каждый день тебе выдаются 3 задания. Выполняй — получай золото и опыт.\n"
+            "Кнопка <b>📋 Квесты</b> внизу — там всё видно.",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 3)
+    elif step == 3:
+        await bot.send_message(chat_id,
+            "💡 <b>Советы</b>\n\n"
+            "• Заходи каждый день → /daily — бонус за серию\n"
+            "• Покупай экипировку в 🛒 Магазине\n"
+            "• Улучшай предметы в ⚒️ Кузнице\n"
+            "• Купи питомца — он помогает в бою\n"
+            "• Сражайся с другими игроками через /duel\n\n"
+            "Удачи, герой! 🎮",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 99, finished=True)
+
+
+@dp.message(Command("quests"))
+@dp.message(F.text == "📋 Квесты")
+async def quests_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя: /start"); return
+    quests = await db.get_daily_quests(m.from_user.id)
+    quest_names = {
+        "kill_enemies": "⚔️ Убить врагов",
+        "visit_locations": "🗺 Посетить локации",
+        "win_duels": "🗡 Победить в дуэлях",
+        "craft_items": "⚒️ Создать предметы",
+        "earn_gold": "💰 Заработать золото",
+    }
+    lines = ["📋 <b>Ежедневные квесты</b>\n"]
+    for q in quests:
+        name = quest_names.get(q["quest_type"], q["quest_type"])
+        done = "✅" if q["completed"] else "⏳"
+        lines.append(
+            f"{done} <b>{name}</b>\n"
+            f"   {q['progress']}/{q['target']} · Награда: {q['reward_gold']}💰 + {q['reward_xp']} XP"
+        )
+    lines.append("\n<i>Обновляются каждый день в полночь.</i>")
+    await m.answer("\n".join(lines), reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
 # ================= НАГРАДА / ПРЕМИУМ / ПОМОЩЬ =================
@@ -1488,7 +1566,9 @@ async def admin_help(m: Message):
         "/admin_endcombat — завершить бой\n"
         "/admin_stats — строка БД\n"
         "/admin_give_item Название — выдать предмет\n"
-        "/admin_mats — +10 всех материалов",
+        "/admin_mats — +10 всех материалов\n"
+        "/admin_resetquests — сбросить квесты\n"
+        "/admin_resettutorial — сбросить туториал",
         parse_mode=ParseMode.HTML)
 
 
@@ -1587,6 +1667,24 @@ async def admin_mats(m: Message):
     for mat in ("iron", "leather", "dust", "crystal"):
         await db.add_material(m.from_user.id, mat, 10)
     await m.answer("🛠 +10 всех материалов.")
+
+
+@dp.message(Command("admin_resetquests"))
+async def admin_resetquests(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌"); return
+    async with db.pool.acquire() as conn:
+        await conn.execute("DELETE FROM daily_quests WHERE user_id=$1", m.from_user.id)
+    await m.answer("🛠 Квесты сброшены. Открой /quests заново.")
+
+
+@dp.message(Command("admin_resettutorial"))
+async def admin_resettutorial(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌"); return
+    async with db.pool.acquire() as conn:
+        await conn.execute("DELETE FROM tutorial_progress WHERE user_id=$1", m.from_user.id)
+    await m.answer("🛠 Туториал сброшен. Следующий /start запустит его заново.")
 
 
 # ================= БОЙ С МОБАМИ =================
@@ -1690,6 +1788,17 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 
 async def handle_victory(chat_id, user, combat, prefix_text):
     await db.end_combat(user["user_id"])
+
+    # Прогресс квеста "убить врагов"
+    q = await db.progress_quest(user["user_id"], "kill_enemies", 1)
+    if q and q.get("completed"):
+        try:
+            await bot.send_message(user["user_id"],
+                f"✅ <b>Квест выполнен:</b> Убить врагов\n+{q['gold']}💰 · +{q['xp']} XP",
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+
     exp = combat["enemy_level"] * 15
     gold = combat["enemy_level"] * 10
     is_dungeon = combat.get("is_dungeon", 0)
@@ -1938,6 +2047,7 @@ async def handle(m: Message):
             f"❤️ HP: {hp} · 💰 100\n\n"
             f"📍 Начальная деревня.",
             reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+        await run_tutorial(uid, m.chat.id)
         return
 
     combat = await db.get_combat(uid)
@@ -1987,6 +2097,7 @@ async def handle(m: Message):
         response += f"\n\n🎒 <i>+{result['item']}</i>"
     if result["location"]:
         await db.add_location(uid, result["location"])
+        await db.progress_quest(uid, "visit_locations", 1)
         response += f"\n\n📍 <i>{result['location']}</i>"
     if result.get("material"):
         await db.add_material(uid, result["material"], 1)
@@ -2005,6 +2116,8 @@ async def handle(m: Message):
 
     gold_gain = int((5 + result["gold"]) * faction_mult(user, "gold_mult"))
     await db.add_gold(uid, gold_gain)
+    if gold_gain > 0:
+        await db.progress_quest(uid, "earn_gold", gold_gain)
 
     new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
     await db.update_story(uid, new_story)
