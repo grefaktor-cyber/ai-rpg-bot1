@@ -666,3 +666,227 @@ class DB:
                 UPDATE users SET dungeon_id='', dungeon_room=0,
                 dungeon_loot_gold=0, dungeon_loot_items='[]' WHERE user_id=$1
             """, uid)
+            
+                # ============ ЛОКАЦИИ (новая система) ============
+    async def set_location_code(self, uid, code):
+        async with self.pool.acquire() as c:
+            await c.execute("UPDATE users SET location_code=$1 WHERE user_id=$2", code, uid)
+
+    async def get_players_at_location(self, code, exclude=0):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT user_id, char_name, level, race, class, hp, max_hp, guild_id
+                FROM users WHERE location_code=$1 AND char_name!='' AND user_id!=$2
+                ORDER BY level DESC LIMIT 30
+            """, code, exclude)
+            return [dict(r) for r in rows]
+
+    async def get_all_location_codes_visited(self, uid):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT location_name FROM locations WHERE user_id=$1 ORDER BY visited_at", uid
+            )
+            return [r["location_name"] for r in rows]
+
+    # ============ NPC-КВЕСТЫ ============
+    async def accept_npc_quest(self, uid, quest_code):
+        async with self.pool.acquire() as c:
+            try:
+                await c.execute(
+                    "INSERT INTO npc_quest_progress (user_id, quest_code) VALUES ($1,$2)",
+                    uid, quest_code
+                )
+                return True
+            except asyncpg.UniqueViolationError:
+                return False
+
+    async def get_npc_quest(self, uid, quest_code):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT * FROM npc_quest_progress WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+            return dict(row) if row else None
+
+    async def get_user_quests(self, uid):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT * FROM npc_quest_progress WHERE user_id=$1 ORDER BY accepted_at DESC", uid
+            )
+            return [dict(r) for r in rows]
+
+    async def incr_npc_quest(self, uid, quest_code, amount=1):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT id, progress, completed FROM npc_quest_progress "
+                "WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+            if not row or row["completed"]:
+                return None
+            new_progress = row["progress"] + amount
+            await c.execute(
+                "UPDATE npc_quest_progress SET progress=$1 WHERE id=$2",
+                new_progress, row["id"]
+            )
+            return new_progress
+
+    async def complete_npc_quest(self, uid, quest_code):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE npc_quest_progress SET completed=1 WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+
+    # ============ ГИЛЬДИИ ============
+    async def create_guild(self, name, tag, leader_id):
+        async with self.pool.acquire() as c:
+            try:
+                row = await c.fetchrow("""
+                    INSERT INTO guilds (name, tag, leader_id) VALUES ($1,$2,$3) RETURNING id
+                """, name, tag, leader_id)
+                gid = row["id"]
+                await c.execute("""
+                    INSERT INTO guild_members (user_id, guild_id, rank)
+                    VALUES ($1,$2,'leader')
+                    ON CONFLICT (user_id) DO UPDATE SET guild_id=$2, rank='leader'
+                """, leader_id, gid)
+                await c.execute("UPDATE users SET guild_id=$1 WHERE user_id=$2", gid, leader_id)
+                return gid
+            except asyncpg.UniqueViolationError:
+                return None
+
+    async def get_guild(self, gid):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("SELECT * FROM guilds WHERE id=$1", gid)
+            return dict(row) if row else None
+
+    async def get_guild_by_name(self, name):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("SELECT * FROM guilds WHERE LOWER(name)=LOWER($1)", name)
+            return dict(row) if row else None
+
+    async def get_user_guild(self, uid):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT g.* FROM guilds g
+                JOIN guild_members gm ON g.id = gm.guild_id
+                WHERE gm.user_id=$1
+            """, uid)
+            return dict(row) if row else None
+
+    async def get_guild_members(self, gid):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT gm.user_id, gm.rank, u.char_name, u.level, u.race, u.class
+                FROM guild_members gm
+                JOIN users u ON u.user_id = gm.user_id
+                WHERE gm.guild_id=$1
+                ORDER BY gm.rank DESC, u.level DESC
+            """, gid)
+            return [dict(r) for r in rows]
+
+    async def add_guild_member(self, uid, gid):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO guild_members (user_id, guild_id, rank)
+                VALUES ($1,$2,'member')
+                ON CONFLICT (user_id) DO UPDATE SET guild_id=$2, rank='member'
+            """, uid, gid)
+            await c.execute("UPDATE users SET guild_id=$1 WHERE user_id=$2", gid, uid)
+
+    async def remove_guild_member(self, uid):
+        async with self.pool.acquire() as c:
+            await c.execute("DELETE FROM guild_members WHERE user_id=$1", uid)
+            await c.execute("UPDATE users SET guild_id=0 WHERE user_id=$1", uid)
+
+    async def get_guilds_top(self, limit=10):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT g.id, g.name, g.tag, g.level, g.treasury,
+                       (SELECT COUNT(*) FROM guild_members WHERE guild_id=g.id) as members
+                FROM guilds g ORDER BY g.level DESC, members DESC LIMIT $1
+            """, limit)
+            return [dict(r) for r in rows]
+
+    # ============ ЗАХВАТ ЛОКАЦИЙ ============
+    async def get_location_owner(self, location_code):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT lo.*, g.name as guild_name, g.tag as guild_tag
+                FROM location_owners lo
+                LEFT JOIN guilds g ON g.id = lo.guild_id
+                WHERE lo.location_code=$1
+            """, location_code)
+            return dict(row) if row else None
+
+    async def capture_location(self, location_code, gid):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO location_owners (location_code, guild_id, captured_at, defense_points)
+                VALUES ($1, $2, NOW(), 100)
+                ON CONFLICT (location_code) DO UPDATE
+                SET guild_id=$2, captured_at=NOW(), defense_points=100
+            """, location_code, gid)
+
+    async def get_all_captured_locations(self):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT lo.location_code, lo.guild_id, lo.captured_at,
+                       g.name, g.tag
+                FROM location_owners lo
+                JOIN guilds g ON g.id = lo.guild_id
+            """)
+            return [dict(r) for r in rows]
+
+    # ============ БОССЫ ЛОКАЦИЙ ============
+    async def get_location_boss_state(self, location_code):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT * FROM location_bosses WHERE location_code=$1", location_code
+            )
+            return dict(row) if row else None
+
+    async def kill_location_boss(self, location_code, boss_name, killer_id):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO location_bosses (location_code, boss_name, killed_at, killed_by)
+                VALUES ($1, $2, NOW(), $3)
+                ON CONFLICT (location_code) DO UPDATE
+                SET boss_name=$2, killed_at=NOW(), killed_by=$3
+            """, location_code, boss_name, killer_id)
+
+    # ============ ДИНАМИЧЕСКИЕ СОБЫТИЯ ============
+    async def get_active_event(self, location_code):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT * FROM world_events_dyn
+                WHERE location_code=$1 AND expires_at > NOW()
+                ORDER BY started_at DESC LIMIT 1
+            """, location_code)
+            return dict(row) if row else None
+
+    async def get_all_active_events(self):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT * FROM world_events_dyn WHERE expires_at > NOW()
+                ORDER BY started_at DESC
+            """)
+            return [dict(r) for r in rows]
+
+    async def create_world_event(self, location_code, event_code, event_name, event_desc,
+                                  duration_min, xp_mult, gold_mult, spawn_mult,
+                                  enemy_dmg_mult=1.0):
+        async with self.pool.acquire() as c:
+            await c.execute("DELETE FROM world_events_dyn WHERE location_code=$1", location_code)
+            await c.execute("""
+                INSERT INTO world_events_dyn
+                (location_code, event_code, event_name, event_desc,
+                 xp_mult, gold_mult, spawn_mult, enemy_dmg_mult, expires_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8, NOW() + ($9 || ' minutes')::INTERVAL)
+            """, location_code, event_code, event_name, event_desc,
+                xp_mult, gold_mult, spawn_mult, enemy_dmg_mult, str(duration_min))
+
+    async def clean_expired_events(self):
+        async with self.pool.acquire() as c:
+            await c.execute("DELETE FROM world_events_dyn WHERE expires_at < NOW()")
