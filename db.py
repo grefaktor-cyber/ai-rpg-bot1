@@ -166,6 +166,6 @@ class DB:
             streak = row["daily_streak"] + 1 if row["last_daily"] == yesterday else 1
             await conn.execute("""
                 UPDATE users SET last_daily=$1, daily_streak=$2,
-                requests_today=GREATEST(0, requests_today-?) WHERE user_id=$3
-            """, today, streak, 5, user_id)
+                requests_today=GREATEST(0, requests_today-$3) WHERE user_id=$4
+            """, today, streak, 5, user_id))
             return streak
