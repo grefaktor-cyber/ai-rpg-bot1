@@ -114,30 +114,8 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
-            # === НОВЫЕ ТАБЛИЦЫ: ТУТОРИАЛ И КВЕСТЫ ===
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS tutorial_progress (
-                    user_id BIGINT PRIMARY KEY,
-                    step INTEGER DEFAULT 0,
-                    finished INTEGER DEFAULT 0
-                )
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS daily_quests (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    quest_type TEXT,
-                    target INTEGER,
-                    progress INTEGER DEFAULT 0,
-                    reward_gold INTEGER,
-                    reward_xp INTEGER,
-                    completed INTEGER DEFAULT 0,
-                    quest_date TEXT,
-                    UNIQUE(user_id, quest_type, quest_date)
-                )
-            """)
 
-            # === МИГРАЦИИ ===
+            # === МИГРАЦИИ для существующих таблиц ===
             migrations = [
                 "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
@@ -248,9 +226,7 @@ class DB:
 
     async def increment(self, uid):
         async with self.pool.acquire() as c:
-            await c.execute(
-                "UPDATE users SET requests_today=requests_today+1 WHERE user_id=$1", uid
-            )
+            await c.execute("UPDATE users SET requests_today=requests_today+1 WHERE user_id=$1", uid)
 
     async def update_story(self, uid, s):
         async with self.pool.acquire() as c:
@@ -690,81 +666,3 @@ class DB:
                 UPDATE users SET dungeon_id='', dungeon_room=0,
                 dungeon_loot_gold=0, dungeon_loot_items='[]' WHERE user_id=$1
             """, uid)
-
-    # ============ ОНБОРДИНГ ============
-    async def get_tutorial_step(self, uid):
-        async with self.pool.acquire() as c:
-            row = await c.fetchrow(
-                "SELECT step, finished FROM tutorial_progress WHERE user_id=$1", uid
-            )
-            if not row:
-                await c.execute("INSERT INTO tutorial_progress (user_id) VALUES ($1)", uid)
-                return 0, False
-            return row["step"], bool(row["finished"])
-
-    async def set_tutorial_step(self, uid, step, finished=False):
-        async with self.pool.acquire() as c:
-            await c.execute("""
-                INSERT INTO tutorial_progress (user_id, step, finished)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id) DO UPDATE SET step=$2, finished=$3
-            """, uid, step, 1 if finished else 0)
-
-    # ============ КВЕСТЫ ============
-    async def get_daily_quests(self, uid):
-        today = str(date.today())
-        async with self.pool.acquire() as c:
-            rows = await c.fetch(
-                "SELECT * FROM daily_quests WHERE user_id=$1 AND quest_date=$2 ORDER BY id",
-                uid, today
-            )
-            if rows:
-                return [dict(r) for r in rows]
-            # Генерируем 3 случайных квеста
-            quest_pool = [
-                ("kill_enemies", 3, 100, 50),
-                ("visit_locations", 2, 80, 40),
-                ("win_duels", 1, 150, 80),
-                ("craft_items", 1, 120, 60),
-                ("earn_gold", 200, 100, 50),
-            ]
-            import random as _r
-            picked = _r.sample(quest_pool, 3)
-            for qtype, target, rgold, rxp in picked:
-                await c.execute("""
-                    INSERT INTO daily_quests
-                    (user_id, quest_type, target, reward_gold, reward_xp, quest_date)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, uid, qtype, target, rgold, rxp, today)
-            rows = await c.fetch(
-                "SELECT * FROM daily_quests WHERE user_id=$1 AND quest_date=$2 ORDER BY id",
-                uid, today
-            )
-            return [dict(r) for r in rows]
-
-    async def progress_quest(self, uid, quest_type, amount=1):
-        today = str(date.today())
-        async with self.pool.acquire() as c:
-            row = await c.fetchrow("""
-                SELECT id, progress, target, reward_gold, reward_xp, completed
-                FROM daily_quests
-                WHERE user_id=$1 AND quest_type=$2 AND quest_date=$3
-            """, uid, quest_type, today)
-            if not row or row["completed"]:
-                return None
-            new_progress = min(row["progress"] + amount, row["target"])
-            if new_progress >= row["target"]:
-                await c.execute(
-                    "UPDATE daily_quests SET progress=$1, completed=1 WHERE id=$2",
-                    new_progress, row["id"]
-                )
-                await c.execute(
-                    "UPDATE users SET gold=gold+$1 WHERE user_id=$2",
-                    row["reward_gold"], uid
-                )
-                await self.add_xp(uid, row["reward_xp"])
-                return {"completed": True, "gold": row["reward_gold"], "xp": row["reward_xp"]}
-            await c.execute(
-                "UPDATE daily_quests SET progress=$1 WHERE id=$2", new_progress, row["id"]
-            )
-            return {"completed": False}
