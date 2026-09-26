@@ -14,9 +14,8 @@ SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в ст�
 - Не разжигай ненависть по признаку пола, расы, религии, национальности.
 - Если игрок просит запрещённое — вежливо откажись и переведи сюжет в безопасное русло.
 
-ПРАВИЛА ОТВЕТА (ОЧЕНЬ ВАЖНО):
-- НИКОГДА не предлагай варианты выбора списком («1. Да», «2. Нет», «А или Б»).
-- НИКОГДА не пиши «Что ты сделаешь? 1)... 2)...».
+ПРАВИЛА ОТВЕТА:
+- НИКОГДА не предлагай варианты выбора списком («1. Да», «2. Нет»).
 - Заканчивай ответ ОТКРЫТЫМ вопросом: «Что будешь делать?», «Твой ход.»
 - Игрок может написать ЛЮБОЕ действие. Свобода — суть игры.
 
@@ -24,28 +23,27 @@ SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в ст�
 - Пиши ярко, коротко: 3-6 предложений.
 - Учитывай расу, класс и экипировку игрока.
 - Помни всё, что игрок делал раньше.
-- Описывай последствия честно.
 
-ФОРМАТ ТЕГОВ (КРИТИЧЕСКИ ВАЖНО):
-- Теги пиши ТОЧНО в таком виде, БЕЗ лишних символов перед словом внутри скобок.
-- НЕ пиши «[¡ ENEMY», «[! ENEMY», «¡ENEMY» — только «[ENEMY: ...]».
-- Тег ставь в САМОМ КОНЦЕ ответа, на отдельной строке.
-- После тега ничего не пиши.
+КРИТИЧНО ПРО ТЕГИ:
+- Тег пишется СТРОГО так: квадратная скобка, слово, двоеточие, значение, квадратная скобка.
+- БЕЗ посторонних символов перед словом: НЕ «¡ ENEMY», НЕ «! ENEMY», а только «ENEMY».
+- БЕЗ пробела перед закрывающей скобкой: НЕ «HP: 40 ]», а «HP: 40]».
+- Тег ставится ОДИН РАЗ в самом конце ответа. Максимум один тег за раз.
 
 БОЕВАЯ СИСТЕМА:
-- Если игрок ВСТУПАЕТ В БОЙ или встречает враждебное существо — добавь в конце ответа:
-  [ENEMY: имя врага | LEVEL: число | HP: число]
-- Уровень врага близко к уровню игрока (±1-2), HP = уровень × 20.
+- Если игрок ВСТУПАЕТ В БОЙ — добавь в конце ответа:
+  [ENEMY: имя врага | LEVEL: N | HP: M]
+- N — уровень близко к уровню игрока (±1-2). M = N × 20.
 - Для БОССА добавь флаг BOSS:
-  [ENEMY: имя босса | LEVEL: число | HP: число | BOSS]
-- Когда ставишь [ENEMY: ...] — НЕ ставь [DAMAGE:] или [HEAL:] — бой рассчитает система.
-- Не ставь [ENEMY:] на каждое действие. Только когда действительно начинается бой.
+  [ENEMY: имя босса | LEVEL: N | HP: M | BOSS]
+- Когда ставишь [ENEMY] — НЕ ставь другие теги.
+- Не ставь [ENEMY] на каждое действие. Только когда бой НАЧИНАЕТСЯ.
 
 ТЕГИ (только когда НЕ идёт бой):
 - [ITEM: название] — игрок получил предмет.
 - [LOCATION: название] — игрок перешёл в новую локацию.
-- [DAMAGE: число] — игрок получил урон (вне боя).
-- [HEAL: число] — игрок восстановил HP (вне боя).
+- [DAMAGE: число] — игрок получил урон.
+- [HEAL: число] — игрок восстановил HP.
 - [GOLD: число] — игрок нашёл золото.
 """
 
@@ -94,52 +92,60 @@ def _build_char_context(user):
     )
 
 
-def _clean_tags(text: str) -> str:
-    """Убирает посторонние символы (¡, !, мусор) перед тегами."""
-    # [¡ ENEMY: → [ENEMY:
-    text = re.sub(
-        r"\[\s*[¡!¡º°†‡§¶•·‧∙⋅]?\s*(ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD)\b",
-        r"[\1", text, flags=re.IGNORECASE
-    )
-    return text
+def _strip_all_tags(text):
+    """Удаляет ВСЕ теги (любой мусор перед словом, пробелы до ])."""
+    return re.sub(
+        r"\[[^\[\]]*?(?:ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD)[^\[\]]*?\]",
+        "", text, flags=re.IGNORECASE | re.DOTALL
+    ).strip()
 
 
 def _extract_enemy(text):
-    """Ищет ENEMY-тег, устойчиво к мусору между [ и ENEMY."""
-    pattern = r"\[[^\[\]]*?ENEMY:\s*([^|\]]+?)\s*\|\s*LEVEL:\s*(\d+)\s*\|\s*HP:\s*(\d+)(\s*\|\s*BOSS)?\]"
-    m = re.search(pattern, text, re.IGNORECASE)
+    """
+    Ищет ENEMY-тег.
+    Устойчиво к: [¡ ENEMY:, [! ENEMY:, [ ENEMY:, пробел перед ], переносы строк.
+    """
+    pattern = (
+        r"\[[^\[\]]*?ENEMY:?\s*"
+        r"([^|\]\n]+?)\s*\|\s*"
+        r"LEVEL:?\s*(\d+)\s*\|\s*"
+        r"HP:?\s*(\d+)"
+        r"(?:\s*\|\s*BOSS)?"
+        r"\s*\]"
+    )
+    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     if not m:
         return None, text
     enemy = {
         "name": m.group(1).strip(),
         "level": max(1, min(50, int(m.group(2)))),
         "hp": max(20, min(500, int(m.group(3)))),
-        "is_boss": bool(m.group(4)),
+        "is_boss": "boss" in m.group(0).lower(),
     }
-    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-    return enemy, text
+    text = text[:m.start()] + text[m.end():]
+    return enemy, text.strip()
 
 
-def _extract_simple(text, tag, cast=str):
-    """Ищет простой тег (ITEM/LOCATION), устойчиво к мусору."""
-    pattern = rf"\[[^\[\]]*?{tag}:\s*([^\]]+?)\]"
-    m = re.search(pattern, text, re.IGNORECASE)
+def _extract_simple(text, tag):
+    """ITEM / LOCATION — устойчиво к мусору и пробелам."""
+    pattern = rf"\[[^\[\]]*?{tag}:?\s*([^\]\n]+?)\s*\]"
+    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     if not m:
         return None, text
-    value = cast(m.group(1).strip())
-    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-    return value, text
+    value = m.group(1).strip()
+    text = text[:m.start()] + text[m.end():]
+    return value, text.strip()
 
 
 def _extract_int(text, tag):
-    """Ищет числовой тег (DAMAGE/HEAL/GOLD), устойчиво к мусору."""
-    pattern = rf"\[[^\[\]]*?{tag}:\s*(\d+)\]"
-    m = re.search(pattern, text, re.IGNORECASE)
+    """DAMAGE / HEAL / GOLD — устойчиво к мусору."""
+    pattern = rf"\[[^\[\]]*?{tag}:?\s*(\d+)\s*\]"
+    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     if not m:
         return 0, text
     value = int(m.group(1))
-    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-    return value, text
+    text = text[:m.start()] + text[m.end():]
+    return value, text.strip()
 
 
 async def generate(story, user_action, arc=1, user=None):
@@ -152,9 +158,8 @@ async def generate(story, user_action, arc=1, user=None):
     if arc % 20 == 0 and user:
         arc_note = (f"\n\nВАЖНО: Ключевой момент! Введи БОССА — сильного врага. "
                     f"Уровень босса = {user.get('level', 1) + 2}, HP = уровень × 30. "
-                    f"Обязательно добавь в конце ответа тег: "
-                    f"[ENEMY: имя босса | LEVEL: N | HP: M | BOSS]. "
-                    f"Не предлагай вариантов выбора.")
+                    f"В конце ответа добавь ТОЧНО такой тег: "
+                    f"[ENEMY: имя босса | LEVEL: N | HP: M | BOSS]")
 
     char_ctx = _build_char_context(user) if user else ""
     context = f"ПРЕДЫДУЩАЯ ИСТОРИЯ:\n{story}{char_ctx}\n\nИГРОК: {user_action}\n\nМАСТЕР:{arc_note}"
@@ -183,35 +188,25 @@ async def generate(story, user_action, arc=1, user=None):
                 "item": None, "location": None, "enemy": None,
                 "damage": 0, "heal": 0, "gold": 0}
 
-    # Препроцессинг: чистим мусор перед тегами
-    text = _clean_tags(text)
-
     result = {"text": text, "item": None, "location": None, "enemy": None,
               "damage": 0, "heal": 0, "gold": 0}
 
-    # Сначала ищем ENEMY — если он есть, бой начинается, остальные теги игнорируем
+    # Сначала ENEMY — если бой, остальные теги игнорируем
     enemy, text = _extract_enemy(text)
     if enemy:
         result["enemy"] = enemy
-        result["text"] = text
     else:
-        # Обычные теги
-        item, text = _extract_simple(text, "ITEM")
-        if item:
-            result["item"] = item
-        location, text = _extract_simple(text, "LOCATION")
-        if location:
-            result["location"] = location
-        damage, text = _extract_int(text, "DAMAGE")
-        if damage:
-            result["damage"] = damage
-        heal, text = _extract_int(text, "HEAL")
-        if heal:
-            result["heal"] = heal
-        gold, text = _extract_int(text, "GOLD")
-        if gold:
-            result["gold"] = gold
+        for tag, key in [("ITEM", "item"), ("LOCATION", "location")]:
+            val, text = _extract_simple(text, tag)
+            if val:
+                result[key] = val
+        for tag, key in [("DAMAGE", "damage"), ("HEAL", "heal"), ("GOLD", "gold")]:
+            val, text = _extract_int(text, tag)
+            if val:
+                result[key] = val
 
+    # Страховка: чистим всё, что похоже на оставшиеся теги
+    text = _strip_all_tags(text)
     result["text"] = text.strip()
 
     if _is_blocked(result["text"]):
