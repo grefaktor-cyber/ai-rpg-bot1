@@ -173,8 +173,8 @@ MAIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="🎒 Инвентарь"), KeyboardButton(text="🛒 Магазин")],
         [KeyboardButton(text="⭐ Профиль"),   KeyboardButton(text="🏆 Достижения")],
         [KeyboardButton(text="📋 Квесты"),    KeyboardButton(text="🗺 Карта")],
-        [KeyboardButton(text="🌍 Мир"),       KeyboardButton(text="👥 Кто здесь")],
-        [KeyboardButton(text="📜 Записи"),    KeyboardButton(text="🐾 Питомец")],
+        [KeyboardButton(text="🚶 Идти"),      KeyboardButton(text="🌍 Мир")],
+        [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="🐾 Питомец")],
         [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
         [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
         [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
@@ -196,19 +196,19 @@ CONSENT_TEXT = (
 HELP_TEXT = (
     "🎮 <b>Как играть</b>\n\n"
     "Пиши, что делает герой: «Осматриваюсь», «Иду в лес».\n\n"
+    "<b>🚶 Путешествия:</b>\n"
+    "Кнопка «🚶 Идти» или /travel — перейти в другую локацию.\n"
+    "Напиши, куда идёшь: «Иду в лес», «Вхожу в таверну».\n\n"
     "<b>⚔️ Бой:</b> ⚔️ Атака · 🛡 Защита · 💚 Зелье · 🏃 Бежать\n\n"
-    "<b>📋 Квесты:</b> 3 задания каждый день — золото и опыт за выполнение\n\n"
+    "<b>📋 Квесты:</b> 3 задания каждый день\n\n"
     "<b>🌍 Мир:</b>\n"
     "/who — кто в локации\n"
     "/write текст — оставить запись\n"
     "/read — прочитать записи\n"
     "/duel Имя — вызвать на дуэль\n\n"
-    "<b>🐾 Питомец:</b>\n"
-    "Кнопка «🐾 Питомец» — купить, назвать, посмотреть\n\n"
-    "<b>🏰 Подземелья:</b>\n"
-    "Кнопка «🏰 Подземелья» — цепочки боёв с боссом в конце\n\n"
-    "<b>⚒️ Кузница:</b>\n"
-    "Разбор предметов, крафт, улучшение (+1, +2, +3)\n"
+    "<b>🐾 Питомец:</b> кнопка внизу\n"
+    "<b>🏰 Подземелья:</b> кнопка внизу\n"
+    "<b>⚒️ Кузница:</b> разбор, крафт, улучшение\n"
 )
 
 
@@ -220,6 +220,36 @@ def parse_item(s):
     if m:
         return m.group(1), int(m.group(2))
     return s, 0
+
+
+def normalize_location(name):
+    """Приводит название локации к общему виду, чтобы игроки встречались."""
+    if not name:
+        return "Неизвестное место"
+    low = name.lower().strip()
+    known = {
+        "Начальная деревня": ["начальная деревня", "стартовая деревня"],
+        "Деревня":          ["деревня", "поселок", "посёлок", "село"],
+        "Город":            ["город", "столица", "крепость"],
+        "Таверна":          ["таверна", "трактир", "кабак", "постоялый двор", "корчма"],
+        "Тёмный лес":       ["темный лес", "тёмный лес", "чаща", "дремучий лес"],
+        "Лес":              ["лес", "роща", "лесная"],
+        "Поляна":           ["поляна", "луг", "поля"],
+        "Пещера":           ["пещера", "грот", "катакомбы", "подземелье"],
+        "Горы":             ["горы", "горная", "утес", "утёс", "пик", "перевал"],
+        "Болото":           ["болото", "топь", "трясина"],
+        "Руины":            ["руины", "развалины", "древние"],
+        "Кладбище":         ["кладбище", "погост", "склеп"],
+        "Храм":             ["храм", "церковь", "святилище", "алтарь"],
+        "Пустошь":          ["пустошь", "пустыня", "выжженная"],
+        "Берег":            ["берег", "река", "озеро", "море", "побережье"],
+    }
+    for canonical, variants in known.items():
+        for v in variants:
+            if v in low:
+                return canonical
+    # Если не нашли — берём первое слово с заглавной буквы
+    return name.strip().split(",")[0][:30].strip().capitalize()
 
 
 def calc_stats(race_code, class_code):
@@ -708,9 +738,44 @@ async def inventory(m: Message):
 async def map_cmd(m: Message):
     locs = await db.get_locations(m.from_user.id)
     if not locs:
-        await m.answer("🗺 Ты пока нигде не был.", reply_markup=MAIN_KB); return
+        await m.answer(
+            "🗺 <b>Карта пуста</b>\n\n"
+            "Ты пока нигде не был. Нажми <b>🚶 Идти</b> и напиши, куда "
+            "направляется герой — например, «Иду в лес» или «Вхожу в таверну».",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        )
+        return
+    u = await db.get_user(m.from_user.id)
     lst = "\n".join(f"📍 {l}" for l in locs)
-    await m.answer(f"🗺 <b>Карта</b>\n\n{lst}", reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
+    await m.answer(
+        f"🗺 <b>Карта</b>\n\n{lst}\n\n"
+        f"<b>Текущая локация:</b> {u['location']}",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
+
+
+@dp.message(Command("travel"))
+@dp.message(F.text == "🚶 Идти")
+async def travel_cmd(m: Message):
+    u = await db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("Сначала создай героя."); return
+    if await db.get_combat(m.from_user.id):
+        await m.answer("⚔️ Сначала закончи бой!"); return
+    locs = await db.get_locations(m.from_user.id)
+    known = ""
+    if locs:
+        known = "\n\n<b>Ты уже был в:</b>\n" + "\n".join(f"📍 {l}" for l in locs[:8])
+    await m.answer(
+        f"🚶 <b>Куда идёшь?</b>\n\n"
+        f"📍 Сейчас ты в: <b>{u['location']}</b>\n\n"
+        f"Напиши, куда направляется герой:\n"
+        f"• «Иду в лес»\n"
+        f"• «Вхожу в таверну»\n"
+        f"• «Иду в горы на север»\n"
+        f"• «Спускаюсь в пещеру»{known}",
+        reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+    )
 
 
 @dp.message(Command("achievements"))
@@ -745,15 +810,19 @@ async def who_cmd(m: Message):
         await m.answer("Сначала создай героя."); return
     players = await db.get_players_in_location(u["location"], u["user_id"])
     if not players:
-        await m.answer(f"👥 В «{u['location']}» больше никого нет.",
-                       reply_markup=MAIN_KB); return
+        await m.answer(
+            f"👥 В «{u['location']}» больше никого нет.\n\n"
+            f"<i>Когда другие игроки окажутся здесь, ты их увидишь.</i>",
+            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML
+        )
+        return
     lines = []
     for p in players:
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
         lines.append(f"• <b>{p['char_name']}</b> (Ур.{p['level']}, {race} {cls})")
     await m.answer(f"👥 <b>В «{u['location']}»:</b>\n\n" + "\n".join(lines) +
-                   f"\n\n<i>/duel Имя</i>",
+                   f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
                    reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
 
 
@@ -806,7 +875,7 @@ async def duel_cmd(m: Message):
     if target["user_id"] == u["user_id"]:
         await m.answer("❌ Нельзя себя."); return
     if target["location"] != u["location"]:
-        await m.answer(f"❌ {target['char_name']} в другой локации."); return
+        await m.answer(f"❌ {target['char_name']} в другой локации ({target['location']})."); return
     if await db.get_combat(target["user_id"]):
         await m.answer(f"❌ {target['char_name']} уже в бою."); return
 
@@ -1057,7 +1126,6 @@ async def pvp_end(winner_id, loser_id, stake):
                 await bot.send_message(winner_id, "🏆 ⚜️ Гроза арены", parse_mode=ParseMode.HTML)
             except Exception:
                 pass
-    # Прогресс квеста
     q = await db.progress_quest(winner_id, "win_duels", 1)
     if q and q.get("completed"):
         try:
@@ -1399,7 +1467,6 @@ async def craft_cb(c: CallbackQuery):
     await c.message.answer(f"⚒️ Ты создал <b>{result}</b>!", parse_mode=ParseMode.HTML)
     if await db.add_achievement(c.from_user.id, "crafter"):
         await c.message.answer("🏆 Достижение: ⚒️ Кузнец", parse_mode=ParseMode.HTML)
-    # Прогресс квеста
     await db.progress_quest(c.from_user.id, "craft_items", 1)
 
 
@@ -1427,19 +1494,28 @@ async def run_tutorial(uid, chat_id):
         await db.set_tutorial_step(uid, 2)
     elif step == 2:
         await bot.send_message(chat_id,
-            "📋 <b>Ежедневные квесты</b>\n\n"
-            "Каждый день тебе выдаются 3 задания. Выполняй — получай золото и опыт.\n"
-            "Кнопка <b>📋 Квесты</b> внизу — там всё видно.",
+            "🚶 <b>Путешествия</b>\n\n"
+            "Кнопка <b>🚶 Идти</b> внизу — так ты перемещаешься между локациями.\n"
+            "Пиши, куда идёт герой: «Иду в лес», «Вхожу в таверну».\n"
+            "Карта (🗺) покажет, где ты уже был.",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 3)
     elif step == 3:
         await bot.send_message(chat_id,
+            "📋 <b>Ежедневные квесты</b>\n\n"
+            "Каждый день тебе выдаются 3 задания. Выполняй — получай золото и опыт.\n"
+            "Кнопка <b>📋 Квесты</b> внизу — там всё видно.",
+            parse_mode=ParseMode.HTML)
+        await db.set_tutorial_step(uid, 4)
+    elif step == 4:
+        await bot.send_message(chat_id,
             "💡 <b>Советы</b>\n\n"
-            "• Заходи каждый день → /daily — бонус за серию\n"
+            "• Заходи каждый день → 🎁 Награда — бонус за серию\n"
             "• Покупай экипировку в 🛒 Магазине\n"
             "• Улучшай предметы в ⚒️ Кузнице\n"
             "• Купи питомца — он помогает в бою\n"
-            "• Сражайся с другими игроками через /duel\n\n"
+            "• Сражайся с другими игроками через /duel\n"
+            "• Ищи других игроков — 👥 Кто здесь\n\n"
             "Удачи, герой! 🎮",
             parse_mode=ParseMode.HTML)
         await db.set_tutorial_step(uid, 99, finished=True)
@@ -1568,7 +1644,8 @@ async def admin_help(m: Message):
         "/admin_give_item Название — выдать предмет\n"
         "/admin_mats — +10 всех материалов\n"
         "/admin_resetquests — сбросить квесты\n"
-        "/admin_resettutorial — сбросить туториал",
+        "/admin_resettutorial — сбросить туториал\n"
+        "/admin_teleport Название — переместить в локацию",
         parse_mode=ParseMode.HTML)
 
 
@@ -1687,6 +1764,18 @@ async def admin_resettutorial(m: Message):
     await m.answer("🛠 Туториал сброшен. Следующий /start запустит его заново.")
 
 
+@dp.message(Command("admin_teleport"))
+async def admin_teleport(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        await m.answer("❌"); return
+    parts = m.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await m.answer("Использование: /admin_teleport Тёмный лес"); return
+    loc = normalize_location(parts[1])
+    await db.add_location(m.from_user.id, loc)
+    await m.answer(f"🛠 Ты перемещён в: {loc}")
+
+
 # ================= БОЙ С МОБАМИ =================
 async def start_combat_from_ai(chat_id, user, enemy):
     await db.start_combat(user["user_id"], enemy["name"], enemy["level"],
@@ -1789,7 +1878,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 async def handle_victory(chat_id, user, combat, prefix_text):
     await db.end_combat(user["user_id"])
 
-    # Прогресс квеста "убить врагов"
     q = await db.progress_quest(user["user_id"], "kill_enemies", 1)
     if q and q.get("completed"):
         try:
@@ -2096,9 +2184,15 @@ async def handle(m: Message):
         await db.add_item(uid, result["item"])
         response += f"\n\n🎒 <i>+{result['item']}</i>"
     if result["location"]:
-        await db.add_location(uid, result["location"])
-        await db.progress_quest(uid, "visit_locations", 1)
-        response += f"\n\n📍 <i>{result['location']}</i>"
+        loc = normalize_location(result["location"])
+        # Проверяем: это новая локация или та же самая?
+        old_loc = user["location"]
+        if loc != old_loc:
+            await db.add_location(uid, loc)
+            await db.progress_quest(uid, "visit_locations", 1)
+            response += f"\n\n📍 <i>Переход: {old_loc} → {loc}</i>"
+        else:
+            response += f"\n\n📍 <i>{loc}</i>"
     if result.get("material"):
         await db.add_material(uid, result["material"], 1)
         response += f"\n\n🔨 <i>+{MATERIAL_NAMES[result['material']]}</i>"
