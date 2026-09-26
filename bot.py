@@ -12,7 +12,7 @@ from aiogram.enums import ParseMode
 
 from db import DB
 import ai
-from config import (BOT_TOKEN, GIGACHAT_CREDENTIALS,
+from config import (BOT_TOKEN, GIGACHAT_CREDENTIALS, ADMIN_IDS,
                     FREE_DAILY_LIMIT, PREMIUM_PRICE_STARS, AI_MARKER)
 
 logging.basicConfig(level=logging.INFO)
