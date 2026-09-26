@@ -26,19 +26,23 @@ SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в ст�
 - Помни всё, что игрок делал раньше.
 - Описывай последствия честно.
 
-БОЕВАЯ СИСТЕМА (ВАЖНО):
-- Если игрок ВСТУПАЕТ В БОЙ или встречает враждебное существо — добавь в конец ответа тег:
-  [ENEMY: имя врага | LEVEL: число | HP: число]
-- Уровень врага делай близким к уровню игрока (±1-2), HP = уровень × 20.
-- Для БОССА (важный сюжетный враг) — добавь флаг BOSS:
-  [ENEMY: имя босса | LEVEL: число | HP: число | BOSS]
-  Босс должен быть на 2-3 уровня выше игрока, HP = уровень × 30.
-- КОГДА ставишь тег [ENEMY: ...] — НЕ ставь [DAMAGE:] или [HEAL:] — бой рассчитается системой.
-- Не ставь [ENEMY:] на каждое действие. Только когда действительно начинается бой.
-- Вступление в бой описывай красочно: как выглядит враг, что он делает, как настроен.
+ФОРМАТ ТЕГОВ (КРИТИЧЕСКИ ВАЖНО):
+- Теги пиши ТОЧНО в таком виде, БЕЗ лишних символов перед словом внутри скобок.
+- НЕ пиши «[¡ ENEMY», «[! ENEMY», «¡ENEMY» — только «[ENEMY: ...]».
+- Тег ставь в САМОМ КОНЦЕ ответа, на отдельной строке.
+- После тега ничего не пиши.
 
-ТЕГИ (добавляй только когда НЕ идёт бой):
-- [ITEM: название] — игрок нашёл/получил предмет.
+БОЕВАЯ СИСТЕМА:
+- Если игрок ВСТУПАЕТ В БОЙ или встречает враждебное существо — добавь в конце ответа:
+  [ENEMY: имя врага | LEVEL: число | HP: число]
+- Уровень врага близко к уровню игрока (±1-2), HP = уровень × 20.
+- Для БОССА добавь флаг BOSS:
+  [ENEMY: имя босса | LEVEL: число | HP: число | BOSS]
+- Когда ставишь [ENEMY: ...] — НЕ ставь [DAMAGE:] или [HEAL:] — бой рассчитает система.
+- Не ставь [ENEMY:] на каждое действие. Только когда действительно начинается бой.
+
+ТЕГИ (только когда НЕ идёт бой):
+- [ITEM: название] — игрок получил предмет.
 - [LOCATION: название] — игрок перешёл в новую локацию.
 - [DAMAGE: число] — игрок получил урон (вне боя).
 - [HEAL: число] — игрок восстановил HP (вне боя).
@@ -90,6 +94,54 @@ def _build_char_context(user):
     )
 
 
+def _clean_tags(text: str) -> str:
+    """Убирает посторонние символы (¡, !, мусор) перед тегами."""
+    # [¡ ENEMY: → [ENEMY:
+    text = re.sub(
+        r"\[\s*[¡!¡º°†‡§¶•·‧∙⋅]?\s*(ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD)\b",
+        r"[\1", text, flags=re.IGNORECASE
+    )
+    return text
+
+
+def _extract_enemy(text):
+    """Ищет ENEMY-тег, устойчиво к мусору между [ и ENEMY."""
+    pattern = r"\[[^\[\]]*?ENEMY:\s*([^|\]]+?)\s*\|\s*LEVEL:\s*(\d+)\s*\|\s*HP:\s*(\d+)(\s*\|\s*BOSS)?\]"
+    m = re.search(pattern, text, re.IGNORECASE)
+    if not m:
+        return None, text
+    enemy = {
+        "name": m.group(1).strip(),
+        "level": max(1, min(50, int(m.group(2)))),
+        "hp": max(20, min(500, int(m.group(3)))),
+        "is_boss": bool(m.group(4)),
+    }
+    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    return enemy, text
+
+
+def _extract_simple(text, tag, cast=str):
+    """Ищет простой тег (ITEM/LOCATION), устойчиво к мусору."""
+    pattern = rf"\[[^\[\]]*?{tag}:\s*([^\]]+?)\]"
+    m = re.search(pattern, text, re.IGNORECASE)
+    if not m:
+        return None, text
+    value = cast(m.group(1).strip())
+    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    return value, text
+
+
+def _extract_int(text, tag):
+    """Ищет числовой тег (DAMAGE/HEAL/GOLD), устойчиво к мусору."""
+    pattern = rf"\[[^\[\]]*?{tag}:\s*(\d+)\]"
+    m = re.search(pattern, text, re.IGNORECASE)
+    if not m:
+        return 0, text
+    value = int(m.group(1))
+    text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    return value, text
+
+
 async def generate(story, user_action, arc=1, user=None):
     if _is_blocked(user_action):
         return {"text": "🚫 Этот запрос нарушает правила игры.",
@@ -98,10 +150,10 @@ async def generate(story, user_action, arc=1, user=None):
 
     arc_note = ""
     if arc % 20 == 0 and user:
-        arc_note = (f"\n\nВАЖНО: Ключевой момент! Введи БОССА — сильного врага, "
-                    f"подходящего сюжету (дракон, демон, древний лич). "
+        arc_note = (f"\n\nВАЖНО: Ключевой момент! Введи БОССА — сильного врага. "
                     f"Уровень босса = {user.get('level', 1) + 2}, HP = уровень × 30. "
-                    f"Обязательно добавь тег [ENEMY: имя | LEVEL: N | HP: M | BOSS]. "
+                    f"Обязательно добавь в конце ответа тег: "
+                    f"[ENEMY: имя босса | LEVEL: N | HP: M | BOSS]. "
                     f"Не предлагай вариантов выбора.")
 
     char_ctx = _build_char_context(user) if user else ""
@@ -131,48 +183,40 @@ async def generate(story, user_action, arc=1, user=None):
                 "item": None, "location": None, "enemy": None,
                 "damage": 0, "heal": 0, "gold": 0}
 
+    # Препроцессинг: чистим мусор перед тегами
+    text = _clean_tags(text)
+
     result = {"text": text, "item": None, "location": None, "enemy": None,
               "damage": 0, "heal": 0, "gold": 0}
 
-    # ENEMY-тег: имя | LEVEL: N | HP: M | (BOSS)
-    m = re.search(r"\[ENEMY:\s*(.+?)\s*\|\s*LEVEL:\s*(\d+)\s*\|\s*HP:\s*(\d+)(\s*\|\s*BOSS)?\]",
-                  result["text"], re.IGNORECASE)
-    if m:
-        result["enemy"] = {
-            "name": m.group(1).strip(),
-            "level": max(1, min(50, int(m.group(2)))),
-            "hp": max(20, min(500, int(m.group(3)))),
-            "is_boss": bool(m.group(4)),
-        }
-        result["text"] = re.sub(
-            r"\[ENEMY:\s*.+?\s*\|\s*LEVEL:\s*\d+\s*\|\s*HP:\s*\d+(\s*\|\s*BOSS)?\]",
-            "", result["text"], flags=re.IGNORECASE
-        ).strip()
+    # Сначала ищем ENEMY — если он есть, бой начинается, остальные теги игнорируем
+    enemy, text = _extract_enemy(text)
+    if enemy:
+        result["enemy"] = enemy
+        result["text"] = text
     else:
-        # Только если боя нет — парсим остальные теги
-        for tag, key, cast in [
-            (r"\[ITEM:\s*(.+?)\]", "item", str),
-            (r"\[LOCATION:\s*(.+?)\]", "location", str),
-        ]:
-            mm = re.search(tag, result["text"])
-            if mm:
-                result[key] = cast(mm.group(1).strip())
-                result["text"] = re.sub(tag, "", result["text"]).strip()
+        # Обычные теги
+        item, text = _extract_simple(text, "ITEM")
+        if item:
+            result["item"] = item
+        location, text = _extract_simple(text, "LOCATION")
+        if location:
+            result["location"] = location
+        damage, text = _extract_int(text, "DAMAGE")
+        if damage:
+            result["damage"] = damage
+        heal, text = _extract_int(text, "HEAL")
+        if heal:
+            result["heal"] = heal
+        gold, text = _extract_int(text, "GOLD")
+        if gold:
+            result["gold"] = gold
 
-        for tag, key in [
-            (r"\[DAMAGE:\s*(\d+)\]", "damage"),
-            (r"\[HEAL:\s*(\d+)\]", "heal"),
-            (r"\[GOLD:\s*(\d+)\]", "gold"),
-        ]:
-            mm = re.search(tag, result["text"])
-            if mm:
-                result[key] = int(mm.group(1))
-                result["text"] = re.sub(tag, "", result["text"]).strip()
+    result["text"] = text.strip()
 
     if _is_blocked(result["text"]):
         return {"text": "🚫 Сюжет ушёл в недопустимую тему.",
                 "item": None, "location": None, "enemy": None,
                 "damage": 0, "heal": 0, "gold": 0}
 
-    result["text"] = result["text"].strip()
     return result
