@@ -62,12 +62,13 @@ class DB:
         if row and row[0] == 0 and referrer_id != user_id:
             self.conn.execute("UPDATE users SET referred_by=? WHERE user_id=?",
                               (referrer_id, user_id))
+            # МИНУС 10 (бонус), но не ниже 0
             self.conn.execute("""UPDATE users SET referral_count=referral_count+1,
-                                 requests_today=requests_today+10
+                                 requests_today=MAX(0, requests_today-10)
                                  WHERE user_id=?""", (referrer_id,))
             self.conn.commit()
             return True
-        return False
+        return Falsese
 
     def increment(self, user_id):
         self.conn.execute("UPDATE users SET requests_today=requests_today+1 WHERE user_id=?",
