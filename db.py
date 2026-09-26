@@ -69,6 +69,19 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS active_combat (
+                    user_id BIGINT PRIMARY KEY,
+                    enemy_name TEXT,
+                    enemy_level INTEGER,
+                    enemy_hp INTEGER,
+                    enemy_max_hp INTEGER,
+                    is_boss INTEGER DEFAULT 0,
+                    round_num INTEGER DEFAULT 1,
+                    defending INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
             migrations = [
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS class TEXT DEFAULT ''",
@@ -86,6 +99,7 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_weapon TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_armor TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_accessory TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS deaths INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -122,7 +136,7 @@ class DB:
                 "stat_int": 5, "stat_wit": 5, "stat_men": 5,
                 "hp": 100, "max_hp": 100, "bosses_defeated": 0,
                 "gold": 0, "equipped_weapon": "", "equipped_armor": "",
-                "equipped_accessory": ""}
+                "equipped_accessory": "", "deaths": 0}
 
     async def give_consent(self, user_id):
         async with self.pool.acquire() as conn:
@@ -164,7 +178,7 @@ class DB:
 
     async def add_xp(self, user_id, amount=10):
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT xp, level FROM users WHERE user_id=$1", user_id)
+            row = await conn.fetchrow("SELECT xp, level, stat_con FROM users WHERE user_id=$1", user_id)
             new_xp = row["xp"] + amount
             level = row["level"]
             leveled_up = False
@@ -261,10 +275,21 @@ class DB:
         async with self.pool.acquire() as conn:
             await conn.execute("UPDATE users SET hp=$1 WHERE user_id=$2", max(0, hp), user_id)
 
+    async def update_hp_max(self, user_id, hp, max_hp):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET hp=$1, max_hp=$2 WHERE user_id=$3",
+                               hp, max_hp, user_id)
+
     async def incr_bosses(self, user_id):
         async with self.pool.acquire() as conn:
             await conn.execute(
                 "UPDATE users SET bosses_defeated=bosses_defeated+1 WHERE user_id=$1", user_id
+            )
+
+    async def incr_deaths(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET deaths=deaths+1 WHERE user_id=$1", user_id
             )
 
     async def add_gold(self, user_id, amount):
@@ -281,6 +306,10 @@ class DB:
                                    amount, user_id)
                 return True
             return False
+
+    async def set_gold(self, user_id, amount):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE users SET gold=$1 WHERE user_id=$2", amount, user_id)
 
     async def equip_item(self, user_id, slot, item_name):
         col = f"equipped_{slot}"
@@ -341,3 +370,37 @@ class DB:
                 ORDER BY created_at DESC LIMIT $1
             """, limit)
             return [dict(r) for r in rows]
+
+    # === Боевая система ===
+    async def get_combat(self, user_id):
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM active_combat WHERE user_id=$1", user_id)
+            return dict(row) if row else None
+
+    async def start_combat(self, user_id, enemy_name, enemy_level, enemy_hp, is_boss=0):
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM active_combat WHERE user_id=$1", user_id)
+            await conn.execute("""
+                INSERT INTO active_combat (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp, is_boss)
+                VALUES ($1,$2,$3,$4,$4,$5)
+            """, user_id, enemy_name, enemy_level, enemy_hp, is_boss)
+
+    async def update_combat_enemy_hp(self, user_id, enemy_hp):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
+                               max(0, enemy_hp), user_id)
+
+    async def set_combat_defending(self, user_id, defending):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE active_combat SET defending=$1 WHERE user_id=$2",
+                               defending, user_id)
+
+    async def incr_combat_round(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("UPDATE active_combat SET round_num=round_num+1 WHERE user_id=$1", user_id)
+            row = await conn.fetchrow("SELECT round_num FROM active_combat WHERE user_id=$1", user_id)
+            return row["round_num"] if row else 1
+
+    async def end_combat(self, user_id):
+        async with self.pool.acquire() as conn:
+            await conn.execute("DELETE FROM active_combat WHERE user_id=$1", user_id)
