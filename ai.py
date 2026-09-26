@@ -17,27 +17,32 @@ SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в ст�
 ПРАВИЛА ОТВЕТА (ОЧЕНЬ ВАЖНО):
 - НИКОГДА не предлагай варианты выбора списком («1. Да», «2. Нет», «А или Б»).
 - НИКОГДА не пиши «Что ты сделаешь? 1)... 2)...».
-- НИКОГДА не ограничивай игрока двумя-тремя вариантами.
-- Заканчивай ответ ОТКРЫТЫМ вопросом: «Что будешь делать?», «Куда направишься?», «Твой ход.»
-- Игрок может написать ЛЮБОЕ действие — атаковать, убежать, поговорить, обыскать,
-  спрятаться, помолиться, украсть, обмануть, подружиться. Свобода — суть игры.
-- Не подсказывай «правильный» путь и не веди игрока за руку.
+- Заканчивай ответ ОТКРЫТЫМ вопросом: «Что будешь делать?», «Твой ход.»
+- Игрок может написать ЛЮБОЕ действие. Свобода — суть игры.
 
 Правила игры:
 - Пиши ярко, коротко: 3-6 предложений.
-- Учитывай расу, класс и экипировку игрока в описаниях и реакциях NPC.
-- Экипировка даёт бонусы: хорошее оружие усиливает атаку, броня защищает, аксессуары дают особые эффекты. Обыгрывай это в сюжете.
+- Учитывай расу, класс и экипировку игрока.
 - Помни всё, что игрок делал раньше.
-- Описывай последствия поступков честно: глупость — плохой исход, хитрость — хороший.
+- Описывай последствия честно.
 
-ТЕГИ (добавляй в конец ответа, если применимо):
-- [ITEM: название] — если игрок нашёл/получил предмет.
-- [LOCATION: название] — если игрок перешёл в новую локацию.
-- [BOSS: название] — если игрок победил босса.
-- [DAMAGE: число] — если игрок получил урон (например, [DAMAGE: 15]).
-- [HEAL: число] — если игрок восстановил HP (например, [HEAL: 20]).
-- [GOLD: число] — если игрок нашёл золото (например, [GOLD: 25]).
-Не добавляй теги, если событие не произошло.
+БОЕВАЯ СИСТЕМА (ВАЖНО):
+- Если игрок ВСТУПАЕТ В БОЙ или встречает враждебное существо — добавь в конец ответа тег:
+  [ENEMY: имя врага | LEVEL: число | HP: число]
+- Уровень врага делай близким к уровню игрока (±1-2), HP = уровень × 20.
+- Для БОССА (важный сюжетный враг) — добавь флаг BOSS:
+  [ENEMY: имя босса | LEVEL: число | HP: число | BOSS]
+  Босс должен быть на 2-3 уровня выше игрока, HP = уровень × 30.
+- КОГДА ставишь тег [ENEMY: ...] — НЕ ставь [DAMAGE:] или [HEAL:] — бой рассчитается системой.
+- Не ставь [ENEMY:] на каждое действие. Только когда действительно начинается бой.
+- Вступление в бой описывай красочно: как выглядит враг, что он делает, как настроен.
+
+ТЕГИ (добавляй только когда НЕ идёт бой):
+- [ITEM: название] — игрок нашёл/получил предмет.
+- [LOCATION: название] — игрок перешёл в новую локацию.
+- [DAMAGE: число] — игрок получил урон (вне боя).
+- [HEAL: число] — игрок восстановил HP (вне боя).
+- [GOLD: число] — игрок нашёл золото.
 """
 
 BLOCKED_WORDS = [
@@ -81,21 +86,23 @@ def _build_char_context(user):
         f"Экипировка: оружие={user.get('equipped_weapon') or 'нет'}, "
         f"броня={user.get('equipped_armor') or 'нет'}, "
         f"аксессуар={user.get('equipped_accessory') or 'нет'}\n"
-        f"Текущая локация: {user.get('location', '?')}\n"
+        f"Локация: {user.get('location', '?')}\n"
     )
 
 
 async def generate(story, user_action, arc=1, user=None):
     if _is_blocked(user_action):
-        return {"text": "🚫 Этот запрос нарушает правила игры. Попробуй другое действие — например, «осматриваюсь».",
-                "item": None, "location": None, "boss": None,
+        return {"text": "🚫 Этот запрос нарушает правила игры.",
+                "item": None, "location": None, "enemy": None,
                 "damage": 0, "heal": 0, "gold": 0}
 
     arc_note = ""
-    if arc % 20 == 0:
-        arc_note = ("\n\nВАЖНО: Это ключевой момент сюжета! Введи босса — опиши встречу с сильным врагом "
-                    "(дракон, демон, древний лич, военачальник). Игрок должен сразиться. "
-                    "Заверши ответ тегом [BOSS: имя]. Не предлагай вариантов выбора — пусть игрок сам решает, как действовать.")
+    if arc % 20 == 0 and user:
+        arc_note = (f"\n\nВАЖНО: Ключевой момент! Введи БОССА — сильного врага, "
+                    f"подходящего сюжету (дракон, демон, древний лич). "
+                    f"Уровень босса = {user.get('level', 1) + 2}, HP = уровень × 30. "
+                    f"Обязательно добавь тег [ENEMY: имя | LEVEL: N | HP: M | BOSS]. "
+                    f"Не предлагай вариантов выбора.")
 
     char_ctx = _build_char_context(user) if user else ""
     context = f"ПРЕДЫДУЩАЯ ИСТОРИЯ:\n{story}{char_ctx}\n\nИГРОК: {user_action}\n\nМАСТЕР:{arc_note}"
@@ -107,7 +114,7 @@ async def generate(story, user_action, arc=1, user=None):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": context},
             ],
-            "temperature": 0.7, "max_tokens": 500,
+            "temperature": 0.75, "max_tokens": 500,
         })
         return response.choices[0].message.content
 
@@ -115,49 +122,57 @@ async def generate(story, user_action, arc=1, user=None):
     try:
         text = await asyncio.wait_for(loop.run_in_executor(None, _sync_call), timeout=30.0)
     except asyncio.TimeoutError:
-        return {"text": "⏳ Нейросеть не ответила. Попробуй ещё раз.", "item": None,
-                "location": None, "boss": None, "damage": 0, "heal": 0, "gold": 0}
+        return {"text": "⏳ Нейросеть не ответила. Попробуй ещё раз.",
+                "item": None, "location": None, "enemy": None,
+                "damage": 0, "heal": 0, "gold": 0}
     except Exception as e:
         logging.error(f"GigaChat error: {e}")
-        return {"text": "⚠️ Ошибка нейросети. Попробуй позже.", "item": None,
-                "location": None, "boss": None, "damage": 0, "heal": 0, "gold": 0}
-
-    result = {"text": text, "item": None, "location": None, "boss": None,
-              "damage": 0, "heal": 0, "gold": 0}
-
-    m = re.search(r"\[ITEM:\s*(.+?)\]", result["text"])
-    if m:
-        result["item"] = m.group(1).strip()
-        result["text"] = re.sub(r"\[ITEM:\s*.+?\]", "", result["text"]).strip()
-
-    m = re.search(r"\[LOCATION:\s*(.+?)\]", result["text"])
-    if m:
-        result["location"] = m.group(1).strip()
-        result["text"] = re.sub(r"\[LOCATION:\s*.+?\]", "", result["text"]).strip()
-
-    m = re.search(r"\[BOSS:\s*(.+?)\]", result["text"])
-    if m:
-        result["boss"] = m.group(1).strip()
-        result["text"] = re.sub(r"\[BOSS:\s*.+?\]", "", result["text"]).strip()
-
-    m = re.search(r"\[DAMAGE:\s*(\d+)\]", result["text"])
-    if m:
-        result["damage"] = int(m.group(1))
-        result["text"] = re.sub(r"\[DAMAGE:\s*\d+\]", "", result["text"]).strip()
-
-    m = re.search(r"\[HEAL:\s*(\d+)\]", result["text"])
-    if m:
-        result["heal"] = int(m.group(1))
-        result["text"] = re.sub(r"\[HEAL:\s*\d+\]", "", result["text"]).strip()
-
-    m = re.search(r"\[GOLD:\s*(\d+)\]", result["text"])
-    if m:
-        result["gold"] = int(m.group(1))
-        result["text"] = re.sub(r"\[GOLD:\s*\d+\]", "", result["text"]).strip()
-
-    if _is_blocked(result["text"]):
-        return {"text": "🚫 Сюжет ушёл в недопустимую тему. Опиши другое действие.",
-                "item": None, "location": None, "boss": None,
+        return {"text": "⚠️ Ошибка нейросети. Попробуй позже.",
+                "item": None, "location": None, "enemy": None,
                 "damage": 0, "heal": 0, "gold": 0}
 
+    result = {"text": text, "item": None, "location": None, "enemy": None,
+              "damage": 0, "heal": 0, "gold": 0}
+
+    # ENEMY-тег: имя | LEVEL: N | HP: M | (BOSS)
+    m = re.search(r"\[ENEMY:\s*(.+?)\s*\|\s*LEVEL:\s*(\d+)\s*\|\s*HP:\s*(\d+)(\s*\|\s*BOSS)?\]",
+                  result["text"], re.IGNORECASE)
+    if m:
+        result["enemy"] = {
+            "name": m.group(1).strip(),
+            "level": max(1, min(50, int(m.group(2)))),
+            "hp": max(20, min(500, int(m.group(3)))),
+            "is_boss": bool(m.group(4)),
+        }
+        result["text"] = re.sub(
+            r"\[ENEMY:\s*.+?\s*\|\s*LEVEL:\s*\d+\s*\|\s*HP:\s*\d+(\s*\|\s*BOSS)?\]",
+            "", result["text"], flags=re.IGNORECASE
+        ).strip()
+    else:
+        # Только если боя нет — парсим остальные теги
+        for tag, key, cast in [
+            (r"\[ITEM:\s*(.+?)\]", "item", str),
+            (r"\[LOCATION:\s*(.+?)\]", "location", str),
+        ]:
+            mm = re.search(tag, result["text"])
+            if mm:
+                result[key] = cast(mm.group(1).strip())
+                result["text"] = re.sub(tag, "", result["text"]).strip()
+
+        for tag, key in [
+            (r"\[DAMAGE:\s*(\d+)\]", "damage"),
+            (r"\[HEAL:\s*(\d+)\]", "heal"),
+            (r"\[GOLD:\s*(\d+)\]", "gold"),
+        ]:
+            mm = re.search(tag, result["text"])
+            if mm:
+                result[key] = int(mm.group(1))
+                result["text"] = re.sub(tag, "", result["text"]).strip()
+
+    if _is_blocked(result["text"]):
+        return {"text": "🚫 Сюжет ушёл в недопустимую тему.",
+                "item": None, "location": None, "enemy": None,
+                "damage": 0, "heal": 0, "gold": 0}
+
+    result["text"] = result["text"].strip()
     return result
