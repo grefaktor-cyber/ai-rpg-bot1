@@ -134,12 +134,11 @@ async def daily(m: Message):
     if streak is None:
         await m.answer("🎁 Вы уже получали награду сегодня. Возвращайтесь завтра!")
         return
-    bonus = {1:5, 2:5, 3:10, 4:10, 5:15, 6:15, 7:30}.get(streak, 10)
+    bonus = {1: 5, 2: 5, 3: 10, 4: 10, 5: 15, 6: 15, 7: 30}.get(streak, 10)
     msg = f"🎁 <b>Ежедневная награда!</b>\n\nДень {streak} подряд\n+{bonus} действий"
     if streak == 7:
         await db.add_item(m.from_user.id, "Редкий амулет удачи")
         msg += "\n\n🏆 <b>Бонус за 7 дней:</b> Редкий амулет удачи добавлен в инвентарь!"
-        await db.claim_daily  # сбросим streak — оставляем простым
     await m.answer(msg, parse_mode=ParseMode.HTML)
 
 @dp.message(Command("premium"))
