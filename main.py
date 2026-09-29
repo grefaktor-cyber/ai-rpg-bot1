@@ -21,6 +21,7 @@ from config import (BOT_TOKEN, GIGACHAT_CREDENTIALS, ADMIN_IDS,
 
 from core.globals import set_globals
 from handlers import profile as profile_handlers
+from handlers import travel as travel_handlers
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
