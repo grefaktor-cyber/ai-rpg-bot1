@@ -1,10 +1,13 @@
 """Профиль, рейтинги, достижения."""
-from aiogram import Router, F
+import logging
+import traceback
+
+from aiogram import Router, F, BaseMiddleware
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
 
-from core.globals import bot, db
+from core import globals as g
 
 router = Router()
 
@@ -50,27 +53,7 @@ ACHIEVEMENTS = {
 }
 
 
-# ================= ПРОФИЛЬ =================
-def _parse_item(s):
-    if not s:
-        return "", 0
-    import re as _re
-    m = _re.match(r"^(.+?)\+(\d+)$", s)
-    if m:
-        return m.group(1), int(m.group(2))
-    return s, 0
-
-
-def _effective_stats(user):
-    """Статы + бонусы экипировки (упрощённая версия, читает сырые статы из БД)."""
-    base = {
-        "str": user.get("stat_str", 5), "dex": user.get("stat_dex", 5),
-        "con": user.get("stat_con", 5), "int": user.get("stat_int", 5),
-        "wit": user.get("stat_wit", 5), "men": user.get("stat_men", 5),
-    }
-    return base
-
-
+# ================= КЛАВИАТУРА =================
 def _kb():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -89,10 +72,20 @@ def _kb():
     )
 
 
+def _effective_stats(user):
+    """Базовые статы из БД (без экипировки — упрощённая версия)."""
+    return {
+        "str": user.get("stat_str", 5), "dex": user.get("stat_dex", 5),
+        "con": user.get("stat_con", 5), "int": user.get("stat_int", 5),
+        "wit": user.get("stat_wit", 5), "men": user.get("stat_men", 5),
+    }
+
+
+# ================= ПРОФИЛЬ =================
 @router.message(Command("stats"))
 @router.message(F.text == "⭐ Профиль")
 async def stats_cmd(m: Message):
-    u = await db.get_user(m.from_user.id)
+    u = await g.db.get_user(m.from_user.id)
     if not u["race"]:
         await m.answer("Сначала /start")
         return
@@ -101,7 +94,7 @@ async def stats_cmd(m: Message):
 
     faction_name = FACTIONS.get(u["faction"], "—")
 
-    guild = await db.get_user_guild(m.from_user.id)
+    guild = await g.db.get_user_guild(m.from_user.id)
     guild_line = ""
     if guild:
         guild_line = f"\n🏛 Гильдия: <b>{guild['name']}</b> [{guild['tag']}]"
@@ -135,7 +128,7 @@ async def stats_cmd(m: Message):
 @router.message(Command("top"))
 @router.message(F.text == "🏅 Рейтинг")
 async def top_cmd(m: Message):
-    top = await db.get_top_players(10)
+    top = await g.db.get_top_players(10)
     if not top:
         await m.answer("🏅 Пока нет игроков.", reply_markup=_kb())
         return
@@ -153,7 +146,7 @@ async def top_cmd(m: Message):
 
 @router.message(Command("pvptop"))
 async def pvp_top_cmd(m: Message):
-    top = await db.get_pvp_top(10)
+    top = await g.db.get_pvp_top(10)
     if not top:
         await m.answer("🏅 Нет победителей дуэлей.", reply_markup=_kb())
         return
@@ -170,10 +163,31 @@ async def pvp_top_cmd(m: Message):
 @router.message(Command("achievements"))
 @router.message(F.text == "🏆 Достижения")
 async def achievements_cmd(m: Message):
-    earned = await db.get_achievements(m.from_user.id)
+    earned = await g.db.get_achievements(m.from_user.id)
     codes = {a["code"] for a in earned}
     lines = [f"{'✅' if c in codes else '🔒'} {t}" for c, t in ACHIEVEMENTS.items()]
     await m.answer(
         f"🏆 <b>Достижения ({len(codes)}/{len(ACHIEVEMENTS)})</b>\n\n" + "\n".join(lines),
         reply_markup=_kb(), parse_mode=ParseMode.HTML,
     )
+
+
+# ================= MIDDLEWARE ОШИБОК ДЛЯ РОУТЕРА =================
+class ProfileErrorMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except Exception as e:
+            tb = traceback.format_exc()
+            logging.error(f"Profile handler error: {e}\n{tb}")
+            try:
+                if hasattr(event, "message") and event.message:
+                    await event.message.answer("⚠️ Произошла ошибка. Уже чиним!")
+                elif hasattr(event, "answer"):
+                    await event.answer("⚠️ Ошибка. Уже чиним!", show_alert=True)
+            except Exception:
+                pass
+
+
+router.message.middleware(ProfileErrorMiddleware())
+router.callback_query.middleware(ProfileErrorMiddleware())
