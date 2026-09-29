@@ -2553,7 +2553,10 @@ async def check_achievements(uid, user):
 
 
 # ================= ОСНОВНОЙ ОБРАБОТЧИК =================
-@dp.message(F.text)
+# Кнопки, которые обслуживает handlers/profile.py — не уходят в ИИ
+PROFILE_BUTTONS = {"⭐ Профиль", "🏅 Рейтинг", "🏆 Достижения"}
+
+@dp.message(F.text, ~F.text.in_(PROFILE_BUTTONS))
 async def handle(m: Message):
     uid = m.from_user.id
     user = await db.get_user(uid, m.from_user.username or "")
