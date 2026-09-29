@@ -30,6 +30,7 @@ db = DB()
 
 # === РЕГИСТРАЦИЯ РОУТЕРОВ (до catch-all @dp.message(F.text)) ===
 dp.include_router(profile_handlers.router)
+dp.include_router(travel_handlers.router)
 
 
 class ErrorMiddleware(BaseMiddleware):
