@@ -2563,7 +2563,7 @@ EXCLUDE_FROM_AI = {
     "🚶 Идти", "🗺 Карта", "👥 Кто здесь",
 }
 
-@dp.message(F.text, ~F.text.in_(PROFILE_BUTTONS))
+@dp.message(F.text, ~F.text.in_(EXCLUDE_FROM_AI))
 async def handle(m: Message):
     uid = m.from_user.id
     user = await db.get_user(uid, m.from_user.username or "")
