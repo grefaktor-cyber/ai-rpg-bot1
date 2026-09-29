@@ -2556,7 +2556,12 @@ async def check_achievements(uid, user):
 
 # ================= ОСНОВНОЙ ОБРАБОТЧИК =================
 # Кнопки, которые обслуживает handlers/profile.py — не уходят в ИИ
-PROFILE_BUTTONS = {"⭐ Профиль", "🏅 Рейтинг", "🏆 Достижения"}
+EXCLUDE_FROM_AI = {
+    # profile.py
+    "⭐ Профиль", "🏅 Рейтинг", "🏆 Достижения",
+    # travel.py
+    "🚶 Идти", "🗺 Карта", "👥 Кто здесь",
+}
 
 @dp.message(F.text, ~F.text.in_(PROFILE_BUTTONS))
 async def handle(m: Message):
