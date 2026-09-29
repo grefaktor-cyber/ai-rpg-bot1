@@ -27,6 +27,9 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 db = DB()
 
+# === РЕГИСТРАЦИЯ РОУТЕРОВ (до catch-all @dp.message(F.text)) ===
+dp.include_router(profile_handlers.router)
+
 
 class ErrorMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
@@ -2296,7 +2299,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 async def handle_victory(chat_id, user, combat, prefix_text):
     await db.end_combat(user["user_id"])
 
-    # Прогресс NPC-квестов
     enemy_name = combat["enemy_name"]
     all_q = await db.get_user_quests(user["user_id"])
     for qrow in all_q:
@@ -2308,7 +2310,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if q["target"].lower() in enemy_name.lower():
             await db.incr_npc_quest(user["user_id"], qrow["quest_code"], 1)
 
-    # Прогресс ежедневного "убить врагов"
     q = await db.progress_quest(user["user_id"], "kill_enemies", 1)
     if q and q.get("completed"):
         try:
@@ -2364,7 +2365,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             await db.incr_bosses(user["user_id"])
         return
 
-    # Не подземелье
     await db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await db.add_xp(user["user_id"], exp)
     text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
@@ -2505,235 +2505,4 @@ async def cb_flee(c: CallbackQuery):
     if random.randint(1, 100) <= 50:
         await db.end_combat(c.from_user.id)
         await c.answer("🏃 Побег!")
-        await c.message.answer("🏃 Ты сбежал.", reply_markup=MAIN_KB)
-    else:
-        await c.answer("❌ Не удалось!")
-        event = await db.get_active_event(user.get("location_code", "village"))
-        enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
-        enemy_dmg = int((combat["enemy_level"] * 5 + random.randint(0, 5)) // 2 * enemy_dmg_mult)
-        new_hp = max(0, user["hp"] - enemy_dmg)
-        await db.update_hp(c.from_user.id, new_hp)
-        user["hp"] = new_hp
-        if user["hp"] <= 0:
-            await handle_death(c.message.chat.id, user, combat); return
-        await db.incr_combat_round(c.from_user.id)
-        await send_combat_state(c.message.chat.id, user,
-                                await db.get_combat(c.from_user.id),
-                                f"❌ Побег не удался! -{enemy_dmg}.", event)
-
-
-# ================= ДОСТИЖЕНИЯ =================
-async def check_achievements(uid, user):
-    new = []
-    if user["action_count"] >= 1:
-        if await db.add_achievement(uid, "first_step"): new.append("first_step")
-    locs = await db.get_locations(uid)
-    if len(locs) >= 5:
-        if await db.add_achievement(uid, "explorer_5"): new.append("explorer_5")
-    if len(locs) >= 10:
-        if await db.add_achievement(uid, "explorer_10"): new.append("explorer_10")
-    if len(locs) >= len(W.LOCATIONS):
-        if await db.add_achievement(uid, "explorer_all"): new.append("explorer_all")
-    items = await db.get_inventory(uid)
-    if len(items) >= 5:
-        if await db.add_achievement(uid, "collector_5"): new.append("collector_5")
-    if user["level"] >= 5:
-        if await db.add_achievement(uid, "level_5"): new.append("level_5")
-    if user["level"] >= 10:
-        if await db.add_achievement(uid, "level_10"): new.append("level_10")
-    if user["level"] >= 20:
-        if await db.add_achievement(uid, "level_20"): new.append("level_20")
-    if user["referral_count"] >= 3:
-        if await db.add_achievement(uid, "referral_3"): new.append("referral_3")
-    if user["daily_streak"] >= 7:
-        if await db.add_achievement(uid, "daily_7"): new.append("daily_7")
-    if user["gold"] >= 1000:
-        if await db.add_achievement(uid, "rich"): new.append("rich")
-    return new
-
-
-# ================= ОСНОВНОЙ ОБРАБОТЧИК =================
-@dp.message(F.text)
-async def handle(m: Message):
-    uid = m.from_user.id
-    user = await db.get_user(uid, m.from_user.username or "")
-
-    if not user["consent_given"]:
-        await m.answer("⚠️ Сначала /start"); return
-    if not user["race"]:
-        await show_race_selection(m); return
-    if not user["class"]:
-        await show_class_selection(m, user["race"]); return
-    if not user["faction"]:
-        await show_faction_selection(m); return
-    if not user["char_name"]:
-        name = m.text.strip()[:20]
-        if len(name) < 2:
-            await m.answer("✏️ Имя 2–20 символов:"); return
-        stats = calc_stats(user["race"], user["class"])
-        hp_base = stats["con"] * 20 + 15
-        user_tmp = {"faction": user["faction"], "level": 1, "stat_con": stats["con"],
-                    "stat_str": stats["str"], "stat_dex": stats["dex"],
-                    "stat_int": stats["int"], "stat_wit": stats["wit"],
-                    "stat_men": stats["men"], "pet_type": None}
-        hp = int(hp_base * faction_mult(user_tmp, "hp_mult"))
-        await db.set_char(uid, name, stats, hp)
-        await m.answer(
-            f"🎉 <b>Герой создан!</b>\n\n"
-            f"<b>{name}</b>\n"
-            f"{RACES[user['race']]['name']} · {CLASSES[user['class']]['name']}\n"
-            f"{FACTIONS[user['faction']]['name']}\n\n"
-            f"STR {stats['str']} · DEX {stats['dex']} · CON {stats['con']}\n"
-            f"INT {stats['int']} · WIT {stats['wit']} · MEN {stats['men']}\n"
-            f"❤️ HP: {hp} · 💰 100\n\n"
-            f"📍 Начальная деревня.",
-            reply_markup=MAIN_KB, parse_mode=ParseMode.HTML)
-        await run_tutorial(uid, m.chat.id)
-        return
-
-    combat = await db.get_combat(uid)
-    if combat:
-        if combat.get("is_pvp"):
-            await m.answer("⚔️ Ты в дуэли!", reply_markup=pvp_kb(combat["my_turn"]))
-        else:
-            await m.answer("⚔️ Ты в бою! Жми кнопки.", reply_markup=combat_kb())
-        return
-
-    is_admin = uid in ADMIN_IDS
-    if not is_admin and not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
-        await m.answer(
-            f"⏳ Лимит исчерпан ({FREE_DAILY_LIMIT}).\n\n"
-            "💎 Премиум · 👥 Друг · 🎁 Награда",
-            reply_markup=MAIN_KB)
-        return
-
-    await bot.send_chat_action(m.chat.id, "typing")
-    action = m.text.strip()[:500]
-
-    user_for_ai = dict(user)
-    eff = effective_stats(user)
-    for k in ["str", "dex", "con", "int", "wit", "men"]:
-        user_for_ai[f"stat_{k}"] = eff[k]
-    pet = await db.get_pet(uid)
-    if pet:
-        user_for_ai["pet_name"] = pet["name"]
-        user_for_ai["pet_type"] = pet["pet_type"]
-        user_for_ai["pet_level"] = pet["level"]
-
-    loc_code = user.get("location_code", "village")
-    event = await db.get_active_event(loc_code)
-    owner = await db.get_location_owner(loc_code)
-
-    result = await ai.generate(user["story"], action, user["arc"],
-                                user_for_ai, event, owner)
-    response = result["text"]
-
-    if result["enemy"]:
-        await db.increment(uid)
-        await db.incr_action_count(uid)
-        new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
-        await db.update_story(uid, new_story)
-        await m.answer(f"{response}\n\n<i>{AI_MARKER}</i>", parse_mode=ParseMode.HTML)
-        await start_combat_from_ai(m.chat.id, user, result["enemy"])
-        return
-
-    if result["item"]:
-        await db.add_item(uid, result["item"])
-        response += f"\n\n🎒 <i>+{result['item']}</i>"
-    if result["location"]:
-        loc_name = result["location"]
-        for ncode, ninfo in W.get_neighbors(loc_code):
-            if ninfo["name"].lower() == loc_name.lower() or loc_name.lower() in ninfo["name"].lower():
-                can, reason = W.can_enter(ncode, user["level"])
-                if can:
-                    await db.set_location_code(uid, ncode)
-                    await db.add_location(uid, ninfo["name"])
-                    await db.progress_quest(uid, "visit_locations", 1)
-                    response += f"\n\n📍 <i>Переход: {W.get_location(loc_code)['name']} → {ninfo['name']}</i>"
-                else:
-                    response += f"\n\n🚫 <i>{reason}</i>"
-                break
-        else:
-            response += f"\n\n<i>📍 {loc_name}</i>"
-
-    if result.get("material"):
-        await db.add_material(uid, result["material"], 1)
-        response += f"\n\n🔨 <i>+{MATERIAL_NAMES[result['material']]}</i>"
-    if result["damage"] > 0:
-        nhp = user["hp"] - result["damage"]
-        await db.update_hp(uid, nhp)
-        response += f"\n\n💔 <i>-{result['damage']} HP</i>"
-        if nhp <= 0:
-            await db.update_hp_max(uid, user["max_hp"], user["max_hp"])
-            response += "\n\n💀 <i>Ты очнулся в деревне.</i>"
-    if result["heal"] > 0:
-        nhp = min(user["max_hp"], user["hp"] + result["heal"])
-        await db.update_hp(uid, nhp)
-        response += f"\n\n💚 <i>+{result['heal']} HP</i>"
-
-    gold_gain = int((5 + result["gold"]) * faction_mult(user, "gold_mult"))
-    if owner and user.get("guild_id") and owner.get("guild_id") == user["guild_id"]:
-        gold_gain = int(gold_gain * W.LOCATION_OWNER_BONUS["gold_mult"])
-    if event:
-        gold_gain = int(gold_gain * event.get("gold_mult", 1.0))
-    await db.add_gold(uid, gold_gain)
-    if gold_gain > 0:
-        await db.progress_quest(uid, "earn_gold", gold_gain)
-
-    new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
-    await db.update_story(uid, new_story)
-    await db.increment(uid)
-    await db.incr_action_count(uid)
-
-    level, xp, leveled_up = await db.add_xp(uid, 10)
-    if leveled_up:
-        u = await db.get_user(uid)
-        nm = calc_max_hp(u)
-        await db.update_hp_max(uid, nm, nm)
-        response += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm}/{nm}"
-        if level in (5, 10):
-            await db.add_world_event(uid, user["username"], f"достиг {level} уровня!")
-
-    updated = await db.get_user(uid)
-    new_ach = await check_achievements(uid, updated)
-    if new_ach:
-        ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
-        response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
-
-    left = ("∞ (admin)" if is_admin
-            else "∞" if user["is_premium"]
-            else FREE_DAILY_LIMIT - user["requests_today"] - 1)
-    need = level * level * 100
-    await m.answer(
-        f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated['gold']} · "
-        f"❤️ {updated['hp']}/{updated['max_hp']} · Осталось: {left}</i>",
-        parse_mode=ParseMode.HTML)
-
-
-# ================= ВЕБ-СЕРВЕР =================
-async def handle_health(request):
-    return web.Response(text="Bot is running")
-
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_health)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    await web.TCPSite(runner, "0.0.0.0", port).start()
-    logging.info(f"✅ Веб-сервер на порту {port}")
-
-
-async def main():
-    await db.connect()
-    set_globals(bot, db)
-    dp.message.middleware(ErrorMiddleware())
-    dp.callback_query.middleware(ErrorMiddleware())
-    dp.include_router(profile_handlers.router)
-    await start_web_server()
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+       
