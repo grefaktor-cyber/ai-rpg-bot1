@@ -1,7 +1,7 @@
 """Магазин, инвентарь, экипировка."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -25,16 +25,31 @@ async def shop(m: Message):
         text += f" (−{int((1-shop_mult)*100)}% фракция)"
     text += "\n\n"
     for category, label in [("weapon", "🗡 Оружие"), ("armor", "🛡 Броня"),
-                            ("accessory", "💍 Аксессуары")]:
+                            ("accessory", "💍 Аксессуары"), ("potion", "🧪 Зелья")]:
         text += f"<b>{label}:</b>\n"
         for name, data in SHOP.items():
-            if data["type"] == category:
-                price = int(data["price"] * shop_mult)
+            if data["type"] != category:
+                continue
+            price = int(data["price"] * shop_mult)
+            if category == "potion":
+                hp = data.get("heal_hp", 0)
+                mp = data.get("heal_mp", 0)
+                effect = f"+{hp} HP" if hp else f"+{mp} MP"
+                text += f"• {name} ({price}💰) — {effect}\n"
+            else:
                 bonus_str = ", ".join(f"+{v} {k.upper()}"
                                       for k, v in data["bonus"].items())
                 text += f"• {name} ({price}💰) — {bonus_str}\n"
         text += "\n"
-    await m.answer(text, reply_markup=shop_kb(SHOP, shop_mult),
+    # Кнопки
+    rows = []
+    for name, data in SHOP.items():
+        price = int(data["price"] * shop_mult)
+        rows.append([InlineKeyboardButton(
+            text=f"{name} — {price}💰",
+            callback_data=f"shop_buy_{name}"
+        )])
+    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                    parse_mode=ParseMode.HTML)
 
 
@@ -53,8 +68,14 @@ async def shop_buy_cb(c: CallbackQuery):
             await c.answer(f"❌ Нужно {price}💰", show_alert=True); return
     await g.db.add_item(c.from_user.id, item_name)
     await c.answer(f"✅ Куплено: {item_name}")
-    await c.message.answer(f"✅ <b>{item_name}</b> куплен!\n/equip {item_name}",
-                           parse_mode=ParseMode.HTML)
+    if data["type"] == "potion":
+        await c.message.answer(
+            f"✅ <b>{item_name}</b> куплен!\nИспользуй: /use {item_name}",
+            parse_mode=ParseMode.HTML)
+    else:
+        await c.message.answer(
+            f"✅ <b>{item_name}</b> куплен!\n/equip {item_name}",
+            parse_mode=ParseMode.HTML)
 
 
 # ================= ЭКИПИРОВКА =================
@@ -67,6 +88,8 @@ async def equip(m: Message):
     base_name, lvl = parse_item(item_name)
     if base_name not in SHOP:
         await m.answer("❌ Нельзя экипировать."); return
+    if SHOP[base_name]["type"] == "potion":
+        await m.answer("❌ Зелья не экипируются. /use Название"); return
     inv = await g.db.get_inventory(m.from_user.id)
     inv_names = [i["item_name"] for i in inv]
     if item_name not in inv_names:
@@ -111,18 +134,46 @@ async def unequip(m: Message):
 @router.message(Command("inventory"))
 @router.message(F.text == "🎒 Инвентарь")
 async def inventory(m: Message):
+    u = await g.db.get_user(m.from_user.id)
     items = await g.db.get_inventory(m.from_user.id)
     if not items:
         await m.answer("🎒 Инвентарь пуст.", reply_markup=main_kb()); return
-    lines = []
+
+    lines = ["🎒 <b>Инвентарь</b>\n"]
+    potion_buttons = []
     for it in items:
         name, lvl = parse_item(it["item_name"])
         if name in SHOP:
-            bonus_str = ", ".join(f"+{v} {k.upper()}"
-                                  for k, v in SHOP[name]["bonus"].items())
-            suffix = f" (+{lvl})" if lvl else ""
-            lines.append(f"• {name}{suffix} — {bonus_str}")
+            data = SHOP[name]
+            if data["type"] == "potion":
+                hp = data.get("heal_hp", 0)
+                mp = data.get("heal_mp", 0)
+                effect = f"+{hp} HP" if hp else f"+{mp} MP"
+                lines.append(f"• 🧪 {name} — {effect}")
+                potion_buttons.append([InlineKeyboardButton(
+                    text=f"🧪 Использовать {name}",
+                    callback_data=f"use_item_{name}"
+                )])
+            else:
+                bonus_str = ", ".join(f"+{v} {k.upper()}"
+                                      for k, v in data["bonus"].items())
+                suffix = f" (+{lvl})" if lvl else ""
+                lines.append(f"• {name}{suffix} — {bonus_str}")
         else:
             lines.append(f"• {it['item_name']}")
-    text = "🎒 <b>Инвентарь</b>\n\n" + "\n".join(lines) + "\n\n<i>/equip Название+N</i>"
-    await m.answer(text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+
+    # Экипированное
+    eq_lines = []
+    for slot, label in [("equipped_weapon", "🗡 Оружие"),
+                        ("equipped_armor", "🛡 Броня"),
+                        ("equipped_accessory", "💍 Аксессуар")]:
+        val = u.get(slot) or "—"
+        eq_lines.append(f"{label}: {val}")
+
+    lines.append("\n<b>Экипировано:</b>")
+    lines.extend(eq_lines)
+    lines.append("\n<i>/equip Название+N · /use Зелье</i>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=potion_buttons) if potion_buttons else main_kb()
+    await m.answer("\n".join(lines), reply_markup=kb,
+                   parse_mode=ParseMode.HTML)
