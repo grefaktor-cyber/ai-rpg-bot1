@@ -1,4 +1,4 @@
-"""Инвентарь 2.0: 5 категорий, пагинация, меню действий."""
+"""Инвентарь 2.0: 5 категорий, пагинация, сортировка, фильтр."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -16,8 +16,24 @@ router = Router()
 
 PAGE_SIZE = 8
 
+# Сортировка грейдов: C (лучший) → D → common
+GRADE_ORDER = {"C": 0, "D": 1, "common": 2}
 
-# ================= КАТЕГОРИИ (5 шт) =================
+# Настройки пользователя в памяти (сброс при рестарте)
+_USER_PREFS = {}  # uid -> {"sort": "grade"|"name"|"level", "filter": bool}
+
+
+def _get_prefs(uid):
+    if uid not in _USER_PREFS:
+        _USER_PREFS[uid] = {"sort": "grade", "filter": False}
+    return _USER_PREFS[uid]
+
+
+def _set_pref(uid, key, value):
+    _get_prefs(uid)[key] = value
+
+
+# ================= КАТЕГОРИИ =================
 CATEGORIES = {
     "weapon":    ("⚔️ Оружие", "⚔️"),
     "armor":     ("🛡 Броня", "🛡"),
@@ -45,16 +61,69 @@ def _categorize(items):
         if item_type == "weapon":
             groups["weapon"].append(it)
         elif item_type in ("armor", "shield"):
-            # Шлем + броня + сапоги + щит = Броня
             groups["armor"].append(it)
         elif item_type == "accessory":
-            # Амулет + кольцо = Аксессуары
             groups["accessory"].append(it)
         elif item_type == "potion":
             groups["potion"].append(it)
         else:
             groups["other"].append(it)
     return groups
+
+
+def _sort_items(items, mode):
+    """Сортировать предметы по режиму."""
+    def key_grade(it):
+        name, lvl = parse_item(it["item_name"])
+        data = SHOP.get(name, {})
+        grade = data.get("grade", "common")
+        return (GRADE_ORDER.get(grade, 3), -lvl, name.lower())
+
+    def key_name(it):
+        name, _ = parse_item(it["item_name"])
+        return name.lower()
+
+    def key_level(it):
+        name, lvl = parse_item(it["item_name"])
+        data = SHOP.get(name, {})
+        level_req = data.get("level_req", 1)
+        return (-level_req, -lvl, name.lower())
+
+    if mode == "name":
+        return sorted(items, key=key_name)
+    if mode == "level":
+        return sorted(items, key=key_level)
+    return sorted(items, key=key_grade)
+
+
+def _filter_items(items, user_class, only_usable):
+    """Фильтр 'только доступные'."""
+    if not only_usable:
+        return items
+    result = []
+    for it in items:
+        name, _ = parse_item(it["item_name"])
+        data = SHOP.get(name, {})
+        if data.get("type") == "potion":
+            result.append(it)
+            continue
+        if can_use_item(user_class, name):
+            result.append(it)
+    return result
+
+
+def _count_usable(items, user_class):
+    """Сколько из items доступны классу."""
+    cnt = 0
+    for it in items:
+        name, _ = parse_item(it["item_name"])
+        data = SHOP.get(name, {})
+        if data.get("type") == "potion":
+            cnt += 1
+            continue
+        if can_use_item(user_class, name):
+            cnt += 1
+    return cnt
 
 
 # ================= ГЛАВНОЕ МЕНЮ =================
@@ -69,42 +138,54 @@ async def inventory_cmd(m: Message):
 
 async def _show_main(chat_id, u, items, edit_message=None):
     groups = _categorize(items)
+    prefs = _get_prefs(u["user_id"])
+    my_class = u["class"]
 
     text = "🎒 <b>Инвентарь</b>\n\n"
     text += f"💰 Золото: <b>{u['gold']}</b>\n"
     text += f"📦 Предметов: <b>{len(items)}</b>\n\n"
-    text += "Выбери категорию:"
+
+    # Легенда сортировки
+    sort_label = {"grade": "по грейду", "name": "по имени", "level": "по уровню"}[prefs["sort"]]
+    text += f"🔀 Сортировка: <b>{sort_label}</b>\n"
+    if prefs["filter"]:
+        text += "👁 Фильтр: <b>только доступные</b>\n"
+    text += "\nВыбери категорию:"
 
     rows = []
-    # Ряд 1: Оружие + Броня
-    rows.append([
-        InlineKeyboardButton(
-            text=f"⚔️ Оружие ({len(groups['weapon'])})",
-            callback_data="inv_cat_weapon_0"),
-        InlineKeyboardButton(
-            text=f"🛡 Броня ({len(groups['armor'])})",
-            callback_data="inv_cat_armor_0"),
-    ])
-    # Ряд 2: Аксессуары + Зелья
-    rows.append([
-        InlineKeyboardButton(
-            text=f"💍 Аксессуары ({len(groups['accessory'])})",
-            callback_data="inv_cat_accessory_0"),
-        InlineKeyboardButton(
-            text=f"🧪 Зелья ({len(groups['potion'])})",
-            callback_data="inv_cat_potion_0"),
-    ])
-    # Если есть «прочее» — отдельная кнопка
+
+    def cat_btn(cat):
+        cnt_all = len(groups[cat])
+        cnt_usable = _count_usable(groups[cat], my_class)
+        icon = CATEGORIES[cat][1]
+        if cat == "potion":
+            label = f"{icon} Зелья ({cnt_all})"
+        else:
+            label = f"{icon} {CATEGORIES[cat][0].split(' ', 1)[1]} ({cnt_usable}/{cnt_all})"
+        return InlineKeyboardButton(text=label, callback_data=f"inv_cat_{cat}_0")
+
+    rows.append([cat_btn("weapon"), cat_btn("armor")])
+    rows.append([cat_btn("accessory"), cat_btn("potion")])
     if groups["other"]:
-        rows.append([InlineKeyboardButton(
-            text=f"📦 Прочее ({len(groups['other'])})",
-            callback_data="inv_cat_other_0")])
+        rows.append([cat_btn("other")])
+
+    # Кнопки сортировки
+    rows.append([
+        InlineKeyboardButton(text="🔀 Грейд",
+                             callback_data="inv_sort_grade"),
+        InlineKeyboardButton(text="🔤 Имя",
+                             callback_data="inv_sort_name"),
+        InlineKeyboardButton(text="⭐ Уровень",
+                             callback_data="inv_sort_level"),
+    ])
+    # Фильтр
+    filter_text = "👁 Фильтр: ВКЛ" if prefs["filter"] else "👁 Фильтр: ВЫКЛ"
+    rows.append([InlineKeyboardButton(text=filter_text,
+                                       callback_data="inv_toggle_filter")])
     # Экипировано + Материалы
     rows.append([
-        InlineKeyboardButton(text="👑 Экипировано",
-                             callback_data="inv_equipped"),
-        InlineKeyboardButton(text="📦 Материалы",
-                             callback_data="inv_materials"),
+        InlineKeyboardButton(text="👑 Экипировано", callback_data="inv_equipped"),
+        InlineKeyboardButton(text="📦 Материалы", callback_data="inv_materials"),
     ])
     rows.append([InlineKeyboardButton(text="❌ Закрыть",
                                        callback_data="inv_close")])
@@ -121,6 +202,26 @@ async def _show_main(chat_id, u, items, edit_message=None):
             pass
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
+
+
+# ================= СОРТИРОВКА / ФИЛЬТР =================
+@router.callback_query(F.data.startswith("inv_sort_"))
+async def inv_sort_cb(c: CallbackQuery):
+    mode = c.data.replace("inv_sort_", "")
+    if mode not in ("grade", "name", "level"):
+        await c.answer("Ошибка"); return
+    _set_pref(c.from_user.id, "sort", mode)
+    await c.answer(f"🔀 Сортировка: {mode}")
+    await inv_menu_cb(c)
+
+
+@router.callback_query(F.data == "inv_toggle_filter")
+async def inv_toggle_filter_cb(c: CallbackQuery):
+    prefs = _get_prefs(c.from_user.id)
+    prefs["filter"] = not prefs["filter"]
+    state = "ВКЛ" if prefs["filter"] else "ВЫКЛ"
+    await c.answer(f"👁 Фильтр: {state}")
+    await inv_menu_cb(c)
 
 
 # ================= КАТЕГОРИЯ =================
@@ -140,17 +241,31 @@ async def inv_cat_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
     items = await g.db.get_inventory(c.from_user.id)
     groups = _categorize(items)
-    cat_items = groups[cat]
+    cat_items = list(groups[cat])
+
+    # Фильтр
+    prefs = _get_prefs(c.from_user.id)
+    if prefs["filter"] and cat != "potion":
+        cat_items = _filter_items(cat_items, u["class"], True)
+
+    # Сортировка
+    cat_items = _sort_items(cat_items, prefs["sort"])
 
     label, icon = CATEGORIES[cat]
-    text = f"{icon} <b>{label}</b>\n\n"
+    text = f"{icon} <b>{label}</b>"
+    if prefs["filter"] and cat != "potion":
+        text += " · <i>только доступные</i>"
+    text += "\n\n"
 
     if not cat_items:
         text += "<i>Пусто.</i>"
-        kb = InlineKeyboardMarkup(inline_keyboard=[
+        rows = [
+            [InlineKeyboardButton(text="👁 Фильтр: ВЫКЛ",
+                                   callback_data="inv_toggle_filter")],
             [InlineKeyboardButton(text="⬅️ В инвентарь",
                                    callback_data="inv_menu")],
-        ])
+        ]
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
         try:
             await c.message.edit_text(text, reply_markup=kb,
                                       parse_mode=ParseMode.HTML)
