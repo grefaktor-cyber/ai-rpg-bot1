@@ -90,9 +90,21 @@ async def travel_do(c):
 
     old_name = W.get_location(cur_code).get("name", "?")
     new_loc = W.get_location(code)
+
+    # Проверка: первое посещение?
+    visited = await g.db.get_all_location_codes_visited(c.from_user.id)
+    first_visit = new_loc["name"] not in visited
+
     await g.db.set_location_code(c.from_user.id, code)
     await g.db.add_location(c.from_user.id, new_loc["name"])
     await g.db.progress_quest(c.from_user.id, "visit_locations", 1)
+
+    if first_visit:
+        await g.db.add_journal_entry(
+            c.from_user.id,
+            f"Впервые посетил «{new_loc['name']}»",
+            "location"
+        )
 
     loc = W.get_location(code)
     event = await g.db.get_active_event(code)
