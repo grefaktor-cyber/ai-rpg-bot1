@@ -282,6 +282,43 @@ def regen_between_rooms(user, hp_pct=0.20, mp_pct=0.30):
     new_mp = min(max_mp, mp + int(max_mp * mp_pct)) if max_mp > 0 else 0
     return new_hp, new_mp
 
+# ================= ЭФФЕКТЫ ЭКСКЛЮЗИВНОЙ ЭКИПИРОВКИ =================
+def _iter_equipped(user):
+    """Генератор: (name, level) по всем надётым предметам."""
+    for slot in SLOTS:
+        raw = user.get(f"equipped_{slot}", "")
+        if not raw:
+            continue
+        name, lvl = parse_item(raw)
+        yield name, lvl
+
+
+def get_block_chance(user):
+    """Суммарный шанс блока от экипировки."""
+    total = 0
+    for name, _ in _iter_equipped(user):
+        if name in SHOP:
+            total += SHOP[name].get("block_chance", 0)
+    return min(total, 75)  # макс 75%
+
+
+def get_crit_bonus(user):
+    """Бонус к криту от экипировки."""
+    total = 0
+    for name, _ in _iter_equipped(user):
+        if name in SHOP:
+            total += SHOP[name].get("crit_bonus", 0)
+    return total
+
+
+def get_gold_mult(user):
+    """Множитель золота от экипировки."""
+    mult = 1.0
+    for name, _ in _iter_equipped(user):
+        if name in SHOP:
+            mult *= SHOP[name].get("gold_mult", 1.0)
+    return mult
+
 # ================= РАСОВЫЕ ЭФФЕКТЫ (пассив) =================
 def racial_crit_bonus(user):
     """Бонус к криту от расы. Возвращает +% к шансу."""
