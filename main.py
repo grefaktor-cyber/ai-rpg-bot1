@@ -27,6 +27,7 @@ from handlers import (
     world_events as world_events_handlers,
     misc as misc_handlers,
     skills as skills_handlers,
+    use as use_handlers,
     ai_handler as ai_handler_handlers,
 )
 
@@ -87,6 +88,7 @@ dp.include_router(quests_handlers.router)
 dp.include_router(pets_handlers.router)
 dp.include_router(world_events_handlers.router)
 dp.include_router(skills_handlers.router)
+dp.include_router(use_handlers.router)
 # 4) Catch-all — ОБЯЗАТЕЛЬНО ПОСЛЕДНИМ
 dp.include_router(ai_handler_handlers.router)
 
