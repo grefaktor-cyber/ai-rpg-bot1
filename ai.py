@@ -103,12 +103,19 @@ DMG_NAMES = {"phys": "физический", "agile": "ловкий", "magic": "
 _client = None
 
 
+import time
+_last_call = 0
+_client = None
+
 def _get_client():
-    global _client
-    if _client is None:
+    global _client, _last_call
+    now = time.time()
+    # Сбрасываем клиент если прошло больше 10 минут (экономия RAM)
+    if _client is None or (now - _last_call) > 600:
         from config import GIGACHAT_CREDENTIALS
         _client = GigaChat(credentials=GIGACHAT_CREDENTIALS,
                            verify_ssl_certs=False, model="GigaChat-2")
+    _last_call = now
     return _client
 
 
