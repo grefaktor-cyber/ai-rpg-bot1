@@ -293,7 +293,6 @@ async def trade_callbacks(c: CallbackQuery, state: FSMContext):
         await c.answer("Отменено")
         return
 
-    # Формат: trade_<action>_<oid>[_<param>]
     parts = data.split("_", 3)
     if len(parts) < 3:
         await c.answer("Ошибка"); return
@@ -329,7 +328,6 @@ async def trade_callbacks(c: CallbackQuery, state: FSMContext):
             await c.answer("Уже добавлен", show_alert=True); return
         current.append(item_name)
         await g.db.update_trade_field(oid, my_field, json.dumps(current))
-        # Сброс подтверждений — состав изменился
         await g.db.update_trade_field(oid, "from_confirmed", "0")
         await g.db.update_trade_field(oid, "to_confirmed", "0")
         await c.answer(f"✅ +{item_name}")
@@ -352,7 +350,6 @@ async def trade_callbacks(c: CallbackQuery, state: FSMContext):
         return
 
     if action == "gold":
-        # parts[3] — сумма
         try:
             amount = int(parts[3]) if len(parts) > 3 else 0
         except ValueError:
@@ -374,7 +371,6 @@ async def trade_callbacks(c: CallbackQuery, state: FSMContext):
         return
 
     if action == "confirm":
-        # Проверяем что предметы ещё в инвентаре
         try:
             my_items = json.loads(offer[my_field] or "[]")
         except Exception:
@@ -393,13 +389,11 @@ async def trade_callbacks(c: CallbackQuery, state: FSMContext):
         await g.db.update_trade_field(oid, my_confirmed_field, "1")
         await c.answer("✅ Подтверждено")
 
-        # Проверяем оба
         fresh = await g.db.get_trade_offer(oid)
         if fresh["from_confirmed"] and fresh["to_confirmed"]:
             await _execute_trade(oid)
         else:
             await _refresh_trade_menu(c.from_user.id, oid, is_sender)
-            # Уведомить соперника
             try:
                 other_id = fresh["to_id"] if is_sender else fresh["from_id"]
                 await g.bot.send_message(other_id,
@@ -446,7 +440,6 @@ async def _show_trade_menu(chat_id, uid, oid, state):
     kb = _trade_kb(offer, is_sender, uid)
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
-    # Уведомить второго
     other_id = offer["to_id"] if is_sender else offer["from_id"]
     if other_id != uid:
         try:
@@ -468,7 +461,6 @@ async def _refresh_trade_menu(uid, oid, is_sender):
                                  parse_mode=ParseMode.HTML)
     except Exception:
         pass
-    # Уведомить соперника
     try:
         other_id = offer["to_id"] if is_sender else offer["from_id"]
         other_is_sender = other_id == offer["from_id"]
@@ -502,7 +494,9 @@ def _trade_text(offer, is_sender):
     text += f"<b>Ты ({me_name}):</b> {'✅ подтвердил' if my_confirmed else '⏳ выбирает'}\n"
     if mine:
         for it in mine:
-            text += f"  • {it}\n"
+            base_name, _ = parse_item(it)
+            mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
+            text += f"  • {mark}{it}\n"
     else:
         text += "  <i>— пусто —</i>\n"
     if my_gold:
@@ -510,7 +504,9 @@ def _trade_text(offer, is_sender):
     text += f"\n<b>{them_name}:</b> {'✅ подтвердил' if their_confirmed else '⏳ выбирает'}\n"
     if theirs:
         for it in theirs:
-            text += f"  • {it}\n"
+            base_name, _ = parse_item(it)
+            mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
+            text += f"  • {mark}{it}\n"
     else:
         text += "  <i>— пусто —</i>\n"
     if their_gold:
@@ -532,8 +528,11 @@ def _trade_kb(offer, is_sender, uid):
     rows.append([InlineKeyboardButton(
         text="💰 Задать золото", callback_data=f"trade_goldprompt_{oid}")])
     for it in mine:
+        # Помечаем эксклюзивы 🔒
+        base_name, _ = parse_item(it)
+        mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
         rows.append([InlineKeyboardButton(
-            text=f"➖ {it}", callback_data=f"trade_remove_{oid}_{it}")])
+            text=f"➖ {mark}{it}", callback_data=f"trade_remove_{oid}_{it}")])
     rows.append([InlineKeyboardButton(
         text="✅ Подтвердить", callback_data=f"trade_confirm_{oid}")])
     rows.append([InlineKeyboardButton(
@@ -563,12 +562,11 @@ async def trade_addprompt(c: CallbackQuery, state: FSMContext):
         n = it["item_name"]
         if n in mine:
             continue
-        # Эксклюзивные нельзя передавать
+        # Эксклюзивы тоже можно передавать, помечаем 🔒
         base_name, _ = parse_item(n)
-        if base_name in SHOP and SHOP[base_name].get("premium"):
-            continue
+        mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
         rows.append([InlineKeyboardButton(
-            text=f"+ {n}", callback_data=f"trade_add_{oid}_{n}")])
+            text=f"+ {mark}{n}", callback_data=f"trade_add_{oid}_{n}")])
     rows.append([InlineKeyboardButton(
         text="⬅️ Назад", callback_data=f"trade_back_{oid}")])
     await c.message.answer("Выбери предмет для добавления:",
@@ -602,7 +600,6 @@ async def _execute_trade(oid):
     from_gold = offer["from_gold"] or 0
     to_gold = offer["to_gold"] or 0
 
-    # Проверки
     f_inv = await g.db.get_inventory(offer["from_id"])
     t_inv = await g.db.get_inventory(offer["to_id"])
     f_names = [i["item_name"] for i in f_inv]
@@ -621,17 +618,14 @@ async def _execute_trade(oid):
         await g.db.set_trade_status(oid, "cancelled")
         return
 
-    # Убираем предметы
     for it in from_items:
         await g.db.remove_item(offer["from_id"], it)
     for it in to_items:
         await g.db.remove_item(offer["to_id"], it)
-    # Добавляем друг другу
     for it in from_items:
         await g.db.add_item(offer["to_id"], it)
     for it in to_items:
         await g.db.add_item(offer["from_id"], it)
-    # Золото
     if from_gold:
         await g.db.spend_gold(offer["from_id"], from_gold)
         await g.db.add_gold(offer["to_id"], from_gold)
@@ -641,7 +635,6 @@ async def _execute_trade(oid):
 
     await g.db.set_trade_status(oid, "completed")
 
-    # Уведомить
     for uid, name in [(offer["from_id"], offer["from_name"]),
                       (offer["to_id"], offer["to_name"])]:
         try:
