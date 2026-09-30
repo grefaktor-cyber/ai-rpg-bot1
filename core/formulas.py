@@ -174,6 +174,114 @@ def apply_defense(damage, defense):
     final = int(damage * (1 - reduction))
     return max(1, final)
 
+
+# ================= БОЕВОЙ БАЛАНС 2.0 =================
+import random as _rnd
+
+
+# ============ XP С УЧЁТОМ РАЗНИЦЫ УРОВНЕЙ ============
+def calc_xp_reward(enemy_level, player_level, base_exp):
+    """Умный XP. Слабые мобы дают копейки, сильные — жирно.
+    Как в L2: за мобов на 5+ уровней ниже — почти 0."""
+    diff = enemy_level - player_level
+    if diff >= 0:
+        mult = min(2.5, 1.0 + diff * 0.15)
+    else:
+        mult = max(0.05, 1.0 + diff * 0.15)
+    return max(1, int(base_exp * mult))
+
+
+# ============ HP МОБА ============
+def calc_enemy_hp(enemy_level, player_level, is_boss=False):
+    """HP моба. Растёт с уровнем и уровнем игрока, чтобы бои были длиннее."""
+    if is_boss:
+        return int(enemy_level * 45 + player_level * 12)
+    return int(enemy_level * 28 + player_level * 6)
+
+
+# ============ УРОН МОБА (БАЗА) ============
+def calc_enemy_base_dmg(enemy_level, player_level, is_boss=False):
+    """Базовый урон моба. Растёт с уровнем игрока, чтобы не было скучно."""
+    base = enemy_level * 6 + (player_level // 2) + _rnd.randint(0, 5)
+    if is_boss:
+        base = int(base * 1.5)
+    return base
+
+
+# ============ ТИП УРОНА МОБА ============
+MAGIC_MOB_KEYWORDS = [
+    "маг", "колдун", "некромант", "жрец", "шаман", "лич",
+    "призрак", "дух", "ведьма", "демон", "элементаль",
+    "хранитель", "король духов", "ксарг",
+]
+
+
+def get_enemy_dmg_type(enemy_name):
+    """Определить тип урона моба по имени.
+    По умолчанию — phys. Магические — по ключевым словам."""
+    low = (enemy_name or "").lower()
+    for kw in MAGIC_MOB_KEYWORDS:
+        if kw in low:
+            return "magic"
+    return "phys"
+
+
+# ============ ЗАЩИТА ИГРОКА ПРОТИВ ТИПА МОБА ============
+def get_player_def_for_enemy(user, enemy_dmg_type):
+    """Какую защиту игрока применить против этого типа урона."""
+    if enemy_dmg_type == "magic":
+        return calc_m_def(user)
+    return calc_p_def(user)
+
+
+def apply_player_defense(enemy_dmg, player_def):
+    """Снизить урон врага через защиту игрока.
+    Формула как в L2: reduction = def / (def + 50)."""
+    if player_def <= 0:
+        return max(1, int(enemy_dmg))
+    reduction = player_def / (player_def + 50)
+    final = int(enemy_dmg * (1 - reduction))
+    return max(1, final)
+
+
+# ============ ФАЗЫ БОССА ============
+def get_boss_phase(combat):
+    """Фаза босса по HP. Возвращает dict или None."""
+    if not combat or not combat.get("is_boss"):
+        return None
+    max_hp = combat.get("enemy_max_hp", 1)
+    if max_hp <= 0:
+        return None
+    hp_pct = combat["enemy_hp"] / max_hp
+    if hp_pct > 0.6:
+        return None  # обычная фаза
+    if hp_pct > 0.3:
+        return {
+            "name": "⚡ Ярость",
+            "dmg_mult": 1.30,
+            "attacks": 1,
+            "desc": "Босс в ярости! +30% урона",
+        }
+    return {
+        "name": "🔥 Финал",
+        "dmg_mult": 1.50,
+        "attacks": 2,
+        "desc": "Босс атакует вдвое чаще!",
+    }
+
+
+# ============ РЕГЕНЕРАЦИЯ МЕЖДУ КОМНАТАМИ ПОДЗЕМЕЛЬЯ ============
+def regen_between_rooms(user, hp_pct=0.20, mp_pct=0.30):
+    """Сколько HP/MP восстановить между комнатами.
+    Возвращает (new_hp, new_mp)."""
+    max_hp = user.get("max_hp", 1)
+    max_mp = user.get("max_mp", 0)
+    hp = user.get("hp", 0)
+    mp = user.get("mp", 0)
+    new_hp = min(max_hp, hp + int(max_hp * hp_pct))
+    new_mp = min(max_mp, mp + int(max_mp * mp_pct)) if max_mp > 0 else 0
+    return new_hp, new_mp
+
 # ================= РАСОВЫЕ ЭФФЕКТЫ (пассив) =================
 def racial_crit_bonus(user):
     """Бонус к криту от расы. Возвращает +% к шансу."""
