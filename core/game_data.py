@@ -1,25 +1,106 @@
 """Игровые данные: расы, классы, фракции, магазин, питомцы, подземелья, крафт."""
 
-# ================= РАСЫ (текущие 5, эксклюзивные добавим позже) =================
+# ================= РАСЫ (4, сумма 30 у всех) =================
 RACES = {
     "human":    {"name": "Человек",     "desc": "Универсал.",
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
     "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый.",
-                 "stats": {"str": 4, "dex": 6, "con": 4, "int": 6, "wit": 6, "men": 5}},
+                 "stats": {"str": 4, "dex": 6, "con": 4, "int": 6, "wit": 6, "men": 4}},
     "dark_elf": {"name": "Тёмный эльф", "desc": "Сильная магия.",
                  "stats": {"str": 5, "dex": 5, "con": 4, "int": 6, "wit": 6, "men": 4}},
     "orc":      {"name": "Орк",         "desc": "Могучий воин.",
-                 "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 4, "men": 3}},
-    "dwarf":    {"name": "Гном",        "desc": "Выносливый.",
-                 "stats": {"str": 6, "dex": 4, "con": 7, "int": 4, "wit": 4, "men": 5}},
+                 "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 5, "men": 4}},
 }
 
-# ================= КЛАССЫ (текущие 4, остальные добавим позже) =================
+# ================= КЛАССЫ (12, все +6, привязка к расам) =================
+# role: tank / fighter / agile / mage / universal
+# dmg_type: phys / agile / magic
 CLASSES = {
-    "warrior": {"name": "Воин",   "desc": "Мастер меча.", "bonus": {"str": 3, "con": 2}},
-    "mage":    {"name": "Маг",    "desc": "Стихии.",      "bonus": {"int": 3, "wit": 2}},
-    "archer":  {"name": "Лучник", "desc": "Стрелок.",     "bonus": {"dex": 3, "str": 2}},
-    "priest":  {"name": "Жрец",   "desc": "Целитель.",    "bonus": {"men": 3, "wit": 2}},
+    # ---- Человек ----
+    "warrior": {
+        "name": "Воин", "desc": "Мастер меча.",
+        "races": ["human"],
+        "bonus": {"str": 3, "con": 3},
+        "role": "fighter", "dmg_type": "phys",
+    },
+    "knight": {
+        "name": "Рыцарь", "desc": "Танк и защитник.",
+        "races": ["human"],
+        "bonus": {"str": 2, "con": 3, "men": 1},
+        "role": "tank", "dmg_type": "phys",
+    },
+    "mage": {
+        "name": "Маг", "desc": "Боевая магия.",
+        "races": ["human"],
+        "bonus": {"int": 4, "wit": 2},
+        "role": "mage", "dmg_type": "magic",
+    },
+    # ---- Эльф ----
+    "archer": {
+        "name": "Лучник", "desc": "Стрелок.",
+        "races": ["elf"],
+        "bonus": {"str": 3, "dex": 3},
+        "role": "agile", "dmg_type": "agile",
+    },
+    "guardian": {
+        "name": "Страж", "desc": "Защитник природы.",
+        "races": ["elf"],
+        "bonus": {"str": 1, "dex": 2, "con": 2, "wit": 1},
+        "role": "tank", "dmg_type": "agile",
+    },
+    "bard": {
+        "name": "Певчий", "desc": "Магия поддержки.",
+        "races": ["elf"],
+        "bonus": {"int": 2, "wit": 2, "men": 2},
+        "role": "mage", "dmg_type": "magic",
+    },
+    # ---- Тёмный эльф ----
+    "assassin": {
+        "name": "Убийца", "desc": "Скрытность и крит.",
+        "races": ["dark_elf"],
+        "bonus": {"str": 2, "dex": 4},
+        "role": "agile", "dmg_type": "agile",
+    },
+    "necro": {
+        "name": "Некромант", "desc": "Тёмная магия.",
+        "races": ["dark_elf"],
+        "bonus": {"int": 4, "wit": 2},
+        "role": "mage", "dmg_type": "magic",
+    },
+    "dancer": {
+        "name": "Танцор", "desc": "Быстрые атаки.",
+        "races": ["dark_elf"],
+        "bonus": {"str": 3, "dex": 2, "men": 1},
+        "role": "universal", "dmg_type": "agile",
+    },
+    # ---- Орк ----
+    "destroyer": {
+        "name": "Разрушитель", "desc": "Максимальный урон.",
+        "races": ["orc"],
+        "bonus": {"str": 5, "con": 1},
+        "role": "fighter", "dmg_type": "phys",
+    },
+    "tyrant": {
+        "name": "Тиранин", "desc": "Быстрые атаки.",
+        "races": ["orc"],
+        "bonus": {"str": 4, "dex": 2},
+        "role": "agile", "dmg_type": "agile",
+    },
+    "overlord": {
+        "name": "Владыка", "desc": "Гибрид воина и мага.",
+        "races": ["orc"],
+        "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1},
+        "role": "universal", "dmg_type": "magic",
+    },
+}
+
+# Бонусы HP по ролям (для формулы max_hp)
+ROLE_HP_BONUS = {
+    "tank":      20,
+    "fighter":   15,
+    "universal": 10,
+    "agile":     5,
+    "mage":      10,
 }
 
 # ================= ФРАКЦИИ =================
@@ -92,11 +173,9 @@ CRAFT_RECIPES = {
 MATERIAL_NAMES = {"iron": "железо", "leather": "кожа",
                   "dust": "магическая пыль", "crystal": "кристалл"}
 
-# ================= ДРОП =================
 DROP_TABLE = ["Кожаная броня", "Железный меч", "Амулет удачи", "Кольцо силы",
               "Кольцо ловкости", "Перстень мудрости", "Посох мага", "Лук охотника"]
 
-# ================= ДОСТИЖЕНИЯ =================
 ACHIEVEMENTS = {
     "first_step":  "🌟 Первый шаг",
     "explorer_5":  "🗺 Исследователь — 5 локаций",
@@ -132,6 +211,11 @@ ACHIEVEMENTS = {
     "quest_master":"📜 Мастер квестов",
 }
 
-# ================= ЗЕЛЬЯ В БОЮ =================
 POTION_PRICE = 25
 POTION_HEAL = 30
+
+
+# ================= ХЕЛПЕРЫ =================
+def classes_for_race(race_code):
+    """Список классов, доступных этой расе."""
+    return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
