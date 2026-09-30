@@ -218,8 +218,21 @@ async def pvp_attack_cb(c: CallbackQuery):
         await c.answer("Неактивно"); return
     if not combat["my_turn"]:
         await c.answer("Не твой ход!", show_alert=True); return
+    from core.formulas import (
+        calc_damage, calc_p_def, calc_m_def, apply_defense, get_dmg_type,
+    )
     eff = effective_stats(user)
-    dmg = int((eff["str"] * 2 + eff["dex"] + random.randint(0, 5)) * faction_mult(user, "dmg_mult"))
+    # Защита противника — реальные P.Def/M.Def
+    opponent = await g.db.get_user(combat["opponent_id"])
+    t_pdef = calc_p_def(opponent)
+    t_mdef = calc_m_def(opponent)
+    dmg_type = get_dmg_type(user)
+    base = calc_damage(user)
+    if dmg_type == "magic":
+        dmg = apply_defense(base, t_mdef)
+    else:
+        dmg = apply_defense(base, t_pdef)
+    dmg = int(dmg * faction_mult(user, "dmg_mult"))
     is_crit = random.randint(1, 100) <= eff["dex"]
     if is_crit:
         dmg = int(dmg * 2)
