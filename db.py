@@ -337,6 +337,7 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_titles TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_classes TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_cosmetics TEXT DEFAULT '[]'",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS phoenix_used INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -1662,6 +1663,14 @@ class DB:
                 json.dumps(arr), uid
             )
             return True
+
+    # ============ ФЕНИКС ВЕЧНОСТИ ============
+    async def set_combat_phoenix_used(self, uid):
+        """Отметить, что Феникс вечности уже возродил игрока в этом бою."""
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET phoenix_used=1 WHERE user_id=$1", uid
+            )
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
