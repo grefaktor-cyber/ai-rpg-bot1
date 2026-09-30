@@ -5,7 +5,6 @@ from aiogram.types import (InlineKeyboardMarkup, InlineKeyboardButton,
 from core.game_data import POTION_PRICE
 
 
-# ================= ГЛАВНОЕ МЕНЮ =================
 def main_kb():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -15,16 +14,15 @@ def main_kb():
             [KeyboardButton(text="🚶 Идти"),      KeyboardButton(text="🌍 Мир")],
             [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="🐾 Питомец")],
             [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
-            [KeyboardButton(text="🏛 Гильдия"),   KeyboardButton(text="🎁 Награда")],
-            [KeyboardButton(text="🏅 Рейтинг"),   KeyboardButton(text="💎 Премиум")],
-            [KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="🏛 Гильдия"),   KeyboardButton(text="✨ Скилы")],
+            [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
+            [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
         input_field_placeholder="Что делает герой?"
     )
 
 
-# ================= БОЙ =================
 def combat_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_attack"),
@@ -41,7 +39,6 @@ def dungeon_continue_kb():
     ])
 
 
-# ================= PVP =================
 def pvp_kb(my_turn):
     if my_turn:
         return InlineKeyboardMarkup(inline_keyboard=[
@@ -65,9 +62,7 @@ def duel_offer_kb(offer_id, is_caller=False):
     ])
 
 
-# ================= ПУТЕШЕСТВИЯ =================
 def travel_kb(location_code, player_level, world_module):
-    """world_module — модуль world (передаётся, чтобы не было циклического импорта)."""
     rows = []
     for code, info in world_module.get_neighbors(location_code):
         can, reason = world_module.can_enter(code, player_level)
@@ -82,7 +77,6 @@ def travel_kb(location_code, player_level, world_module):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= NPC =================
 def npc_list_kb(location_code, world_module):
     rows = []
     for code, info in world_module.get_npcs_in_location(location_code):
@@ -109,7 +103,6 @@ def npc_menu_kb(npc_code, world_module):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= ГИЛЬДИИ =================
 def guild_menu_kb(has_guild):
     if has_guild:
         return InlineKeyboardMarkup(inline_keyboard=[
@@ -125,20 +118,18 @@ def guild_menu_kb(has_guild):
     ])
 
 
-# ================= МАГАЗИН =================
 def shop_kb(shop_dict, shop_mult):
-    """Кнопки покупки для магазина."""
     rows = []
     for name, data in shop_dict.items():
+        if data["type"] == "potion":
+            continue  # зелья будут в отдельной категории (2.3)
         price = int(data["price"] * shop_mult)
         rows.append([InlineKeyboardButton(text=f"{name} — {price}💰",
                                           callback_data=f"shop_buy_{name}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= КУЗНИЦА =================
 def craft_kb(recipes):
-    """Кнопки для создания предметов."""
     rows = []
     for result in recipes.keys():
         rows.append([InlineKeyboardButton(text=f"Создать {result}",
@@ -146,9 +137,7 @@ def craft_kb(recipes):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= ПИТОМЦЫ =================
 def pets_kb(pets_dict):
-    """Кнопки покупки питомцев."""
     rows = []
     for code, p in pets_dict.items():
         rows.append([InlineKeyboardButton(text=f"{p['name']} — {p['price']}💰",
@@ -156,9 +145,7 @@ def pets_kb(pets_dict):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= ПОДЗЕМЕЛЬЯ =================
 def dungeons_kb(dungeons_dict, player_level, player_gold):
-    """Кнопки входа в подземелья (только доступные)."""
     rows = []
     for code, d in dungeons_dict.items():
         can = player_level >= d["level_req"] and player_gold >= d["entry"]
@@ -169,7 +156,6 @@ def dungeons_kb(dungeons_dict, player_level, player_gold):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= ПОДТВЕРЖДЕНИЕ / ВЫБОР =================
 def yes_no_kb(yes_cb, no_cb, yes_text="✅ Да", no_text="❌ Нет"):
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=yes_text, callback_data=yes_cb),
@@ -199,3 +185,53 @@ def faction_selection_kb(factions_dict):
                               callback_data=f"faction_{code}")]
         for code, f in factions_dict.items()
     ])
+
+
+# ================= МЕНЮ СКИЛОВ =================
+def skills_main_kb():
+    """Главное меню скилов."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 Все скилы", callback_data="skills_list")],
+        [InlineKeyboardButton(text="🎯 Настроить слоты", callback_data="skills_slots")],
+        [InlineKeyboardButton(text="⬆️ Прокачать скилы", callback_data="skills_upgrade")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="skills_close")],
+    ])
+
+
+def skills_back_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")],
+    ])
+
+
+def skills_slot_choice_kb(available, slot_num):
+    """Выбор скила в слот. available — список скилов."""
+    rows = []
+    for s in available:
+        rows.append([InlineKeyboardButton(
+            text=f"{s['name']} · {s['mp_cost']} MP · {s['desc']}",
+            callback_data=f"skills_set_{slot_num}_{s['code']}"
+        )])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def skills_upgrade_kb(available, learned):
+    """Кнопки прокачки. learned — dict code: level."""
+    rows = []
+    for s in available:
+        if s["effect"] == "passive":
+            continue
+        lvl = learned.get(s["code"], 1)
+        if lvl >= 3:
+            mark = "✅ МАКС"
+            cb = "skills_noop"
+        else:
+            mark = f"ур.{lvl} → {lvl+1} (1 очко)"
+            cb = f"skills_up_{s['code']}"
+        rows.append([InlineKeyboardButton(
+            text=f"{s['name']} · {mark}",
+            callback_data=cb
+        )])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
