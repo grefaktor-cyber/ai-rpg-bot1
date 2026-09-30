@@ -65,6 +65,10 @@ CLASSES = {
                   "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1}, "role": "universal", "dmg_type": "magic"},
 }
 
+
+def classes_for_race(race_code):
+    return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
+
 ROLE_HP_BONUS = {"tank": 20, "fighter": 15, "universal": 10, "agile": 5, "mage": 10}
 
 FACTIONS = {
