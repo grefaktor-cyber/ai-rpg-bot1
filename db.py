@@ -264,6 +264,7 @@ class DB:
                 # --- Этап 2.1: миграция на новые расы/классы ---
                 "UPDATE users SET race='', class='', char_name='' WHERE race='dwarf'",
                 "UPDATE users SET class='' WHERE race IN ('human','elf','dark_elf','orc') AND class NOT IN ('warrior','knight','mage','archer','guardian','bard','assassin','necro','dancer','destroyer','tyrant','overlord')",
+                "ALTER TABLE dropped_items ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -1243,6 +1244,75 @@ class DB:
             await c.execute("""
                 UPDATE users SET mp=LEAST(max_mp, mp+$1) WHERE user_id=$2
             """, amount, uid)
+            
+    # ============ ТОРГОВЛЯ / ОБМЕН ============
+    async def sell_item(self, uid, item_name, price):
+        """Продать предмет: убрать из инвентаря, +золото."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT id FROM inventory WHERE user_id=$1 AND item_name=$2 LIMIT 1",
+                uid, item_name
+            )
+            if not row:
+                return False
+            await c.execute("DELETE FROM inventory WHERE id=$1", row["id"])
+            await c.execute(
+                "UPDATE users SET gold=gold+$1 WHERE user_id=$2", price, uid
+            )
+            return True
+
+    async def drop_item(self, uid, char_name, loc_code, item_name, item_lvl=0):
+        """Выбросить предмет в локации."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT id FROM inventory WHERE user_id=$1 AND item_name=$2 LIMIT 1",
+                uid, item_name
+            )
+            if not row:
+                return False
+            await c.execute("DELETE FROM inventory WHERE id=$1", row["id"])
+            await c.execute("""
+                INSERT INTO dropped_items
+                (user_id, char_name, location_code, item_name, item_level)
+                VALUES ($1,$2,$3,$4,$5)
+            """, uid, char_name, loc_code, item_name, item_lvl)
+            return True
+
+    async def get_dropped_items(self, loc_code, limit=20):
+        """Предметы, лежащие в локации."""
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT id, char_name, item_name, item_level,
+                       EXTRACT(EPOCH FROM (NOW() - dropped_at))::int as age_sec
+                FROM dropped_items
+                WHERE location_code=$1
+                ORDER BY dropped_at DESC LIMIT $2
+            """, loc_code, limit)
+            return [dict(r) for r in rows]
+
+    async def pickup_item(self, drop_id, uid):
+        """Подобрать предмет: удалить из dropped, добавить в инвентарь."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT item_name, item_level FROM dropped_items WHERE id=$1",
+                drop_id
+            )
+            if not row:
+                return None
+            await c.execute("DELETE FROM dropped_items WHERE id=$1", drop_id)
+            await c.execute("""
+                INSERT INTO inventory (user_id, item_name, item_level)
+                VALUES ($1,$2,$3)
+            """, uid, row["item_name"], row["item_level"])
+            return row["item_name"]
+
+    async def clean_dropped_items(self, max_age_min=30):
+        """Удалить предметы старше N минут."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                DELETE FROM dropped_items
+                WHERE dropped_at < NOW() - ($1 || ' minutes')::INTERVAL
+            """, str(max_age_min))
 
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
