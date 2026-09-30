@@ -227,23 +227,34 @@ def get_armor_type(user_class):
 
 
 def can_use_item(user_class, item_name):
-    """Может ли класс использовать предмет."""
+    """Может ли класс использовать предмет. Сначала по типу, потом по classes."""
     data = SHOP.get(item_name)
     if not data:
         return False
-    allowed = data.get("classes") or []
-    if not allowed:  # пусто = все
+
+    item_type = data.get("type")
+
+    # Зелья — всем
+    if item_type == "potion":
         return True
-    # Оружие
-    if data["type"] == "weapon":
+    # Аксессуары (кольца, амулеты) — всем
+    if item_type == "accessory":
+        return True
+    # Оружие — по подтипу
+    if item_type == "weapon":
         wtypes = CLASS_WEAPON_TYPES.get(user_class, [])
         return data.get("subtype") in wtypes
-    # Броня
-    if data["type"] == "armor":
+    # Броня — по типу
+    if item_type == "armor":
         return data.get("armor_type") == get_armor_type(user_class)
-    # Щит
-    if data["type"] == "shield":
+    # Щит — только warrior / knight
+    if item_type == "shield":
         return user_class in SHIELD_CLASSES
+
+    # Прочее (не должно случиться) — по classes
+    allowed = data.get("classes") or []
+    if not allowed:
+        return True
     return user_class in allowed
 
 
