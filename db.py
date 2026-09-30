@@ -197,6 +197,17 @@ class DB:
                     expires_at TIMESTAMP
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS dropped_items (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    char_name TEXT,
+                    location_code TEXT,
+                    item_name TEXT,
+                    item_level INTEGER DEFAULT 0,
+                    dropped_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
 
             # ============ МИГРАЦИИ ============
             migrations = [
