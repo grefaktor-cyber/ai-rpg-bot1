@@ -238,7 +238,6 @@ async def handle(m: Message):
                                        f"достиг {level} уровня!")
 
     updated = await g.db.get_user(uid)
-        updated = await g.db.get_user(uid)
     # MP-регенерация вне боя (20%)
     if updated.get("max_mp", 0) > 0:
         regen = max(1, int(updated["max_mp"] * 0.20))
@@ -247,7 +246,6 @@ async def handle(m: Message):
             await g.db.update_mp(uid, new_mp)
             updated["mp"] = new_mp
 
-    new_ach = await check_achievements(uid, updated)
     new_ach = await check_achievements(uid, updated)
     if new_ach:
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
