@@ -5,10 +5,12 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.game_data import RACES, CLASSES, FACTIONS
+from core.game_data import RACES, CLASSES, FACTIONS, classes_for_race
+from core.formulas import (
+    calc_stats, calc_max_hp, calc_max_mp, faction_mult,
+)
 from core.keyboards import (
-    main_kb, race_selection_kb, class_selection_kb,
-    faction_selection_kb, pvp_kb,
+    main_kb, race_selection_kb, faction_selection_kb, pvp_kb,
 )
 from core.texts import CONSENT_TEXT
 from config import ADMIN_IDS
@@ -18,7 +20,6 @@ import world as W
 router = Router()
 
 
-# ================= СОГЛАСИЕ =================
 def _consent_kb():
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Согласен (18+)", callback_data="consent_yes"),
@@ -43,7 +44,7 @@ async def start(m: Message):
             await m.answer("🎉 Вы пришли по приглашению!")
             try:
                 await g.bot.send_message(referrer_id,
-                    "🎉 По вашей ссылке пришёл новый игрок! +10 действий.")
+                    "🎉 По вашей ссылке пришёл новый игрок! +10 к максимуму энергии.")
             except Exception:
                 pass
             user = await g.db.get_user(m.from_user.id)
@@ -52,9 +53,9 @@ async def start(m: Message):
         await m.answer(CONSENT_TEXT, reply_markup=_consent_kb(), parse_mode=ParseMode.HTML)
         return
 
-    if not user["race"]:
+    if not user["race"] or user["race"] not in RACES:
         await show_race_selection(m); return
-    if not user["class"]:
+    if not user["class"] or user["class"] not in CLASSES:
         await show_class_selection(m, user["race"]); return
     if not user["faction"]:
         await show_faction_selection(m); return
@@ -100,14 +101,26 @@ async def on_race(c: CallbackQuery):
     if code not in RACES:
         await c.answer("Ошибка"); return
     await g.db.set_race(c.from_user.id, code)
+    # Сбросить класс — может быть несовместим с новой расой
+    await g.db.set_class(c.from_user.id, "")
     await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
                               parse_mode=ParseMode.HTML)
     await show_class_selection(c.message, code)
 
 
 async def show_class_selection(m, race_code):
+    classes = classes_for_race(race_code)
+    if not classes:
+        await g.bot.send_message(m.chat.id, "❌ Для этой расы нет классов.")
+        return
+    rows = []
+    for code, cl in classes.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{cl['name']} — {cl['desc']}",
+            callback_data=f"class_{code}"
+        )])
     await g.bot.send_message(m.chat.id, "⚔️ <b>Выбери класс:</b>",
-                             reply_markup=class_selection_kb(CLASSES),
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                              parse_mode=ParseMode.HTML)
 
 
@@ -116,7 +129,25 @@ async def on_class(c: CallbackQuery):
     code = c.data.replace("class_", "")
     if code not in CLASSES:
         await c.answer("Ошибка"); return
+    user = await g.db.get_user(c.from_user.id)
+    # Проверка совместимости с расой
+    if user["race"] not in CLASSES[code]["races"]:
+        await c.answer("Этот класс недоступен твоей расе", show_alert=True); return
     await g.db.set_class(c.from_user.id, code)
+    # Пересчитать статы
+    stats = calc_stats(user["race"], code)
+    # HP и MP (пока уровень 1)
+    user_tmp = dict(user)
+    user_tmp["class"] = code
+    user_tmp["stat_str"] = stats["str"]
+    user_tmp["stat_dex"] = stats["dex"]
+    user_tmp["stat_con"] = stats["con"]
+    user_tmp["stat_int"] = stats["int"]
+    user_tmp["stat_wit"] = stats["wit"]
+    user_tmp["stat_men"] = stats["men"]
+    hp = calc_max_hp(user_tmp)
+    mp = calc_max_mp(user_tmp)
+    await g.db.update_stats(c.from_user.id, stats, hp, mp)
     await c.message.edit_text(f"✅ Класс: <b>{CLASSES[code]['name']}</b>",
                               parse_mode=ParseMode.HTML)
     await show_faction_selection(c.message)
