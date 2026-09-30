@@ -363,6 +363,8 @@ class DB:
             "dungeon_id": "", "dungeon_room": 0,
             "dungeon_loot_gold": 0, "dungeon_loot_items": "[]",
             "energy": 20, "energy_max": 20, "last_energy_regen": None,
+            "mp": 50, "max_mp": 50,
+            "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
         }
 
     async def give_consent(self, uid):
@@ -534,6 +536,24 @@ class DB:
                             name, stats["str"], stats["dex"], stats["con"],
                             stats["int"], stats["wit"], stats["men"], hp, uid)
         await self._refresh_energy(uid)
+        
+            async def update_stats(self, uid, stats, hp=None, mp=None):
+        """Обновить статы персонажа (при смене класса)."""
+        async with self.pool.acquire() as c:
+            await c.execute("""UPDATE users SET
+                stat_str=$1, stat_dex=$2, stat_con=$3,
+                stat_int=$4, stat_wit=$5, stat_men=$6
+                WHERE user_id=$7""",
+                stats["str"], stats["dex"], stats["con"],
+                stats["int"], stats["wit"], stats["men"], uid)
+            if hp is not None:
+                await c.execute(
+                    "UPDATE users SET hp=$1, max_hp=$1 WHERE user_id=$2", hp, uid
+                )
+            if mp is not None:
+                await c.execute(
+                    "UPDATE users SET mp=$1, max_mp=$1 WHERE user_id=$2", mp, uid
+                )
 
     # ============ HP / GOLD / РЕПУТАЦИЯ ============
     async def update_hp(self, uid, hp):
