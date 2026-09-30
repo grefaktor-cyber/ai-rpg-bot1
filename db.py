@@ -136,8 +136,6 @@ class DB:
                     UNIQUE(user_id, quest_type, quest_date)
                 )
             """)
-
-            # ============ НОВЫЕ ТАБЛИЦЫ: ГИЛЬДИИ, ЗАХВАТ, БОССЫ, СОБЫТИЯ, NPC-КВЕСТЫ ============
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS guilds (
                     id SERIAL PRIMARY KEY,
@@ -234,6 +232,9 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS dungeon_loot_items TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS location_code TEXT DEFAULT 'village'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS guild_id BIGINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy INTEGER DEFAULT 20",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy_max INTEGER DEFAULT 20",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_energy_regen TIMESTAMP DEFAULT NOW()",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_pvp INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS opponent_id BIGINT DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS stake INTEGER DEFAULT 0",
@@ -246,6 +247,62 @@ class DB:
                 except Exception as e:
                     logging.warning(f"Migration skipped: {e}")
 
+    # ============ ЭНЕРГИЯ ============
+    async def _refresh_energy(self, uid):
+        """Пересчитать energy_max и регенерировать energy. Всё в SQL."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE users SET
+                    energy_max = LEAST(9999, GREATEST(20,
+                        ((20 + level * 2 + referral_count * 10) *
+                         (CASE WHEN is_premium=1 THEN 1.5 ELSE 1.0 END))::int
+                    )),
+                    energy = LEAST(
+                        GREATEST(20,
+                            ((20 + level * 2 + referral_count * 10) *
+                             (CASE WHEN is_premium=1 THEN 1.5 ELSE 1.0 END))::int
+                        ),
+                        energy + GREATEST(0,
+                            FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(last_energy_regen, NOW()))) / 1800)
+                        )::int * (CASE WHEN is_premium=1 THEN 2 ELSE 1 END)
+                    ),
+                    last_energy_regen = CASE
+                        WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(last_energy_regen, NOW()))) >= 1800
+                        THEN NOW()
+                        ELSE COALESCE(last_energy_regen, NOW())
+                    END
+                WHERE user_id = $1
+            """, uid)
+
+    async def spend_energy(self, uid, amount=1):
+        """Списать энергию. Премиум и админ — безлимит."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT energy, is_premium FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            if row["is_premium"]:
+                return True
+            if row["energy"] >= amount:
+                await c.execute(
+                    "UPDATE users SET energy=energy-$1 WHERE user_id=$2",
+                    amount, uid
+                )
+                return True
+            return False
+
+    async def get_energy_wait(self, uid):
+        """Сколько минут до следующей единицы энергии."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT GREATEST(0,
+                    30 - FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(last_energy_regen, NOW()))) / 60)
+                )::int as wait_min
+                FROM users WHERE user_id=$1
+            """, uid)
+            return row["wait_min"] if row else 30
+
     # ============ БАЗОВЫЕ ============
     async def get_user(self, user_id, username=""):
         today = str(date.today())
@@ -253,19 +310,19 @@ class DB:
             row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
             if not row:
                 await conn.execute(
-                    "INSERT INTO users (user_id, username, last_reset) VALUES ($1,$2,$3)",
+                    "INSERT INTO users (user_id, username, last_reset, last_energy_regen) "
+                    "VALUES ($1,$2,$3,NOW())",
                     user_id, username, today
                 )
-                return self._empty_user(user_id, username)
-            if row["last_reset"] != today:
+            elif row["last_reset"] != today:
                 await conn.execute(
                     "UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2",
                     today, user_id
                 )
-                d = dict(row)
-                d["requests_today"] = 0
-                return d
-            return dict(row)
+        await self._refresh_energy(user_id)
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
+            return dict(row) if row else self._empty_user(user_id, username)
 
     def _empty_user(self, uid, username=""):
         return {
@@ -285,7 +342,8 @@ class DB:
             "pvp_wins": 0, "pvp_losses": 0, "faction": "",
             "mat_iron": 0, "mat_leather": 0, "mat_dust": 0, "mat_crystal": 0,
             "dungeon_id": "", "dungeon_room": 0,
-            "dungeon_loot_gold": 0, "dungeon_loot_items": "[]"
+            "dungeon_loot_gold": 0, "dungeon_loot_items": "[]",
+            "energy": 20, "energy_max": 20, "last_energy_regen": None,
         }
 
     async def give_consent(self, uid):
@@ -300,17 +358,17 @@ class DB:
             await c.execute("UPDATE users SET consent_given=0, story='' WHERE user_id=$1", uid)
 
     async def set_referrer(self, uid, ref):
+        """+10 к максимуму энергии за каждого приглашённого (навсегда)."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow("SELECT referred_by FROM users WHERE user_id=$1", uid)
             if row and row["referred_by"] == 0 and ref != uid:
                 await c.execute("UPDATE users SET referred_by=$1 WHERE user_id=$2", ref, uid)
                 await c.execute(
-                    "UPDATE users SET referral_count=referral_count+1, "
-                    "requests_today=GREATEST(0, requests_today-10) WHERE user_id=$1",
+                    "UPDATE users SET referral_count=referral_count+1 WHERE user_id=$1",
                     ref
                 )
-                return True
-        return False
+        await self._refresh_energy(ref)
+        return True
 
     async def increment(self, uid):
         async with self.pool.acquire() as c:
@@ -323,6 +381,7 @@ class DB:
     async def set_premium(self, uid, v=1):
         async with self.pool.acquire() as c:
             await c.execute("UPDATE users SET is_premium=$1 WHERE user_id=$2", v, uid)
+        await self._refresh_energy(uid)
 
     async def add_xp(self, uid, amount):
         async with self.pool.acquire() as c:
@@ -335,7 +394,9 @@ class DB:
                 lvl += 1
                 up = True
             await c.execute("UPDATE users SET xp=$1, level=$2 WHERE user_id=$3", nx, lvl, uid)
-            return (lvl, nx, up)
+        if up:
+            await self._refresh_energy(uid)
+        return (lvl, nx, up)
 
     async def incr_action_count(self, uid):
         async with self.pool.acquire() as c:
@@ -391,15 +452,6 @@ class DB:
             )
             return [r["location_name"] for r in rows]
 
-    async def get_players_in_location(self, loc, ex):
-        async with self.pool.acquire() as c:
-            rows = await c.fetch(
-                "SELECT user_id, char_name, level, race, class, hp FROM users "
-                "WHERE location=$1 AND char_name!='' AND user_id!=$2 LIMIT 30",
-                loc, ex
-            )
-            return [dict(r) for r in rows]
-
     async def get_user_by_char_name(self, name):
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -437,8 +489,8 @@ class DB:
                 streak = 1
             await c.execute(
                 "UPDATE users SET last_daily=$1, daily_streak=$2, "
-                "requests_today=GREATEST(0, requests_today-$3) WHERE user_id=$4",
-                today, streak, 5, uid
+                "energy=energy_max, last_energy_regen=NOW() WHERE user_id=$3",
+                today, streak, uid
             )
             return streak
 
@@ -462,6 +514,7 @@ class DB:
                 hp=$8, max_hp=$8, gold=100 WHERE user_id=$9""",
                             name, stats["str"], stats["dex"], stats["con"],
                             stats["int"], stats["wit"], stats["men"], hp, uid)
+        await self._refresh_energy(uid)
 
     # ============ HP / GOLD / РЕПУТАЦИЯ ============
     async def update_hp(self, uid, hp):
@@ -922,11 +975,6 @@ class DB:
     async def get_guild(self, gid):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("SELECT * FROM guilds WHERE id=$1", gid)
-            return dict(row) if row else None
-
-    async def get_guild_by_name(self, name):
-        async with self.pool.acquire() as c:
-            row = await c.fetchrow("SELECT * FROM guilds WHERE LOWER(name)=LOWER($1)", name)
             return dict(row) if row else None
 
     async def get_user_guild(self, uid):
