@@ -23,30 +23,46 @@ RACES = {
 }
 
 CLASSES = {
-    "warrior": {"name": "Воин", "desc": "Мастер меча.", "races": ["human"],
+    # ---- Человек ----
+    "warrior": {"name": "Воин", "desc": "Мастер меча.",
+                "races": ["human"],
                 "bonus": {"str": 3, "con": 3}, "role": "fighter", "dmg_type": "phys"},
-    "knight": {"name": "Рыцарь", "desc": "Танк и защитник.", "races": ["human"],
-               "bonus": {"str": 2, "con": 3, "men": 1}, "role": "tank", "dmg_type": "phys"},
-    "mage": {"name": "Маг", "desc": "Боевая магия.", "races": ["human"],
-             "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
-    "archer": {"name": "Лучник", "desc": "Стрелок.", "races": ["elf"],
-               "bonus": {"str": 3, "dex": 3}, "role": "agile", "dmg_type": "agile"},
-    "guardian": {"name": "Страж", "desc": "Защитник природы.", "races": ["elf"],
+    "knight":  {"name": "Рыцарь", "desc": "Танк и защитник.",
+                "races": ["human", "angel"],
+                "bonus": {"str": 2, "con": 3, "men": 1}, "role": "tank", "dmg_type": "phys"},
+    "mage":    {"name": "Маг", "desc": "Боевая магия.",
+                "races": ["human", "demon"],
+                "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
+    # ---- Эльф ----
+    "archer":   {"name": "Лучник", "desc": "Стрелок.",
+                 "races": ["elf", "prit"],
+                 "bonus": {"str": 3, "dex": 3}, "role": "agile", "dmg_type": "agile"},
+    "guardian": {"name": "Страж", "desc": "Защитник природы.",
+                 "races": ["elf", "angel"],
                  "bonus": {"str": 1, "dex": 2, "con": 2, "wit": 1}, "role": "tank", "dmg_type": "agile"},
-    "bard": {"name": "Певчий", "desc": "Магия поддержки.", "races": ["elf"],
-             "bonus": {"int": 2, "wit": 2, "men": 2}, "role": "mage", "dmg_type": "magic"},
-    "assassin": {"name": "Убийца", "desc": "Скрытность и крит.", "races": ["dark_elf"],
+    "bard":     {"name": "Певчий", "desc": "Магия поддержки.",
+                 "races": ["elf", "angel"],
+                 "bonus": {"int": 2, "wit": 2, "men": 2}, "role": "mage", "dmg_type": "magic"},
+    # ---- Тёмный эльф ----
+    "assassin": {"name": "Убийца", "desc": "Скрытность и крит.",
+                 "races": ["dark_elf", "demon", "prit"],
                  "bonus": {"str": 2, "dex": 4}, "role": "agile", "dmg_type": "agile"},
-    "necro": {"name": "Некромант", "desc": "Тёмная магия.", "races": ["dark_elf"],
-              "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
-    "dancer": {"name": "Танцор", "desc": "Быстрые атаки.", "races": ["dark_elf"],
-               "bonus": {"str": 3, "dex": 2, "men": 1}, "role": "universal", "dmg_type": "agile"},
-    "destroyer": {"name": "Разрушитель", "desc": "Максимальный урон.", "races": ["orc"],
+    "necro":    {"name": "Некромант", "desc": "Тёмная магия.",
+                 "races": ["dark_elf", "demon"],
+                 "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
+    "dancer":   {"name": "Танцор", "desc": "Быстрые атаки.",
+                 "races": ["dark_elf", "prit"],
+                 "bonus": {"str": 3, "dex": 2, "men": 1}, "role": "universal", "dmg_type": "agile"},
+    # ---- Орк ----
+    "destroyer": {"name": "Разрушитель", "desc": "Максимальный урон.",
+                  "races": ["orc"],
                   "bonus": {"str": 5, "con": 1}, "role": "fighter", "dmg_type": "phys"},
-    "tyrant": {"name": "Тиранин", "desc": "Быстрые атаки.", "races": ["orc"],
-               "bonus": {"str": 4, "dex": 2}, "role": "agile", "dmg_type": "agile"},
-    "overlord": {"name": "Владыка", "desc": "Гибрид воина и мага.", "races": ["orc"],
-                 "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1}, "role": "universal", "dmg_type": "magic"},
+    "tyrant":    {"name": "Тиранин", "desc": "Быстрые атаки.",
+                  "races": ["orc"],
+                  "bonus": {"str": 4, "dex": 2}, "role": "agile", "dmg_type": "agile"},
+    "overlord":  {"name": "Владыка", "desc": "Гибрид воина и мага.",
+                  "races": ["orc"],
+                  "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1}, "role": "universal", "dmg_type": "magic"},
 }
 
 ROLE_HP_BONUS = {"tank": 20, "fighter": 15, "universal": 10, "agile": 5, "mage": 10}
@@ -119,8 +135,5 @@ MP_POTION_RESTORE = 40
 
 
 def classes_for_race(race_code):
-    """Классы для расы. Премиум-расы — любые."""
-    # Премиум-расы могут брать любой класс
-    if race_code in ("demon", "angel", "prit"):
-        return CLASSES
+    """Классы, доступные расе."""
     return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
