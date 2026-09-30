@@ -23,13 +23,68 @@ def main_kb():
     )
 
 
-def combat_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_attack"),
-         InlineKeyboardButton(text="🛡 Защита", callback_data="combat_defend")],
-        [InlineKeyboardButton(text=f"💚 Зелье ({POTION_PRICE}💰)", callback_data="combat_potion"),
-         InlineKeyboardButton(text="🏃 Бежать", callback_data="combat_flee")],
+def combat_kb(active_skills=None, mp=0):
+    """Боевая клавиатура с активными скилами.
+    active_skills — список кодов скилов (0-3 шт).
+    mp — текущий MP игрока.
+    """
+    from core.skills import get_skill
+    from core.game_data import POTION_PRICE, MP_POTION_PRICE
+
+    rows = []
+
+    # Ряд 1: атака + защита
+    rows.append([
+        InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_attack"),
+        InlineKeyboardButton(text="🛡 Защита", callback_data="combat_defend"),
     ])
+
+    # Ряд 2: скилы (только заполненные слоты)
+    if active_skills:
+        skill_buttons = []
+        for i, code in enumerate(active_skills[:3]):
+            if not code:
+                continue
+            s = get_skill(code)
+            if not s:
+                continue
+            icon = {
+                "damage":   "🔥",
+                "heal":     "💚",
+                "buff_atk": "⚡",
+                "buff_def": "🛡",
+                "debuff":   "🌀",
+                "stun":     "💫",
+            }.get(s["effect"], "✨")
+            # Обрезаем имя до 12 символов
+            short_name = s["name"][:12]
+            text = f"{icon} {short_name} ({s['mp_cost']}mp)"
+            if mp < s["mp_cost"]:
+                text = f"{icon} {short_name} ❌"
+            skill_buttons.append(InlineKeyboardButton(
+                text=text, callback_data=f"combat_skill_{code}"
+            ))
+        # 1-3 кнопки в ряд, максимум 2 в ряд для читаемости
+        if len(skill_buttons) <= 2:
+            rows.append(skill_buttons)
+        else:
+            rows.append(skill_buttons[:2])
+            rows.append(skill_buttons[2:])
+
+    # Ряд 3: зелья
+    rows.append([
+        InlineKeyboardButton(text=f"💚 HP ({POTION_PRICE}💰)",
+                             callback_data="combat_potion"),
+        InlineKeyboardButton(text=f"🔮 MP ({MP_POTION_PRICE}💰)",
+                             callback_data="combat_mp_potion"),
+    ])
+
+    # Ряд 4: побег
+    rows.append([
+        InlineKeyboardButton(text="🏃 Бежать", callback_data="combat_flee"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def dungeon_continue_kb():
