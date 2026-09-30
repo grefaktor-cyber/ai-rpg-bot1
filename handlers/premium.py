@@ -254,16 +254,69 @@ async def prem_class_buy(c: CallbackQuery):
 # ================= ЭКИПИРОВКА =================
 @router.callback_query(F.data == "prem_cat_items")
 async def prem_items(c: CallbackQuery):
-    text = "⚔️ <b>Эксклюзивная экипировка</b>\n\nТолько за Stars.\n\n"
+    from core.equipment import SHOP, CLASS_WEAPON_TYPES, CLASS_ARMOR_TYPE
+
+    u = await g.db.get_user(c.from_user.id)
+    my_class = u.get("class", "")
+
+    text = ("⚔️ <b>Эксклюзивная экипировка</b>\n\n"
+            "Только за Stars. Проверяй, подходит ли твоему классу!\n\n")
+
     rows = []
     for code, item in EXCLUSIVE_ITEMS.items():
-        text += f"🔒 <b>{code}</b> — {item['price']}⭐\n"
+        # Собираем информацию из SHOP
+        shop_data = SHOP.get(code, {})
+        item_type = shop_data.get("type", item.get("type"))
+        item_slot = shop_data.get("slot", "?")
+        armor_type = shop_data.get("armor_type", "")
+        weapon_subtype = shop_data.get("subtype", "")
+        level_req = shop_data.get("level_req", 1)
+
+        # Определяем доступные классы
+        allowed_classes = []
+        if item_type == "weapon":
+            for cls, types in CLASS_WEAPON_TYPES.items():
+                if weapon_subtype in types:
+                    allowed_classes.append(cls)
+        elif item_type == "armor":
+            for cls, atype in CLASS_ARMOR_TYPE.items():
+                if atype == armor_type:
+                    allowed_classes.append(cls)
+        elif item_type == "shield":
+            from core.equipment import SHIELD_CLASSES
+            allowed_classes = list(SHIELD_CLASSES)
+
+        # Проверка для текущего игрока
+        from core.equipment import can_use_item
+        can_use = can_use_item(my_class, code) if code in SHOP else True
+        level_ok = u.get("level", 1) >= level_req
+
+        # Иконка статуса
+        if can_use and level_ok:
+            status = "✅"
+            warn = ""
+        elif not can_use:
+            status = "❌"
+            warn = f"\n   ⚠️ Твой класс <b>{my_class}</b> не может носить"
+        else:
+            status = "⏳"
+            warn = f"\n   ⚠️ Нужен {level_req} уровень"
+
+        # Формат
         bonus_str = ", ".join(f"+{v} {k.upper()}" for k, v in item["bonus"].items())
-        text += f"   {bonus_str} · {item.get('extra', '')}\n\n"
+        classes_str = ", ".join(allowed_classes) if allowed_classes else "Все"
+
+        text += (f"{status} <b>{code}</b> — {item['price']}⭐\n"
+                 f"   📦 Слот: {item_slot} · Грейд: C\n"
+                 f"   🎯 Для классов: <i>{classes_str}</i>\n"
+                 f"   ✨ Бонусы: {bonus_str}\n"
+                 f"   💫 Эффект: {item.get('extra', '—')}{warn}\n\n")
+
         rows.append([InlineKeyboardButton(
             text=f"Купить {code} — {item['price']}⭐",
             callback_data=f"prem_item_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
+
     try:
         await c.message.edit_text(text,
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
@@ -277,14 +330,38 @@ async def prem_items(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("prem_item_buy_"))
 async def prem_item_buy(c: CallbackQuery):
+    from core.equipment import SHOP, can_use_item
+
     code = c.data.replace("prem_item_buy_", "")
     item = EXCLUSIVE_ITEMS.get(code)
     if not item:
         await c.answer("Не найдено"); return
+
+    u = await g.db.get_user(c.from_user.id)
+    shop_data = SHOP.get(code, {})
+    level_req = shop_data.get("level_req", 1)
+
+    # Предупреждение, если не подходит
+    warning = ""
+    if code in SHOP:
+        if not can_use_item(u.get("class", ""), code):
+            warning = (f"\n\n⚠️ <b>Внимание!</b>\n"
+                       f"Твой класс <b>{u.get('class')}</b> не может носить этот предмет.\n"
+                       f"Купить можно, но надеть не сможешь.")
+        elif u.get("level", 1) < level_req:
+            warning = (f"\n\n⚠️ <b>Внимание!</b>\n"
+                       f"Нужен <b>{level_req}</b> уровень, у тебя {u.get('level')}.\n"
+                       f"Купить можно, но использовать только с {level_req} уровня.")
+
+    # Описание + предупреждение
+    desc = item.get("extra", "") or "Эксклюзивный предмет"
+    if warning:
+        desc += warning
+
     await g.bot.send_invoice(
         chat_id=c.message.chat.id,
         title=code,
-        description=item.get("extra", "") or "Эксклюзивный предмет",
+        description=desc[:255],  # лимит Telegram
         payload=f"premium_item:{code}",
         provider_token="",
         currency="XTR",
