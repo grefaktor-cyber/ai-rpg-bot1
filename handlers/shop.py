@@ -383,68 +383,6 @@ async def unequip(m: Message):
 
 
 # ================= ИНВЕНТАРЬ =================
-@router.message(Command("inventory"))
-@router.message(F.text == "🎒 Инвентарь")
-async def inventory(m: Message):
-    u = await g.db.get_user(m.from_user.id)
-    items = await g.db.get_inventory(m.from_user.id)
-    if not items:
-        await m.answer("🎒 Инвентарь пуст.", reply_markup=main_kb()); return
-
-    lines = ["🎒 <b>Инвентарь</b>\n"]
-    rows = []
-    for it in items:
-        name, lvl = parse_item(it["item_name"])
-        if name in SHOP:
-            data = SHOP[name]
-            grade = data.get("grade", "common")
-            g_icon = _grade_icon(grade)
-            if data["type"] == "potion":
-                hp = data.get("heal_hp", 0)
-                mp = data.get("heal_mp", 0)
-                eff = f"+{hp} HP" if hp else f"+{mp} MP"
-                lines.append(f"• 🧪 {name} — {eff}")
-                rows.append([InlineKeyboardButton(
-                    text=f"🧪 {name}", callback_data=f"use_item_{name}")])
-            else:
-                bonus_str = ", ".join(f"+{v} {k.upper()}"
-                                      for k, v in data["bonus"].items())
-                suffix = f" (+{lvl})" if lvl else ""
-                lines.append(f"• {g_icon} {name}{suffix} — {bonus_str}")
-                if can_use_item(u["class"], name):
-                    rows.append([
-                        InlineKeyboardButton(text=f"⚔️ {name[:12]}",
-                                             callback_data=f"equip_item_{it['item_name']}"),
-                        InlineKeyboardButton(text="💰",
-                                             callback_data=f"sell_item_{it['item_name']}"),
-                    ])
-                else:
-                    rows.append([
-                        InlineKeyboardButton(text=f"❌ {name[:12]} (не твой класс)",
-                                             callback_data="inv_noop"),
-                        InlineKeyboardButton(text="💰",
-                                             callback_data=f"sell_item_{it['item_name']}"),
-                    ])
-        else:
-            lines.append(f"• {it['item_name']}")
-
-    lines.append("\n<b>Экипировано:</b>")
-    for slot in SLOTS:
-        val = u.get(f"equipped_{slot}") or "—"
-        lines.append(f"{SLOT_NAMES[slot]}: {val}")
-
-    from core.equipment import get_set_bonus
-    set_b = get_set_bonus(u)
-    if set_b:
-        lines.append(f"\n🎁 <b>Сетовый бонус:</b> {set_b['desc']}")
-
-    lines.append("\n<i>/equip · /use · /sell · /drop</i>")
-
-    rows.append([InlineKeyboardButton(text="❌ Закрыть",
-                                      callback_data="inv_close")])
-    await m.answer("\n".join(lines),
-                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                   parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "inv_noop")
