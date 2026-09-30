@@ -49,16 +49,46 @@ async def sell_cmd(m: Message):
         await m.answer(
             "Использование: <code>/sell Название</code>\n\n"
             f"Продажа NPC: <b>{int(SELL_RATE*100)}%</b> цены.\n"
-            f"Улучшенные предметы дороже: <b>+20%</b> за каждый +1.",
+            f"Улучшенные предметы дороже: <b>+20%</b> за каждый +1.\n"
+            f"<i>Можно писать приблизительно: /sell железный</i>",
             parse_mode=ParseMode.HTML)
         return
-    item_name = parts[1].strip()
+
+    item_query = parts[1].strip()
+    inv = await g.db.get_inventory(m.from_user.id)
+    inv_names = [i["item_name"] for i in inv]
+    if not inv_names:
+        await m.answer("🎒 Инвентарь пуст."); return
+
+    from core.fuzzy import find_inventory_item
+    exact, suggestions = find_inventory_item(item_query, inv_names)
+
+    if exact:
+        item_name = exact
+    elif suggestions:
+        rows = []
+        for s in suggestions[:10]:
+            rows.append([InlineKeyboardButton(
+                text=f"💰 Продать {s}",
+                callback_data=f"sell_item_{s}"
+            )])
+        rows.append([InlineKeyboardButton(text="❌ Отмена",
+                                          callback_data="fuzzy_cancel")])
+        await m.answer(
+            f"🔍 Нашёл несколько вариантов, уточни:\n\n"
+            f"<b>Запрос:</b> <code>{item_query}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode=ParseMode.HTML)
+        return
+    else:
+        await m.answer(
+            f"❌ Не нашёл «{item_query}» в инвентаре.\n"
+            f"<i>Проверь 🎒 Инвентарь.</i>")
+        return
+
     base_name, _ = parse_item(item_name)
     if base_name not in SHOP:
         await m.answer("❌ Этот предмет нельзя продать."); return
-    inv = await g.db.get_inventory(m.from_user.id)
-    if not any(i["item_name"] == item_name for i in inv):
-        await m.answer("❌ Нет в инвентаре."); return
     price = _sell_price(item_name)
     if price == 0:
         await m.answer("❌ Эксклюзивные предметы нельзя продать.")
@@ -151,12 +181,37 @@ async def drop_cmd(m: Message):
     if len(parts) < 2:
         await m.answer("Использование: <code>/drop Название</code>",
                        parse_mode=ParseMode.HTML); return
-    item_name = parts[1].strip()
+
+    item_query = parts[1].strip()
     inv = await g.db.get_inventory(m.from_user.id)
-    if not any(i["item_name"] == item_name for i in inv):
-        await m.answer("❌ Нет в инвентаре."); return
+    inv_names = [i["item_name"] for i in inv]
+    if not inv_names:
+        await m.answer("🎒 Инвентарь пуст."); return
+
+    from core.fuzzy import find_inventory_item
+    exact, suggestions = find_inventory_item(item_query, inv_names)
+
+    if exact:
+        item_name = exact
+    elif suggestions:
+        rows = []
+        for s in suggestions[:10]:
+            rows.append([InlineKeyboardButton(
+                text=f"🗑 Выбросить {s}",
+                callback_data=f"drop_item_{s}"
+            )])
+        rows.append([InlineKeyboardButton(text="❌ Отмена",
+                                          callback_data="fuzzy_cancel")])
+        await m.answer(
+            f"🔍 Нашёл несколько, уточни:\n\n<code>{item_query}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode=ParseMode.HTML)
+        return
+    else:
+        await m.answer(f"❌ Не нашёл «{item_query}».")
+        return
+
     base_name, lvl = parse_item(item_name)
-    # Эксклюзивные — нельзя выбросить
     if base_name in SHOP and SHOP[base_name].get("premium"):
         await m.answer("❌ Эксклюзивные предметы нельзя выбросить.")
         return
