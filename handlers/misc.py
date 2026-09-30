@@ -246,3 +246,11 @@ async def tutorial_cmd(m: Message):
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
     await offer_tutorial(m.chat.id, m.from_user.id, force=True)
+
+@router.callback_query(F.data == "fuzzy_cancel")
+async def fuzzy_cancel_cb(c):
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer("Отменено")
