@@ -20,6 +20,7 @@ from handlers import (
     travel as travel_handlers,
     combat as combat_handlers,
     shop as shop_handlers,
+    inventory as inventory_handlers,
     pvp as pvp_handlers,
     craft as craft_handlers,
     guild as guild_handlers,
@@ -88,6 +89,7 @@ dp.include_router(profile_handlers.router)
 dp.include_router(travel_handlers.router)
 dp.include_router(combat_handlers.router)
 dp.include_router(shop_handlers.router)
+dp.include_router(inventory_handlers.router)
 dp.include_router(pvp_handlers.router)
 dp.include_router(craft_handlers.router)
 dp.include_router(guild_handlers.router)
