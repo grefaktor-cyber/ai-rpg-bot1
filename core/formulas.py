@@ -130,3 +130,37 @@ def calc_damage(user):
     if dmg_type == "magic":
         return int(eff["int"] * 1.5 + eff["wit"])
     return int(eff["str"] * 2 + eff["dex"])
+
+def enemy_p_def(level):
+    """P.Def моба от уровня."""
+    return int(level * 2 + 3)
+
+
+def enemy_m_def(level):
+    """M.Def моба от уровня."""
+    return int(level * 1.5 + 2)
+
+
+def apply_defense(damage, defense):
+    """Снижение урона от защиты. Чем выше def — тем меньше проходит."""
+    if defense <= 0:
+        return max(1, int(damage))
+    reduction = defense / (defense + 50)
+    final = int(damage * (1 - reduction))
+    return max(1, final)
+
+
+def get_target_def(dmg_type, target_pdef, target_mdef):
+    """Какая защита применяется против этого типа урона."""
+    if dmg_type == "magic":
+        return target_mdef
+    return target_pdef  # phys и agile идут через P.Def
+
+
+def calc_final_damage(user, target_pdef, target_mdef):
+    """Итоговый урон с учётом защиты цели. Возвращает (урон, тип)."""
+    base = calc_damage(user)
+    dmg_type = get_dmg_type(user)
+    tdef = get_target_def(dmg_type, target_pdef, target_mdef)
+    final = apply_defense(base, tdef)
+    return final, dmg_type
