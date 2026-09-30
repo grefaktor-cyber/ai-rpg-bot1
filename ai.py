@@ -219,6 +219,17 @@ def _build_char_context(user, event=None, location_owner=None):
         pass
 
     # Локация
+    # Память локации
+    try:
+        loc_events = user.get("location_events") or []
+        loc_name = loc.get("name", "")
+        if loc_events and loc_name:
+            from core.journal import location_context_for_ai
+            lines.append(location_context_for_ai(loc_events, loc_name))
+    except Exception:
+        pass
+
+    # Локация
     lines.append("\n\nТЕКУЩАЯ ЛОКАЦИЯ:")
     lines.append(f"Код: {loc_code}")
     lines.append(f"Название: {loc.get('name', '?')}")
