@@ -60,6 +60,9 @@ async def sell_cmd(m: Message):
     if not any(i["item_name"] == item_name for i in inv):
         await m.answer("❌ Нет в инвентаре."); return
     price = _sell_price(item_name)
+    if price == 0:
+        await m.answer("❌ Эксклюзивные предметы нельзя продать.")
+        return
     ok = await g.db.sell_item(m.from_user.id, item_name, price)
     if not ok:
         await m.answer("❌ Не удалось продать."); return
@@ -82,9 +85,9 @@ async def sell_item_cb(c: CallbackQuery):
         await c.answer("Нельзя продать", show_alert=True); return
     price = _sell_price(item_name)
     if price == 0:
-        await m.answer("❌ Эксклюзивные предметы нельзя продать.")
+        await c.answer("❌ Эксклюзивные предметы нельзя продать", show_alert=True)
         return
-    ok = await g.db.sell_item(m.from_user.id, item_name, price)
+    ok = await g.db.sell_item(c.from_user.id, item_name, price)
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     u = await g.db.get_user(c.from_user.id)
@@ -119,7 +122,6 @@ async def pay_cmd(m: Message):
         await m.answer(f"❌ «{target_name}» не найден."); return
     if target["user_id"] == u["user_id"]:
         await m.answer("❌ Нельзя себе."); return
-    # НЕТ проверки локации — можно передавать куда угодно
 
     ok = await g.db.spend_gold(m.from_user.id, amount)
     if not ok:
@@ -154,6 +156,10 @@ async def drop_cmd(m: Message):
     if not any(i["item_name"] == item_name for i in inv):
         await m.answer("❌ Нет в инвентаре."); return
     base_name, lvl = parse_item(item_name)
+    # Эксклюзивные — нельзя выбросить
+    if base_name in SHOP and SHOP[base_name].get("premium"):
+        await m.answer("❌ Эксклюзивные предметы нельзя выбросить.")
+        return
     loc_code = u.get("location_code", "village")
     loc_name = W.get_location(loc_code).get("name", "?")
     ok = await g.db.drop_item(m.from_user.id, u["char_name"], loc_code,
@@ -177,6 +183,9 @@ async def drop_item_cb(c: CallbackQuery):
     if not any(i["item_name"] == item_name for i in inv):
         await c.answer("Нет в инвентаре", show_alert=True); return
     base_name, lvl = parse_item(item_name)
+    if base_name in SHOP and SHOP[base_name].get("premium"):
+        await c.answer("❌ Эксклюзивные нельзя выбросить", show_alert=True)
+        return
     loc_code = u.get("location_code", "village")
     loc_name = W.get_location(loc_code).get("name", "?")
     ok = await g.db.drop_item(c.from_user.id, u["char_name"], loc_code,
@@ -455,7 +464,6 @@ async def _refresh_trade_menu(uid, oid, is_sender):
     text = _trade_text(offer, is_sender)
     kb = _trade_kb(offer, is_sender, uid)
     try:
-        # Просто шлём новое сообщение — старые не редактируем
         await g.bot.send_message(uid, text, reply_markup=kb,
                                  parse_mode=ParseMode.HTML)
     except Exception:
@@ -519,16 +527,13 @@ def _trade_kb(offer, is_sender, uid):
         mine = []
 
     rows = []
-    # Кнопка добавить предмет
     rows.append([InlineKeyboardButton(
         text="➕ Добавить предмет", callback_data=f"trade_addprompt_{oid}")])
     rows.append([InlineKeyboardButton(
         text="💰 Задать золото", callback_data=f"trade_goldprompt_{oid}")])
-    # Убрать предметы
     for it in mine:
         rows.append([InlineKeyboardButton(
             text=f"➖ {it}", callback_data=f"trade_remove_{oid}_{it}")])
-    # Подтвердить
     rows.append([InlineKeyboardButton(
         text="✅ Подтвердить", callback_data=f"trade_confirm_{oid}")])
     rows.append([InlineKeyboardButton(
@@ -557,6 +562,10 @@ async def trade_addprompt(c: CallbackQuery, state: FSMContext):
     for it in inv:
         n = it["item_name"]
         if n in mine:
+            continue
+        # Эксклюзивные нельзя передавать
+        base_name, _ = parse_item(n)
+        if base_name in SHOP and SHOP[base_name].get("premium"):
             continue
         rows.append([InlineKeyboardButton(
             text=f"+ {n}", callback_data=f"trade_add_{oid}_{n}")])
