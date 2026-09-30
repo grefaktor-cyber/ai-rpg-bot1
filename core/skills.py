@@ -150,7 +150,6 @@ RACIAL_SKILLS = {
 
 # ================= ХЕЛПЕРЫ =================
 def available_skills(user):
-    """Возвращает список доступных игроку скилов (класс + раса)."""
     cls = user.get("class", "")
     race = user.get("race", "")
     lvl = user.get("level", 1)
