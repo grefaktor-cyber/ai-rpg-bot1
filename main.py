@@ -132,6 +132,7 @@ async def _cleanup_loop():
             await db.clean_expired_events()
             await db.cleanup_chat(7)
             await db.cleanup_journal(days=30, keep_min=50)
+            await db.cleanup_location_events(days=7)
         except Exception as e:
             logging.error(f"cleanup error: {e}")
 
