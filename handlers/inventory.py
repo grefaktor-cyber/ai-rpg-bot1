@@ -1,4 +1,4 @@
-"""Инвентарь 2.0: категории, пагинация, меню действий."""
+"""Инвентарь 2.0: 5 категорий, пагинация, меню действий."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -10,7 +10,6 @@ from core.game_data import SHOP
 from core.equipment import SLOTS, SLOT_NAMES, can_use_item, get_set_bonus
 from core.formulas import parse_item
 from core.keyboards import main_kb
-from core.game_data import MATERIAL_NAMES
 
 
 router = Router()
@@ -18,15 +17,11 @@ router = Router()
 PAGE_SIZE = 8
 
 
-# ================= КАТЕГОРИИ =================
+# ================= КАТЕГОРИИ (5 шт) =================
 CATEGORIES = {
     "weapon":    ("⚔️ Оружие", "⚔️"),
-    "helmet":    ("👑 Шлемы", "👑"),
     "armor":     ("🛡 Броня", "🛡"),
-    "boots":     ("👢 Сапоги", "👢"),
-    "shield":    ("🛡 Щиты", "🛡"),
     "accessory": ("💍 Аксессуары", "💍"),
-    "ring":      ("💎 Кольца", "💎"),
     "potion":    ("🧪 Зелья", "🧪"),
     "other":     ("📦 Прочее", "📦"),
 }
@@ -37,7 +32,7 @@ def _grade_icon(grade):
 
 
 def _categorize(items):
-    """Разбить предметы по категориям. items — список dict из БД."""
+    """Разбить предметы по 5 категориям."""
     groups = {k: [] for k in CATEGORIES}
     for it in items:
         name, lvl = parse_item(it["item_name"])
@@ -46,24 +41,15 @@ def _categorize(items):
             groups["other"].append(it)
             continue
         item_type = data.get("type")
-        slot = data.get("slot", "")
 
         if item_type == "weapon":
             groups["weapon"].append(it)
-        elif item_type == "shield":
-            groups["shield"].append(it)
-        elif item_type == "armor":
-            if slot == "helmet":
-                groups["helmet"].append(it)
-            elif slot == "boots":
-                groups["boots"].append(it)
-            else:
-                groups["armor"].append(it)
+        elif item_type in ("armor", "shield"):
+            # Шлем + броня + сапоги + щит = Броня
+            groups["armor"].append(it)
         elif item_type == "accessory":
-            if slot == "ring":
-                groups["ring"].append(it)
-            else:
-                groups["accessory"].append(it)
+            # Амулет + кольцо = Аксессуары
+            groups["accessory"].append(it)
         elif item_type == "potion":
             groups["potion"].append(it)
         else:
@@ -87,51 +73,43 @@ async def _show_main(chat_id, u, items, edit_message=None):
     text = "🎒 <b>Инвентарь</b>\n\n"
     text += f"💰 Золото: <b>{u['gold']}</b>\n"
     text += f"📦 Предметов: <b>{len(items)}</b>\n\n"
-    text += "<b>Категории:</b>"
+    text += "Выбери категорию:"
 
     rows = []
-    # Оружие + Броня
-    row1 = []
-    for cat in ("weapon", "armor"):
-        cnt = len(groups[cat])
-        label, icon = CATEGORIES[cat]
-        row1.append(InlineKeyboardButton(
-            text=f"{icon} {cnt}", callback_data=f"inv_cat_{cat}_0"))
-    rows.append(row1)
-    # Шлемы + Сапоги
-    row2 = []
-    for cat in ("helmet", "boots"):
-        cnt = len(groups[cat])
-        label, icon = CATEGORIES[cat]
-        row2.append(InlineKeyboardButton(
-            text=f"{icon} {cnt}", callback_data=f"inv_cat_{cat}_0"))
-    rows.append(row2)
-    # Щиты + Аксессуары
-    row3 = []
-    for cat in ("shield", "accessory"):
-        cnt = len(groups[cat])
-        label, icon = CATEGORIES[cat]
-        row3.append(InlineKeyboardButton(
-            text=f"{icon} {cnt}", callback_data=f"inv_cat_{cat}_0"))
-    rows.append(row3)
-    # Кольца + Зелья
-    row4 = []
-    for cat in ("ring", "potion"):
-        cnt = len(groups[cat])
-        label, icon = CATEGORIES[cat]
-        row4.append(InlineKeyboardButton(
-            text=f"{icon} {cnt}", callback_data=f"inv_cat_{cat}_0"))
-    rows.append(row4)
-    # Экипировано
-    rows.append([InlineKeyboardButton(
-        text="👑 Экипировано", callback_data="inv_equipped")])
-    rows.append([InlineKeyboardButton(
-        text="❌ Закрыть", callback_data="inv_close")])
+    # Ряд 1: Оружие + Броня
+    rows.append([
+        InlineKeyboardButton(
+            text=f"⚔️ Оружие ({len(groups['weapon'])})",
+            callback_data="inv_cat_weapon_0"),
+        InlineKeyboardButton(
+            text=f"🛡 Броня ({len(groups['armor'])})",
+            callback_data="inv_cat_armor_0"),
+    ])
+    # Ряд 2: Аксессуары + Зелья
+    rows.append([
+        InlineKeyboardButton(
+            text=f"💍 Аксессуары ({len(groups['accessory'])})",
+            callback_data="inv_cat_accessory_0"),
+        InlineKeyboardButton(
+            text=f"🧪 Зелья ({len(groups['potion'])})",
+            callback_data="inv_cat_potion_0"),
+    ])
+    # Если есть «прочее» — отдельная кнопка
+    if groups["other"]:
+        rows.append([InlineKeyboardButton(
+            text=f"📦 Прочее ({len(groups['other'])})",
+            callback_data="inv_cat_other_0")])
+    # Экипировано + Материалы
+    rows.append([
+        InlineKeyboardButton(text="👑 Экипировано",
+                             callback_data="inv_equipped"),
+        InlineKeyboardButton(text="📦 Материалы",
+                             callback_data="inv_materials"),
+    ])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть",
+                                       callback_data="inv_close")])
 
-    # Легенда под меню
-    text += (
-        "\n\n⚪ Обычный · 🔷 D · 🔶 C"
-    )
+    text += "\n\n⚪ Обычный · 🔷 D · 🔶 C"
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     if edit_message:
@@ -148,7 +126,6 @@ async def _show_main(chat_id, u, items, edit_message=None):
 # ================= КАТЕГОРИЯ =================
 @router.callback_query(F.data.startswith("inv_cat_"))
 async def inv_cat_cb(c: CallbackQuery):
-    # формат: inv_cat_<cat>_<page>
     parts = c.data.split("_")
     if len(parts) < 4:
         await c.answer("Ошибка"); return
@@ -171,7 +148,8 @@ async def inv_cat_cb(c: CallbackQuery):
     if not cat_items:
         text += "<i>Пусто.</i>"
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu")],
+            [InlineKeyboardButton(text="⬅️ В инвентарь",
+                                   callback_data="inv_menu")],
         ])
         try:
             await c.message.edit_text(text, reply_markup=kb,
@@ -182,7 +160,6 @@ async def inv_cat_cb(c: CallbackQuery):
         await c.answer()
         return
 
-    # Пагинация
     total = len(cat_items)
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
@@ -196,7 +173,6 @@ async def inv_cat_cb(c: CallbackQuery):
         g_icon = _grade_icon(grade)
         suffix = f" +{lvl}" if lvl else ""
 
-        # Иконка действия
         if data.get("type") == "potion":
             action = "🧪"
         elif can_use_item(u["class"], name):
@@ -210,7 +186,6 @@ async def inv_cat_cb(c: CallbackQuery):
             callback_data=f"inv_item_{it['item_name']}"
         )])
 
-    # Пагинация
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(
@@ -266,18 +241,14 @@ async def inv_item_cb(c: CallbackQuery):
     text += f"⭐ Грейд: {grade.upper()}\n"
     text += f"📊 Треб. уровень: {level_req}\n"
 
-    # Бонусы
     if data.get("bonus"):
         bonus_str = ", ".join(f"+{v} {k.upper()}" for k, v in data["bonus"].items())
         text += f"✨ Бонусы: {bonus_str}\n"
     if data.get("extra"):
         text += f"💫 Эффект: {data['extra']}\n"
-
-    # Улучшение
     if lvl:
         text += f"🔨 Улучшение: +{lvl}\n"
 
-    # Доступность
     if item_type == "potion":
         heal_hp = data.get("heal_hp", 0)
         heal_mp = data.get("heal_mp", 0)
@@ -292,7 +263,6 @@ async def inv_item_cb(c: CallbackQuery):
         elif u["level"] < level_req:
             text += f"\n⚠️ <b>Нужен {level_req} уровень</b>\n"
 
-    # Кнопки действий
     rows = []
     if item_type == "potion":
         rows.append([InlineKeyboardButton(
@@ -308,7 +278,6 @@ async def inv_item_cb(c: CallbackQuery):
                 text="❌ Нельзя надеть (класс/уровень)",
                 callback_data="inv_noop")])
 
-    # Продажа (только обычные)
     if not data.get("premium"):
         sell_price = int(data.get("price", 0) * 0.6 * (1 + lvl * 0.2))
         if sell_price > 0:
@@ -320,13 +289,12 @@ async def inv_item_cb(c: CallbackQuery):
             text="💎 Эксклюзив — нельзя продать",
             callback_data="inv_noop")])
 
-    # Выброс
     if not data.get("premium"):
         rows.append([InlineKeyboardButton(
             text="🗑 Выбросить",
             callback_data=f"drop_item_{item_name}")])
 
-    rows.append([InlineKeyboardButton(text="⬅️ В инвентарь",
+    rows.append([InlineKeyboardButton(text="⬅️ Назад",
                                        callback_data="inv_menu")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
@@ -356,7 +324,6 @@ async def inv_equipped_cb(c: CallbackQuery):
     if set_b:
         text += f"\n🎁 <b>Сетовый бонус:</b> {set_b['desc']}\n"
 
-    # Кнопки снять
     rows = []
     for slot in SLOTS:
         val = u.get(f"equipped_{slot}")
@@ -386,7 +353,6 @@ async def inv_unequip_cb(c: CallbackQuery):
         await c.answer("Слот пуст"); return
     await g.db.add_item(c.from_user.id, item)
 
-    # Пересчёт HP/MP
     from core.formulas import calc_max_hp, calc_max_mp
     u = await g.db.get_user(c.from_user.id)
     new_max_hp = calc_max_hp(u)
