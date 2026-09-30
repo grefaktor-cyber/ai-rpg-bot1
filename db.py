@@ -223,6 +223,18 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    channel TEXT,
+                    guild_id BIGINT DEFAULT 0,
+                    from_id BIGINT,
+                    from_name TEXT,
+                    to_id BIGINT DEFAULT 0,
+                    text TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
 
             # ============ МИГРАЦИИ ============
             migrations = [
@@ -1366,6 +1378,68 @@ class DB:
             await c.execute("UPDATE trade_offers SET status=$1 WHERE id=$2",
                             status, oid)
 
+    # ============ ЧАТ ============
+    async def add_chat_message(self, channel, from_id, from_name, text,
+                                guild_id=0, to_id=0):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO chat_messages
+                (channel, guild_id, from_id, from_name, to_id, text)
+                VALUES ($1,$2,$3,$4,$5,$6)
+            """, channel, guild_id, from_id, from_name, to_id, text)
+
+    async def get_chat_messages(self, channel, limit=20, guild_id=0, to_id=0):
+        """channel: global | guild | pm"""
+        async with self.pool.acquire() as c:
+            if channel == "global":
+                rows = await c.fetch("""
+                    SELECT from_id, from_name, text, created_at
+                    FROM chat_messages WHERE channel='global'
+                    ORDER BY created_at DESC LIMIT $1
+                """, limit)
+            elif channel == "guild":
+                rows = await c.fetch("""
+                    SELECT from_id, from_name, text, created_at
+                    FROM chat_messages WHERE channel='guild' AND guild_id=$1
+                    ORDER BY created_at DESC LIMIT $2
+                """, guild_id, limit)
+            elif channel == "pm":
+                rows = await c.fetch("""
+                    SELECT from_id, from_name, to_id, text, created_at
+                    FROM chat_messages WHERE channel='pm'
+                    AND ((from_id=$1 AND to_id=$2) OR (from_id=$2 AND to_id=$1))
+                    ORDER BY created_at DESC LIMIT $3
+                """, to_id[0], to_id[1], limit)
+            else:
+                return []
+            return [dict(r) for r in rows]
+
+    async def get_chat_last_time(self, from_id, channel="global"):
+        """Когда игрок последний раз писал в канал (антиспам)."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT created_at FROM chat_messages
+                WHERE from_id=$1 AND channel=$2
+                ORDER BY created_at DESC LIMIT 1
+            """, from_id, channel)
+            return row["created_at"] if row else None
+
+    async def cleanup_chat(self, days=7):
+        """Удалить сообщения старше N дней."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                DELETE FROM chat_messages
+                WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+            """, str(days))
+
+    async def get_all_guild_members_ids(self, guild_id):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT user_id FROM guild_members WHERE guild_id=$1",
+                guild_id
+            )
+            return [r["user_id"] for r in rows]
+    
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM world_events_dyn WHERE expires_at < NOW()")
