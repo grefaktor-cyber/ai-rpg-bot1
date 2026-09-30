@@ -203,6 +203,21 @@ def _build_char_context(user, event=None, location_owner=None):
     if inv_raw:
         lines.append(f"\nИНВЕНТАРЬ (кратко): {inv_raw}")
 
+    # Дневник (последние события)
+    try:
+        import asyncio
+        # Но в этой функции нет await — поэтому дневник передаём через user
+        journal = user.get("journal_entries") or []
+        if journal:
+            lines.append("\n\nДНЕВНИК ИГРОКА (ключевые события):")
+            for e in journal[:8]:
+                from core.journal import EVENT_ICONS
+                icon = EVENT_ICONS.get(e.get("entry_type", "event"), "•")
+                lines.append(f"  {icon} {e.get('entry_text', '')}")
+            lines.append("Используй эти события в сюжете, ссылайся на них.")
+    except Exception:
+        pass
+
     # Локация
     lines.append("\n\nТЕКУЩАЯ ЛОКАЦИЯ:")
     lines.append(f"Код: {loc_code}")
