@@ -14,6 +14,7 @@ from core.globals import set_globals
 from handlers import (
     admin as admin_handlers,
     daily_premium as daily_premium_handlers,
+    premium as premium_handlers,
     start as start_handlers,
     profile as profile_handlers,
     travel as travel_handlers,
@@ -76,7 +77,8 @@ dp.callback_query.middleware(ErrorMiddleware())
 # Порядок важен!
 # 1) Админ + конкретные команды
 dp.include_router(admin_handlers.router)
-dp.include_router(daily_premium_handlers.router)
+dp.include_router(daily_premium_handlers.router)   # ← ТОЛЬКО /daily
+dp.include_router(premium_handlers.router)          # ← новый /premium
 dp.include_router(misc_handlers.router)
 # 2) Старт и создание героя
 dp.include_router(start_handlers.router)
