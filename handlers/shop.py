@@ -1,4 +1,4 @@
-"""Магазин, инвентарь, экипировка (7 слотов)."""
+"""Магазин, инвентарь, экипировка (7 слотов). Навигация по категориям."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -17,7 +17,71 @@ from core.keyboards import main_kb
 router = Router()
 
 
-# ================= МАГАЗИН =================
+# ================= ХЕЛПЕРЫ =================
+def _grade_icon(grade):
+    return {"common": "⚪", "D": "🔷", "C": "🔶"}.get(grade, "⚪")
+
+
+def _grade_name(grade):
+    return {"common": "Обычный", "D": "D-грейд", "C": "C-грейд"}.get(grade, grade)
+
+
+def _format_item_line(name, data, price):
+    """Формат строки предмета."""
+    icon = _grade_icon(data.get("grade", "common"))
+    if data["type"] == "potion":
+        hp = data.get("heal_hp", 0)
+        mp = data.get("heal_mp", 0)
+        eff = f"+{hp} HP" if hp else f"+{mp} MP"
+        return f"{icon} {name} — {price}💰 ({eff})"
+    else:
+        bonus_str = ", ".join(f"+{v} {k.upper()}"
+                              for k, v in data["bonus"].items())
+        return f"{icon} {name} — {price}💰 ({bonus_str})"
+
+
+def _get_category_items(user_class, player_level, shop_mult, category):
+    """Предметы категории, доступные классу. Сгруппированы по грейдам."""
+    groups = {"common": [], "D": [], "C": []}
+    for name, data in SHOP.items():
+        # Фильтр по типу
+        if category == "weapon" and data["type"] != "weapon":
+            continue
+        if category == "armor" and data["type"] != "armor":
+            continue
+        if category == "shield" and data["type"] != "shield":
+            continue
+        if category == "accessory" and data["type"] != "accessory":
+            continue
+        if category == "potion" and data["type"] != "potion":
+            continue
+
+        # Класс
+        if data["type"] != "potion":
+            if not can_use_item(user_class, name):
+                continue
+
+        # Уровень
+        if player_level < data.get("level_req", 1):
+            # Не показываем недоступные, но сохраняем "следующий грейд"
+            continue
+
+        price = int(data["price"] * shop_mult)
+        grade = data.get("grade", "common")
+        groups[grade].append((name, data, price))
+    return groups
+
+
+CATEGORIES = {
+    "weapon":    ("🗡 Оружие", "🗡"),
+    "armor":     ("🛡 Броня", "🛡"),
+    "shield":    ("🛡 Щиты", "🛡"),
+    "accessory": ("💍 Аксессуары", "💍"),
+    "potion":    ("🧪 Зелья", "🧪"),
+}
+
+
+# ================= ГЛАВНОЕ МЕНЮ МАГАЗИНА =================
 @router.message(Command("shop"))
 @router.message(F.text == "🛒 Магазин")
 async def shop(m: Message):
@@ -28,89 +92,140 @@ async def shop(m: Message):
     armor_type = get_armor_type(u["class"])
     armor_names = {"heavy": "Тяжёлая", "light": "Лёгкая", "robe": "Мантия"}
 
-    text = f"🛒 <b>Магазин</b>\n\n💰 Золото: <b>{u['gold']}</b>"
+    text = (f"🛒 <b>Магазин</b>\n\n"
+            f"💰 Золото: <b>{u['gold']}</b>\n"
+            f"🎭 Класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')})\n"
+            f"⭐ Уровень: <b>{u['level']}</b>\n")
     if shop_mult < 1:
-        text += f" (−{int((1-shop_mult)*100)}% фракция)"
-    text += f"\n🎭 Твой класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')} броня)\n\n"
+        text += f"🏷 Скидка фракции: <b>−{int((1-shop_mult)*100)}%</b>\n"
 
-    categories = [
-        ("weapon", "🗡 Оружие"),
-        ("armor", "🛡 Броня"),
-        ("shield", "🛡 Щиты"),
-        ("accessory", "💍 Аксессуары"),
-        ("potion", "🧪 Зелья"),
-    ]
+    # Считаем доступные предметы по категориям
+    counts = {}
+    for cat in CATEGORIES:
+        groups = _get_category_items(u["class"], u["level"], shop_mult, cat)
+        total = sum(len(v) for v in groups.values())
+        counts[cat] = total
 
-    buttons = []
-    for cat_type, label in categories:
-        cat_items = []
-        for name, data in SHOP.items():
-            # Фильтр по категории
-            if cat_type == "accessory":
-                if data["type"] != "accessory":
-                    continue
-            elif cat_type == "shield":
-                if data["type"] != "shield":
-                    continue
-            else:
-                if data["type"] != cat_type:
-                    continue
+    text += "\n<b>Категории:</b>\n"
+    for cat, (label, icon) in CATEGORIES.items():
+        cnt = counts[cat]
+        if cnt > 0:
+            text += f"• {label} — <b>{cnt}</b>\n"
+        else:
+            text += f"• {label} — <i>нет доступных</i>\n"
 
-            # Проверка доступа по классу
-            if data["type"] == "potion":
-                can_use = True
-            else:
-                can_use = can_use_item(u["class"], name)
-            if not can_use:
-                continue
+    text += "\n⚪ Обычный · 🔷 D (20+) · 🔶 C (40+)"
 
-            # Проверка уровня
-            if u["level"] < data.get("level_req", 1):
-                continue
+    rows = []
+    for cat, (label, icon) in CATEGORIES.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{label} ({counts[cat]})",
+            callback_data=f"shop_cat_{cat}"
+        )])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")])
 
-            price = int(data["price"] * shop_mult)
-            cat_items.append((name, data, price))
-
-        if not cat_items:
-            continue
-
-        text += f"<b>{label}:</b>\n"
-        for name, data, price in cat_items:
-            grade = data.get("grade", "common")
-            g_icon = {"common": "•", "D": "🔷", "C": "🔶"}.get(grade, "•")
-            if data["type"] == "potion":
-                hp = data.get("heal_hp", 0)
-                mp = data.get("heal_mp", 0)
-                eff = f"+{hp} HP" if hp else f"+{mp} MP"
-                text += f"{g_icon} {name} — {price}💰 ({eff})\n"
-            else:
-                bonus_str = ", ".join(f"+{v} {k.upper()}"
-                                      for k, v in data["bonus"].items())
-                text += f"{g_icon} {name} [{grade}] — {price}💰 ({bonus_str})\n"
-            buttons.append([InlineKeyboardButton(
-                text=f"{name} — {price}💰",
-                callback_data=f"shop_buy_{name}")]
-            )
-        text += "\n"
-
-    if not buttons:
-        text += "<i>Нет доступных предметов для твоего класса.</i>\n"
-
-    text += "\n🔷 = D-грейд · 🔶 = C-грейд · Без метки = Обычный"
-    rows = buttons + [[InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")]]
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                    parse_mode=ParseMode.HTML)
 
 
-@router.callback_query(F.data == "shop_close")
-async def shop_close_cb(c: CallbackQuery):
+@router.callback_query(F.data == "shop_menu")
+async def shop_menu_cb(c: CallbackQuery):
+    u = await g.db.get_user(c.from_user.id)
+    shop_mult = faction_mult(u, "shop_mult")
+    armor_type = get_armor_type(u["class"])
+    armor_names = {"heavy": "Тяжёлая", "light": "Лёгкая", "robe": "Мантия"}
+
+    text = (f"🛒 <b>Магазин</b>\n\n"
+            f"💰 Золото: <b>{u['gold']}</b>\n"
+            f"🎭 Класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')})\n"
+            f"⭐ Уровень: <b>{u['level']}</b>\n")
+    if shop_mult < 1:
+        text += f"🏷 Скидка фракции: <b>−{int((1-shop_mult)*100)}%</b>\n"
+
+    counts = {}
+    for cat in CATEGORIES:
+        groups = _get_category_items(u["class"], u["level"], shop_mult, cat)
+        counts[cat] = sum(len(v) for v in groups.values())
+
+    text += "\n<b>Категории:</b>\n"
+    for cat, (label, icon) in CATEGORIES.items():
+        cnt = counts[cat]
+        if cnt > 0:
+            text += f"• {label} — <b>{cnt}</b>\n"
+        else:
+            text += f"• {label} — <i>нет доступных</i>\n"
+    text += "\n⚪ Обычный · 🔷 D (20+) · 🔶 C (40+)"
+
+    rows = []
+    for cat, (label, icon) in CATEGORIES.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{label} ({counts[cat]})",
+            callback_data=f"shop_cat_{cat}"
+        )])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")])
+
     try:
-        await c.message.edit_reply_markup(reply_markup=None)
+        await c.message.edit_text(text,
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                                  parse_mode=ParseMode.HTML)
     except Exception:
-        pass
+        await c.message.answer(text,
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                               parse_mode=ParseMode.HTML)
     await c.answer()
 
 
+# ================= КАТЕГОРИЯ =================
+@router.callback_query(F.data.startswith("shop_cat_"))
+async def shop_category(c: CallbackQuery):
+    cat = c.data.replace("shop_cat_", "")
+    if cat not in CATEGORIES:
+        await c.answer("Нет"); return
+    u = await g.db.get_user(c.from_user.id)
+    shop_mult = faction_mult(u, "shop_mult")
+    groups = _get_category_items(u["class"], u["level"], shop_mult, cat)
+
+    label, _ = CATEGORIES[cat]
+    text = f"{label}\n\n💰 Золото: <b>{u['gold']}</b>\n\n"
+
+    rows = []
+    has_items = False
+
+    for grade in ("common", "D", "C"):
+        items = groups[grade]
+        if not items:
+            continue
+        has_items = True
+        text += f"<b>{_grade_name(grade)}:</b>\n"
+        for name, data, price in items:
+            text += f"• {_format_item_line(name, data, price)}\n"
+            rows.append([InlineKeyboardButton(
+                text=f"Купить {name} — {price}💰",
+                callback_data=f"shop_buy_{name}"
+            )])
+        text += "\n"
+
+    if not has_items:
+        text += "<i>В этой категории пока нет доступных предметов.</i>"
+        if u["level"] < 20:
+            text += "\n\n<i>💡 D-грейд откроется на 20 уровне.</i>"
+        elif u["level"] < 40:
+            text += "\n\n<i>💡 C-грейд откроется на 40 уровне.</i>"
+
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="shop_menu")])
+
+    try:
+        await c.message.edit_text(text,
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                                  parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text,
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                               parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+# ================= ПОКУПКА =================
 @router.callback_query(F.data.startswith("shop_buy_"))
 async def shop_buy_cb(c: CallbackQuery):
     item_name = c.data.replace("shop_buy_", "", 1)
@@ -121,7 +236,6 @@ async def shop_buy_cb(c: CallbackQuery):
     if not user["char_name"]:
         await c.answer("Сначала создай героя"); return
 
-    # Проверки
     if data["type"] != "potion":
         if not can_use_item(user["class"], item_name):
             await c.answer("❌ Твой класс не может это использовать", show_alert=True)
@@ -143,6 +257,15 @@ async def shop_buy_cb(c: CallbackQuery):
         f"✅ <b>{item_name}</b> куплен (−{price}💰)\n"
         f"Осталось: {u2['gold']}💰\n{hint}",
         parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "shop_close")
+async def shop_close_cb(c: CallbackQuery):
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer()
 
 
 # ================= ЭКИПИРОВКА =================
@@ -249,7 +372,7 @@ async def inventory(m: Message):
         if name in SHOP:
             data = SHOP[name]
             grade = data.get("grade", "common")
-            g_icon = {"common": "", "D": "🔷", "C": "🔶"}.get(grade, "")
+            g_icon = _grade_icon(grade)
             if data["type"] == "potion":
                 hp = data.get("heal_hp", 0)
                 mp = data.get("heal_mp", 0)
