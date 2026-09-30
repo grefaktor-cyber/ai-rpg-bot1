@@ -153,6 +153,10 @@ async def show_main_menu(m, user):
     header = f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
     header += f"⭐ Ур. {user['level']} · XP: {user['xp']}\n"
     header += f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
+    if user.get("is_premium"):
+        header += "⚡ Энергия: ∞\n"
+    else:
+        header += f"⚡ Энергия: {user.get('energy', 0)}/{user.get('energy_max', 20)}\n"
     header += f"💰 Золото: {user['gold']}\n"
     header += f"📍 <b>{loc.get('name', '?')}</b>"
     if owner:
