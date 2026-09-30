@@ -174,6 +174,10 @@ async def handle(m: Message):
     event = await g.db.get_active_event(loc_code)
     owner = await g.db.get_location_owner(loc_code)
 
+    # Дневник для ИИ
+    journal_entries = await g.db.get_journal(uid, limit=8)
+    user_for_ai["journal_entries"] = journal_entries
+
     result = await ai.generate(user["story"], action, user["arc"],
                                 user_for_ai, event, owner)
     response = result["text"]
