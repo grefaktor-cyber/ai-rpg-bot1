@@ -65,9 +65,44 @@ async def use_cmd(m: Message):
         await m.answer("⚔️ Используй зелья в бою кнопками."); return
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
-        await m.answer("Использование: /use Зелье HP\nСписок: /inventory")
+        await m.answer("Использование: /use Зелье HP"); return
+
+    item_query = parts[1].strip()
+    inv = await g.db.get_inventory(m.from_user.id)
+    inv_names = [i["item_name"] for i in inv]
+    if not inv_names:
+        await m.answer("🎒 Инвентарь пуст."); return
+
+    from core.fuzzy import find_inventory_item
+    exact, suggestions = find_inventory_item(item_query, inv_names)
+
+    if exact:
+        item_name = exact
+    elif suggestions:
+        # Оставляем только зелья
+        potion_sugg = [s for s in suggestions
+                       if s in SHOP and SHOP[s].get("type") == "potion"]
+        if not potion_sugg:
+            await m.answer(f"❌ Среди найденных нет зелий.")
+            return
+        rows = []
+        for s in potion_sugg[:10]:
+            rows.append([InlineKeyboardButton(
+                text=f"🧪 Использовать {s}",
+                callback_data=f"use_item_{s}"
+            )])
+        rows.append([InlineKeyboardButton(text="❌ Отмена",
+                                          callback_data="fuzzy_cancel")])
+        await m.answer(
+            f"🔍 Нашёл несколько, уточни:\n\n<code>{item_query}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode=ParseMode.HTML)
         return
-    ok, msg = await _do_use(m.from_user.id, parts[1].strip())
+    else:
+        await m.answer(f"❌ Не нашёл «{item_query}».")
+        return
+
+    ok, msg = await _do_use(m.from_user.id, item_name)
     await m.answer(msg, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
 
