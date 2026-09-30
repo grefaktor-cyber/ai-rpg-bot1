@@ -110,10 +110,11 @@ CLASS_SKILLS = {
 
 # ================= РАСОВЫЕ СКИЛЫ (1 на расу) =================
 RACIAL_SKILLS = {
+    # ---- Обычные расы ----
     "human": {
         "code": "rac_human", "name": "Воля", "req_level": 5, "mp_cost": 0,
         "effect": "passive", "mult": 0.20,
-        "desc": "Пассивно: +20% HP, когда HP < 30%",
+        "desc": "Пассивно: +20% урона, когда HP < 30%",
     },
     "elf": {
         "code": "rac_elf", "name": "Глаз ястреба", "req_level": 5, "mp_cost": 0,
@@ -123,22 +124,23 @@ RACIAL_SKILLS = {
     "dark_elf": {
         "code": "rac_dark", "name": "Тень", "req_level": 5, "mp_cost": 0,
         "effect": "passive", "mult": 0.10,
-        "desc": "Пассивно: +10% магии тьмы",
+        "desc": "Пассивно: +10% магического урона",
     },
     "orc": {
         "code": "rac_orc", "name": "Берсерк", "req_level": 5, "mp_cost": 0,
         "effect": "passive", "mult": 0.15,
         "desc": "Пассивно: +15% max HP",
     },
+    # ---- Премиум-расы ----
     "demon": {
         "code": "rac_demon", "name": "Адское пламя", "req_level": 5, "mp_cost": 0,
         "effect": "passive", "mult": 0.15,
-        "desc": "Пассивно: +15% урона магией, −10% к лечению",
+        "desc": "Пассивно: +15% магического урона",
     },
     "angel": {
         "code": "rac_angel", "name": "Небесный щит", "req_level": 5, "mp_cost": 0,
         "effect": "passive", "mult": 0.20,
-        "desc": "Пассивно: +20% силы лечения, +10% HP",
+        "desc": "Пассивно: +20% силы лечения",
     },
     "prit": {
         "code": "rac_prit", "name": "Из тени", "req_level": 5, "mp_cost": 0,
