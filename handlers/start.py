@@ -203,6 +203,8 @@ async def on_class(c: CallbackQuery):
     if code not in CLASSES:
         await c.answer("Ошибка"); return
     user = await g.db.get_user(c.from_user.id)
+# Премиум-расы — любой класс
+if user["race"] not in ("demon", "angel", "prit"):
     if user["race"] not in CLASSES[code]["races"]:
         await c.answer("Этот класс недоступен твоей расе", show_alert=True); return
     await g.db.set_class(c.from_user.id, code)
