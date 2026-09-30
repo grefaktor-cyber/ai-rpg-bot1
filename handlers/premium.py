@@ -586,8 +586,20 @@ async def on_payment(m: Message):
         item = EXCLUSIVE_ITEMS.get(code)
         if item:
             await g.db.add_item(m.from_user.id, code)
+
+            # Проверка совместимости после покупки
+            from core.equipment import SHOP, can_use_item
+            u = await g.db.get_user(m.from_user.id)
+            extra_warn = ""
+            if code in SHOP:
+                if not can_use_item(u.get("class", ""), code):
+                    extra_warn = (f"\n\n⚠️ <b>Твой класс ({u.get('class')}) не может "
+                                  f"носить этот предмет.</b>\n"
+                                  f"Ты можешь передать его другому игроку через /trade.")
+
             await m.answer(
-                f"⚔️ <b>Предмет получен!</b>\n\n{code} → /inventory",
+                f"⚔️ <b>Предмет получен!</b>\n\n"
+                f"<b>{code}</b> → в /inventory{extra_warn}",
                 reply_markup=main_kb(), parse_mode=ParseMode.HTML)
             return
 
