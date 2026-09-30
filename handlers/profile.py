@@ -51,6 +51,8 @@ async def stats_cmd(m: Message):
         f"Уровень: {u['level']} (XP {u['xp']}/{need})\n"
         f"❤️ HP: {u['hp']}/{u['max_hp']}\n"
         f"💰 Золото: {u['gold']}\n"
+        f"⚡ Энергия: " + ("∞" if u.get("is_premium") else
+                          f"{u.get('energy', 0)}/{u.get('energy_max', 20)}") + "\n"
         f"🏅 Репутация: {u['reputation']}{pet_line}\n\n"
         f"<b>Статы:</b>\n"
         f"STR {eff['str']} · DEX {eff['dex']} · CON {eff['con']}\n"
