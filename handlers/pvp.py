@@ -221,8 +221,11 @@ async def pvp_attack_cb(c: CallbackQuery):
     from core.formulas import (
         calc_damage, calc_p_def, calc_m_def, apply_defense, get_dmg_type,
     )
+    from core.formulas import (
+        calc_damage, calc_p_def, calc_m_def, apply_defense, get_dmg_type,
+        racial_crit_bonus, get_crit_bonus,
+    )
     eff = effective_stats(user)
-    # Защита противника — реальные P.Def/M.Def
     opponent = await g.db.get_user(combat["opponent_id"])
     t_pdef = calc_p_def(opponent)
     t_mdef = calc_m_def(opponent)
@@ -233,7 +236,11 @@ async def pvp_attack_cb(c: CallbackQuery):
     else:
         dmg = apply_defense(base, t_pdef)
     dmg = int(dmg * faction_mult(user, "dmg_mult"))
-    is_crit = random.randint(1, 100) <= eff["dex"]
+    # Крит: DEX + раса + экипировка + питомец
+    crit_chance = eff["dex"] + racial_crit_bonus(user) + get_crit_bonus(user)
+    if user.get("pet_type") == "owl":
+        crit_chance += 15
+    is_crit = random.randint(1, 100) <= crit_chance
     if is_crit:
         dmg = int(dmg * 2)
     res = await g.db.pvp_damage(c.from_user.id, dmg)
