@@ -335,6 +335,8 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_ring TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_title TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_titles TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_classes TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_cosmetics TEXT DEFAULT '[]'",
             ]
             for sql in migrations:
                 try:
@@ -455,6 +457,8 @@ class DB:
             "equipped_shield": "", "equipped_ring": "",
             "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
             "active_title": "", "unlocked_titles": "[]",
+            "unlocked_premium_classes": "[]",
+            "unlocked_cosmetics": "[]",
         }
 
     async def give_consent(self, uid):
@@ -1601,6 +1605,63 @@ class DB:
                 )
                 return True
         return False
+
+    # ============ ЭКСКЛЮЗИВНЫЙ КЛАСС ============
+    async def unlock_premium_class(self, uid, class_code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_premium_classes FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                arr = json.loads(row["unlocked_premium_classes"] or "[]")
+            except Exception:
+                arr = []
+            if class_code in arr:
+                return True
+            arr.append(class_code)
+            await c.execute(
+                "UPDATE users SET unlocked_premium_classes=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
+
+    async def has_premium_class(self, uid, class_code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_premium_classes FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                return class_code in json.loads(row["unlocked_premium_classes"] or "[]")
+            except Exception:
+                return False
+
+    # ============ КОСМЕТИКА ============
+    async def unlock_cosmetic(self, uid, code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_cosmetics FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                arr = json.loads(row["unlocked_cosmetics"] or "[]")
+            except Exception:
+                arr = []
+            if code in arr:
+                return True
+            arr.append(code)
+            await c.execute(
+                "UPDATE users SET unlocked_cosmetics=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
