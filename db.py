@@ -1136,6 +1136,31 @@ class DB:
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, NOW() + ($9 || ' minutes')::INTERVAL)
             """, location_code, event_code, event_name, event_desc,
                 xp_mult, gold_mult, spawn_mult, enemy_dmg_mult, str(duration_min))
+                # ============ СКИЛЫ ============
+    async def set_active_skills(self, uid, json_str):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE users SET active_skills=$1 WHERE user_id=$2", json_str, uid
+            )
+
+    async def set_learned_skills(self, uid, json_str):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE users SET learned_skills=$1 WHERE user_id=$2", json_str, uid
+            )
+
+    async def spend_skill_point(self, uid, amount=1):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT skill_points FROM users WHERE user_id=$1", uid
+            )
+            if row and row["skill_points"] >= amount:
+                await c.execute(
+                    "UPDATE users SET skill_points=skill_points-$1 WHERE user_id=$2",
+                    amount, uid
+                )
+                return True
+        return False
 
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
