@@ -126,6 +126,7 @@ ACHIEVEMENTS = {
     "guild_founder": "🏛 Основатель гильдии", "guild_member": "🏛 Член гильдии",
     "conqueror": "⚔️ Захватчик", "event_hunter": "🎯 Охотник за событиями",
     "quest_master": "📜 Мастер квестов",
+    "tutorial_done": "🎓 Ученик",
 }
 
 POTION_PRICE = 25
