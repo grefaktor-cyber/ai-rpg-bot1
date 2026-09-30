@@ -29,6 +29,7 @@ from handlers import (
     skills as skills_handlers,
     use as use_handlers,
     trade as trade_handlers,
+    onboarding as onboarding_handlers,
     ai_handler as ai_handler_handlers,
 )
 
@@ -77,6 +78,7 @@ dp.include_router(daily_premium_handlers.router)
 dp.include_router(misc_handlers.router)
 # 2) Старт и создание героя
 dp.include_router(start_handlers.router)
+dp.include_router(onboarding_handlers.router)
 # 3) Игровые разделы
 dp.include_router(profile_handlers.router)
 dp.include_router(travel_handlers.router)
