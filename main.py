@@ -30,6 +30,7 @@ from handlers import (
     use as use_handlers,
     trade as trade_handlers,
     onboarding as onboarding_handlers,
+    chat as chat_handlers,
     ai_handler as ai_handler_handlers,
 )
 
@@ -93,6 +94,7 @@ dp.include_router(world_events_handlers.router)
 dp.include_router(skills_handlers.router)
 dp.include_router(use_handlers.router)
 dp.include_router(trade_handlers.router)
+dp.include_router(chat_handlers.router)
 # 4) Catch-all — ОБЯЗАТЕЛЬНО ПОСЛЕДНИМ
 dp.include_router(ai_handler_handlers.router)
 
