@@ -424,6 +424,11 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await g.db.incr_bosses(user["user_id"])
         await g.db.add_world_event(user["user_id"], user["username"],
                                    f"победил босса «{combat['enemy_name']}»")
+            await g.db.add_journal_entry(
+                user["user_id"],
+                f"Победил босса «{combat['enemy_name']}»",
+                "boss"
+            )
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
         if await g.db.add_achievement(user["user_id"], "first_boss"):
@@ -440,6 +445,12 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         text += f"\n🔨 Сова нашла: {MATERIAL_NAMES[mat]}"
 
     if leveled_up:
+        if level in (5, 10, 15, 20, 30):
+            await g.db.add_journal_entry(
+                user["user_id"],
+                f"Достиг <b>{level} уровня</b>",
+                "level"
+            )
         u = await g.db.get_user(user["user_id"])
         nm = calc_max_hp(u)
         nmp = calc_max_mp(u)
@@ -500,6 +511,11 @@ async def handle_death(chat_id, user, combat):
     await g.db.add_achievement(user["user_id"], "survivor")
     await g.db.add_world_event(user["user_id"], user["username"],
                                f"пал в бою с «{combat['enemy_name']}»")
+    await g.db.add_journal_entry(
+        user["user_id"],
+        f"Пал в бою с «{combat['enemy_name']}»",
+        "death"
+    )
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
             f"Ты очнулся в Начальной деревне.\n"
