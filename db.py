@@ -240,6 +240,7 @@ class DB:
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS stake INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_turn INTEGER DEFAULT 1",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_dungeon INTEGER DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS next_atk_mult REAL DEFAULT 1.0",
                                 # === Этап 2.1: миграция на новые расы/классы ===
                 "UPDATE users SET race='', class='', char_name='' WHERE race='dwarf'",
                 "UPDATE users SET class='' WHERE race IN ('human','elf','dark_elf','orc') AND class NOT IN ('warrior','knight','mage','archer','guardian','bard','assassin','necro','dancer','destroyer','tyrant','overlord')",
