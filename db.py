@@ -280,6 +280,11 @@ class DB:
                 "UPDATE users SET race='', class='', char_name='' WHERE race='dwarf'",
                 "UPDATE users SET class='' WHERE race IN ('human','elf','dark_elf','orc') AND class NOT IN ('warrior','knight','mage','archer','guardian','bard','assassin','necro','dancer','destroyer','tyrant','overlord')",
                 "ALTER TABLE dropped_items ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
+                # === Этап 3.5: экипировка 2.0 ===
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_helmet TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_boots TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_shield TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_ring TEXT DEFAULT ''",
             ]
             for sql in migrations:
                 try:
@@ -396,6 +401,8 @@ class DB:
             "dungeon_loot_gold": 0, "dungeon_loot_items": "[]",
             "energy": 20, "energy_max": 20, "last_energy_regen": None,
             "mp": 50, "max_mp": 50,
+            "equipped_helmet": "", "equipped_boots": "",
+            "equipped_shield": "", "equipped_ring": "",
             "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
         }
 
