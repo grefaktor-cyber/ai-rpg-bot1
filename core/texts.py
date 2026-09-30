@@ -28,6 +28,7 @@ HELP_TEXT = (
 
 ADMIN_HELP_TEXT = (
     "🛠 <b>Админ-команды</b>\n\n"
+    "\n/admin_premium — вкл/выкл премиум"
     "/admin_reset — сброс лимита + HP\n"
     "/admin_gold N — золото\n"
     "/admin_hp — HP\n"
