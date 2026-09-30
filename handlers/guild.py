@@ -89,6 +89,11 @@ async def guild_create_input(m: Message, state: FSMContext):
         await m.answer("Название уже занято."); return
     await g.db.spend_gold(m.from_user.id, W.GUILD_CREATE_COST)
     await g.db.add_achievement(m.from_user.id, "guild_founder")
+    await g.db.add_journal_entry(
+        m.from_user.id,
+        f"Основал гильдию «[{tag}] {name}»",
+        "guild"
+    )
     await state.clear()
     await m.answer(
         f"🏛 <b>Гильдия создана!</b>\n\n<b>[{tag}] {name}</b>\n\n"
@@ -116,6 +121,11 @@ async def guild_invite(m: Message):
         await m.answer("Он уже в гильдии."); return
     await g.db.add_guild_member(target["user_id"], guild["id"])
     await g.db.add_achievement(target["user_id"], "guild_member")
+    await g.db.add_journal_entry(
+        target["user_id"],
+        f"Вступил в гильдию «[{guild['tag']}] {guild['name']}»",
+        "guild"
+    )
     try:
         await g.bot.send_message(target["user_id"],
             f"🏛 Ты принят в гильдию <b>[{guild['tag']}] {guild['name']}</b>!",
@@ -163,7 +173,14 @@ async def guild_leave_cb(c: CallbackQuery):
         await c.answer("Не в гильдии"); return
     if guild["leader_id"] == c.from_user.id:
         await c.answer("Лидер не может выйти.", show_alert=True); return
+    guild_tag = guild.get("tag", "?")
+    guild_name = guild.get("name", "?")
     await g.db.remove_guild_member(c.from_user.id)
+    await g.db.add_journal_entry(
+        c.from_user.id,
+        f"Вышел из гильдии «[{guild_tag}] {guild_name}»",
+        "guild"
+    )
     await c.answer("Ты вышел из гильдии")
     try:
         await c.message.edit_text("🚪 Ты покинул гильдию.")
@@ -194,6 +211,17 @@ async def guild_capture_cb(c: CallbackQuery):
     await g.db.add_achievement(c.from_user.id, "conqueror")
     await g.db.add_world_event(c.from_user.id, u["username"],
                                f"гильдия [{guild['tag']}] захватила «{loc['name']}»")
+    await g.db.add_journal_entry(
+        c.from_user.id,
+        f"Гильдия захватила «{loc['name']}»",
+        "capture"
+    )
+    await g.db.add_location_event(
+        code,
+        f"гильдия [{guild['tag']}] захватила локацию",
+        "capture",
+        ""
+    )
     await broadcast_to_location(
         code,
         f"🏴 <b>Гильдия [{guild['tag']}] {guild['name']}</b> захватила «{loc['name']}»!",
