@@ -23,7 +23,6 @@ RACES = {
 }
 
 CLASSES = {
-    # ---- Человек ----
     "warrior": {"name": "Воин", "desc": "Мастер меча.",
                 "races": ["human"],
                 "bonus": {"str": 3, "con": 3}, "role": "fighter", "dmg_type": "phys"},
@@ -33,7 +32,6 @@ CLASSES = {
     "mage":    {"name": "Маг", "desc": "Боевая магия.",
                 "races": ["human", "demon"],
                 "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
-    # ---- Эльф ----
     "archer":   {"name": "Лучник", "desc": "Стрелок.",
                  "races": ["elf", "prit"],
                  "bonus": {"str": 3, "dex": 3}, "role": "agile", "dmg_type": "agile"},
@@ -43,7 +41,6 @@ CLASSES = {
     "bard":     {"name": "Певчий", "desc": "Магия поддержки.",
                  "races": ["elf", "angel"],
                  "bonus": {"int": 2, "wit": 2, "men": 2}, "role": "mage", "dmg_type": "magic"},
-    # ---- Тёмный эльф ----
     "assassin": {"name": "Убийца", "desc": "Скрытность и крит.",
                  "races": ["dark_elf", "demon", "prit"],
                  "bonus": {"str": 2, "dex": 4}, "role": "agile", "dmg_type": "agile"},
@@ -53,7 +50,6 @@ CLASSES = {
     "dancer":   {"name": "Танцор", "desc": "Быстрые атаки.",
                  "races": ["dark_elf", "prit"],
                  "bonus": {"str": 3, "dex": 2, "men": 1}, "role": "universal", "dmg_type": "agile"},
-    # ---- Орк ----
     "destroyer": {"name": "Разрушитель", "desc": "Максимальный урон.",
                   "races": ["orc"],
                   "bonus": {"str": 5, "con": 1}, "role": "fighter", "dmg_type": "phys"},
