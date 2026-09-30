@@ -148,10 +148,14 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 
 # ================= ПОБЕДА =================
 async def handle_victory(chat_id, user, combat, prefix_text):
-    # Lazy import — избегаем циклической зависимости с dungeon_service
     from services.dungeon_service import dungeon_finish
 
     await g.db.end_combat(user["user_id"])
+
+    # Маркер окончания боя в story
+    marker = f"\n[БОЙ ОКОНЧЕН: {combat['enemy_name']} побеждён]\n"
+    story_now = user.get("story") or ""
+    await g.db.update_story(user["user_id"], (story_now + marker)[-4000:])
 
     enemy_name = combat["enemy_name"]
     all_q = await g.db.get_user_quests(user["user_id"])
@@ -271,6 +275,12 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 async def handle_death(chat_id, user, combat):
     was_dungeon = combat.get("is_dungeon", 0)
     await g.db.end_combat(user["user_id"])
+
+    # Маркер окончания боя
+    marker = f"\n[БОЙ ОКОНЧЕН: игрок пал в бою с {combat['enemy_name']}]\n"
+    story_now = user.get("story") or ""
+    await g.db.update_story(user["user_id"], (story_now + marker)[-4000:])
+
     if was_dungeon:
         await g.db.exit_dungeon(user["user_id"])
     lost = int(user["gold"] * 0.30)
@@ -278,7 +288,6 @@ async def handle_death(chat_id, user, combat):
     u = await g.db.get_user(user["user_id"])
     nm = calc_max_hp(u)
     await g.db.update_hp_max(user["user_id"], nm, nm)
-    await g.db.update_story(user["user_id"], "")
     await g.db.incr_deaths(user["user_id"])
     await g.db.add_achievement(user["user_id"], "survivor")
     await g.db.add_world_event(user["user_id"], user["username"],
