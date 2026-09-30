@@ -19,6 +19,7 @@ from core.formulas import (
     calc_xp_reward, calc_enemy_base_dmg,
     get_enemy_dmg_type, get_player_def_for_enemy, apply_player_defense,
     get_boss_phase,
+    get_block_chance, get_crit_bonus, get_gold_mult,
 )
 from core.keyboards import combat_kb, dungeon_continue_kb
 from core.game_data import PETS
@@ -137,7 +138,9 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             dmg_after_def = int(dmg_after_def * racial_magic_mult(user))
         dmg_after_def = int(dmg_after_def * racial_low_hp_mult(user))
 
-        crit_chance = eff["dex"] + racial_crit_bonus(user)
+        crit_chance = (eff["dex"]
+                       + racial_crit_bonus(user)
+                       + get_crit_bonus(user))
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
@@ -269,19 +272,31 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
                         * enemy_debuff * phase_mult)
             final = max(1, final)
             total_enemy_dmg += final
+        
+        # Проверка блока (Эгида Богов)
+        block_chance = get_block_chance(user)
+        is_blocked = False
+        if block_chance > 0 and random.randint(1, 100) <= block_chance:
+            is_blocked = True
 
-        new_hp = max(0, user["hp"] - total_enemy_dmg)
-        await g.db.update_hp(user["user_id"], new_hp)
-        user["hp"] = new_hp
-
-        if attacks > 1:
-            extra_text += (f"\n💔 {combat['enemy_name']} атакует ×2 — "
-                           f"итого {total_enemy_dmg}")
+        if is_blocked:
+            extra_text += (f"\n🛡 <b>Блок!</b> "
+                           f"{combat['enemy_name']} атака отражена "
+                           f"(шанс {block_chance}%)")
         else:
-            extra_text += f"\n💔 {combat['enemy_name']} наносит {total_enemy_dmg}"
+            new_hp = max(0, user["hp"] - total_enemy_dmg)
+            await g.db.update_hp(user["user_id"], new_hp)
+            user["hp"] = new_hp
+
+            if attacks > 1:
+                extra_text += (f"\n💔 {combat['enemy_name']} атакует ×2 — "
+                               f"итого {total_enemy_dmg}")
+            else:
+                extra_text += f"\n💔 {combat['enemy_name']} наносит {total_enemy_dmg}"
 
         if phase:
             extra_text += f"\n{phase['name']}: {phase['desc']}"
+
     else:
         extra_text += f"\n💫 {combat['enemy_name']} пропускает ход"
 
@@ -345,7 +360,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     is_dungeon = combat.get("is_dungeon", 0)
     if combat["is_boss"]:
         gold *= 3
-    gold = int(gold * faction_mult(user, "gold_mult") * racial_gold_mult(user))
+    gold = int(gold * faction_mult(user, "gold_mult") * racial_gold_mult(user)
+               * get_gold_mult(user))
 
     event = await g.db.get_active_event(user.get("location_code", "village"))
     xp_mult = event.get("xp_mult", 1.0) if event else 1.0
@@ -451,6 +467,21 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
 # ================= СМЕРТЬ =================
 async def handle_death(chat_id, user, combat):
+    # Феникс вечности — 1 возрождение за бой
+    if (user.get("pet_type") == "ephoenix"
+            and not combat.get("phoenix_used")):
+        await g.db.set_combat_phoenix_used(user["user_id"])
+        new_hp = max(1, user["max_hp"] // 2)
+        await g.db.update_hp(user["user_id"], new_hp)
+        user["hp"] = new_hp
+        await send_combat_state(
+            chat_id, user,
+            await g.db.get_combat(user["user_id"]),
+            "🦅 <b>ФЕНИКС ВЕЧНОСТИ ВОЗРОДИЛ ТЕБЯ!</b>\n"
+            "HP восстановлено на 50%. Второй раз не сработает."
+        )
+        return
+
     was_dungeon = combat.get("is_dungeon", 0)
     await g.db.end_combat(user["user_id"])
 
