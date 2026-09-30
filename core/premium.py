@@ -37,10 +37,10 @@ SUBSCRIPTIONS = {
 
 
 # ================= ЭКСКЛЮЗИВНЫЕ РАСЫ =================
-EXCLUSIVE_PETS = {
-    "lion":     {"name": "🦁 Небесный лев",    "price": 450, "desc": "+15 STR/DEX/CON"},
-    "ephoenix": {"name": "🦅 Феникс вечности", "price": 500, "desc": "1 возрождение за бой"},
-    "edragon":  {"name": "🐲 Древний дракон",  "price": 600, "desc": "Атака 25×ур. каждый раунд"},
+EXCLUSIVE_RACES = {
+    "prit":  {"name": "🎭 Плут",  "price": 300, "desc": "+20% золота, −15% HP"},
+    "demon": {"name": "😈 Демон", "price": 350, "desc": "+15% маг. урона, слаб к свету"},
+    "angel": {"name": "😇 Ангел", "price": 350, "desc": "+20% лечения, −15% физ. урона"},
 }
 
 
@@ -56,18 +56,18 @@ EXCLUSIVE_CLASSES = {
 
 # ================= ЭКСКЛЮЗИВНАЯ ЭКИПИРОВКА =================
 EXCLUSIVE_ITEMS = {
-    "Клинок Судьбы":   {"price": 500, "type": "weapon", "bonus": {"str": 15}, "extra": "крит +5%"},
-    "Эгида Богов":     {"price": 500, "type": "shield", "bonus": {"con": 15}, "extra": "блок 15%"},
-    "Венец Владыки":   {"price": 450, "type": "helmet", "bonus": {"int": 15}, "extra": "+30% золота"},
-    "Лук Апокалипсиса":{"price": 550, "type": "weapon", "bonus": {"dex": 15}, "extra": "крит +8%"},
+    "Клинок Судьбы":    {"price": 500, "type": "weapon", "bonus": {"str": 15}, "extra": "крит +5%"},
+    "Эгида Богов":      {"price": 500, "type": "shield", "bonus": {"con": 15}, "extra": "блок 15%"},
+    "Венец Владыки":    {"price": 450, "type": "helmet", "bonus": {"int": 15}, "extra": "+30% золота"},
+    "Лук Апокалипсиса": {"price": 550, "type": "weapon", "bonus": {"dex": 15}, "extra": "крит +8%"},
 }
 
 
 # ================= ЭКСКЛЮЗИВНЫЕ ПИТОМЦЫ =================
 EXCLUSIVE_PETS = {
-    "lion":    {"name": "🦁 Небесный лев",    "price": 450, "desc": "+15 STR/DEX/CON"},
-    "phoenix": {"name": "🦅 Феникс вечности", "price": 500, "desc": "1 возрождение за бой"},
-    "dragon":  {"name": "🐲 Древний дракон",  "price": 600, "desc": "Атака 25×ур. каждый раунд"},
+    "lion":     {"name": "🦁 Небесный лев",    "price": 450, "desc": "+15 STR/DEX/CON"},
+    "ephoenix": {"name": "🦅 Феникс вечности", "price": 500, "desc": "1 возрождение за бой"},
+    "edragon":  {"name": "🐲 Древний дракон",  "price": 600, "desc": "Атака 25×ур. каждый раунд"},
 }
 
 
@@ -82,19 +82,19 @@ COSMETICS = {
 
 # ================= РАСХОДНИКИ =================
 CONSUMABLES = {
-    "revive_potion": {"name": "💚 Зелье возрождения",  "price": 15, "desc": "Полное HP в бою"},
-    "treasure":      {"name": "🎁 Сундук сокровищ",    "price": 25, "desc": "Случайный предмет"},
-    "xp_scroll":     {"name": "📜 Свиток опыта",       "price": 30, "desc": "+500 XP сразу"},
-    "immortal_gem":  {"name": "💎 Кристалл бессмертия","price": 50, "desc": "1 раз не умереть"},
+    "revive_potion": {"name": "💚 Зелье возрождения",   "price": 15, "desc": "Полное HP в бою"},
+    "treasure":      {"name": "🎁 Сундук сокровищ",     "price": 25, "desc": "Случайный предмет"},
+    "xp_scroll":     {"name": "📜 Свиток опыта",        "price": 30, "desc": "+500 XP сразу"},
+    "immortal_gem":  {"name": "💎 Кристалл бессмертия", "price": 50, "desc": "1 раз не умереть"},
 }
 
 
 # ================= НАБОРЫ =================
 BUNDLES = {
-    "lord_bundle":    {"name": "👑 Набор Владыки",     "price": 600,  "save": 100},
-    "warrior_bundle": {"name": "🎖 Набор Воина",        "price": 900,  "save": 100},
-    "start_bundle":   {"name": "🌟 Эксклюзивный старт", "price": 900,  "save": 150},
-    "full_bundle":    {"name": "💎 Полный набор",       "price": 2000, "save": 400},
+    "lord_bundle":    {"name": "👑 Набор Владыки",      "price": 600,  "save": 100},
+    "warrior_bundle": {"name": "🎖 Набор Воина",         "price": 900,  "save": 100},
+    "start_bundle":   {"name": "🌟 Эксклюзивный старт",  "price": 900,  "save": 150},
+    "full_bundle":    {"name": "💎 Полный набор",        "price": 2000, "save": 400},
 }
 
 
