@@ -168,7 +168,14 @@ async def who_cmd(m: Message):
             guild = await g.db.get_guild(p["guild_id"])
             if guild:
                 gtag = f" [{guild['tag']}]"
-        lines.append(f"• <b>{p['char_name']}</b>{gtag} (Ур.{p['level']}, {race} {cls})")
+        # Титул
+        from core.titles import TITLES
+        p_user = await g.db.get_user(p["user_id"])
+        t_code = p_user.get("active_title", "") if p_user else ""
+        t_str = ""
+        if t_code and t_code in TITLES:
+            t_str = f" {TITLES[t_code]['icon']}"
+        lines.append(f"• <b>{p['char_name']}</b>{t_str}{gtag} (Ур.{p['level']}, {race} {cls})")
     await m.answer(f"👥 <b>В «{loc_name}»:</b>\n\n" + "\n".join(lines) +
                    f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
                    reply_markup=main_kb(), parse_mode=ParseMode.HTML)
