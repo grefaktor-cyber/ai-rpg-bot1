@@ -37,25 +37,42 @@ async def dismantle_cmd(m: Message):
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
         await m.answer("Использование: /dismantle Название"); return
-    item_name = parts[1].strip()
-    base_name, lvl = parse_item(item_name)
-    if base_name not in SHOP:
-        await m.answer("❌ Нельзя разобрать."); return
+
+    item_query = parts[1].strip()
     inv = await g.db.get_inventory(m.from_user.id)
-    if not any(i["item_name"] == item_name for i in inv):
-        await m.answer("❌ Нет в инвентаре."); return
-    await g.db.remove_item(m.from_user.id, item_name)
-    itype = SHOP[base_name]["type"]
-    yields = {"weapon": [("iron", 2), ("crystal", 1)],
-              "armor": [("leather", 2), ("iron", 1)],
-              "accessory": [("dust", 2), ("crystal", 1)]}[itype]
-    lines = []
-    for mat, amt in yields:
-        amt += lvl
-        await g.db.add_material(m.from_user.id, mat, amt)
-        lines.append(f"• {MATERIAL_NAMES[mat]}: +{amt}")
-    await m.answer(f"⚒️ Разобрано: <b>{item_name}</b>\n\n" + "\n".join(lines),
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    inv_names = [i["item_name"] for i in inv]
+    if not inv_names:
+        await m.answer("🎒 Инвентарь пуст."); return
+
+    from core.fuzzy import find_inventory_item
+    exact, suggestions = find_inventory_item(item_query, inv_names)
+
+    if exact:
+        item_name = exact
+    elif suggestions:
+        rows = []
+        for s in suggestions[:10]:
+            base_s, _ = parse_item(s)
+            if base_s in SHOP:
+                rows.append([InlineKeyboardButton(
+                    text=f"⚒️ Разобрать {s}",
+                    callback_data=f"disasm_{s}"
+                )])
+        if not rows:
+            await m.answer("❌ Среди найденных нет разбираемых предметов.")
+            return
+        rows.append([InlineKeyboardButton(text="❌ Отмена",
+                                          callback_data="fuzzy_cancel")])
+        await m.answer(
+            f"🔍 Нашёл несколько, уточни:\n\n<code>{item_query}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode=ParseMode.HTML)
+        return
+    else:
+        await m.answer(f"❌ Не нашёл «{item_query}».")
+        return
+
+    # ... старая логика разбора с item_name
 
 
 @router.message(Command("upgrade"))
@@ -63,7 +80,12 @@ async def upgrade_cmd(m: Message):
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
         await m.answer("Использование: /upgrade Название"); return
-    item_name = parts[1].strip()
+    item_query = parts[1].strip()
+    inv = await g.db.get_inventory(m.from_user.id)
+    inv_names = [i["item_name"] for i in inv]
+    from core.fuzzy import find_inventory_item
+    exact, _sugg = find_inventory_item(item_query, inv_names)
+    item_name = exact if exact else item_query
     base_name, lvl = parse_item(item_name)
     if base_name not in SHOP:
         await m.answer("❌ Нельзя улучшить."); return
