@@ -15,7 +15,6 @@ from core.formulas import (
     enemy_p_def, enemy_m_def, apply_defense,
     racial_crit_bonus, racial_magic_mult, racial_heal_mult,
     racial_gold_mult, racial_low_hp_mult,
-    # НОВОЕ:
     calc_xp_reward, calc_enemy_base_dmg,
     get_enemy_dmg_type, get_player_def_for_enemy, apply_player_defense,
     get_boss_phase,
@@ -46,11 +45,9 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None):
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
     boss_label = " 🐉 БОСС" if combat["is_boss"] else ""
 
-    # Тип урона моба
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     type_label = " 🔮" if enemy_dmg_type == "magic" else " ⚔️"
 
-    # Фаза босса
     phase = get_boss_phase(combat)
     phase_label = f" [{phase['name']}]" if phase else ""
 
@@ -133,7 +130,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         t_mdef = enemy_m_def(combat["enemy_level"])
         dmg_after_def, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
 
-        # Расовые пассивы
         if dmg_type == "magic":
             dmg_after_def = int(dmg_after_def * racial_magic_mult(user))
         dmg_after_def = int(dmg_after_def * racial_low_hp_mult(user))
@@ -240,7 +236,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 
     # ---------- ХОД ВРАГА ----------
     if not enemy_skip:
-        # Питомец феникс — лечит в начале хода врага
         if user.get("pet_type") == "phoenix":
             plvl = user.get("pet_level", 1)
             heal = int(user["max_hp"] * 0.05) + plvl
@@ -250,29 +245,23 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
                 user["hp"] = new_hp
                 extra_text += f"\n🔥 Феникс лечит +{heal} HP"
 
-        # Фаза босса
         phase = get_boss_phase(combat)
         attacks = phase["attacks"] if phase else 1
         phase_mult = phase["dmg_mult"] if phase else 1.0
 
         total_enemy_dmg = 0
-        dmg_details = []
 
         for _ in range(attacks):
-            # Базовый урон моба
             raw_dmg = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
                                           is_boss=bool(combat["is_boss"]))
-            # Тип урона моба — определяет, через какую защиту игрока режется
             enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
             player_def = get_player_def_for_enemy(user, enemy_dmg_type)
-            # Применяем защиту игрока
             mitigated = apply_player_defense(raw_dmg, player_def)
-            # Дальше множители событий/бафов/фаз
             final = int(mitigated * base_enemy_dmg_mult * def_reduce
                         * enemy_debuff * phase_mult)
             final = max(1, final)
             total_enemy_dmg += final
-        
+
         # Проверка блока (Эгида Богов)
         block_chance = get_block_chance(user)
         is_blocked = False
@@ -300,7 +289,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
     else:
         extra_text += f"\n💫 {combat['enemy_name']} пропускает ход"
 
-    # MP-регенерация в бою (5%)
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
         new_mp = min(user["max_mp"], user["mp"] + regen)
@@ -349,7 +337,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         except Exception:
             pass
 
-    # ---- XP (умный) ----
+    # ---- XP ----
     base_exp = combat["enemy_level"] * 15
     if combat["is_boss"]:
         base_exp *= 3
@@ -404,7 +392,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     await g.db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
 
-    # Индикатор качества моба
     diff = combat["enemy_level"] - user["level"]
     if diff >= 3:
         xp_note = " 🔥 отличный опыт!"
@@ -424,11 +411,11 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await g.db.incr_bosses(user["user_id"])
         await g.db.add_world_event(user["user_id"], user["username"],
                                    f"победил босса «{combat['enemy_name']}»")
-            await g.db.add_journal_entry(
-                user["user_id"],
-                f"Победил босса «{combat['enemy_name']}»",
-                "boss"
-            )
+        await g.db.add_journal_entry(
+            user["user_id"],
+            f"Победил босса «{combat['enemy_name']}»",
+            "boss"
+        )
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
         if await g.db.add_achievement(user["user_id"], "first_boss"):
@@ -445,12 +432,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         text += f"\n🔨 Сова нашла: {MATERIAL_NAMES[mat]}"
 
     if leveled_up:
-        if level in (5, 10, 15, 20, 30):
-            await g.db.add_journal_entry(
-                user["user_id"],
-                f"Достиг <b>{level} уровня</b>",
-                "level"
-            )
         u = await g.db.get_user(user["user_id"])
         nm = calc_max_hp(u)
         nmp = calc_max_mp(u)
@@ -462,6 +443,14 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                 user["user_id"]
             )
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
+
+        if level in (5, 10, 15, 20, 30):
+            await g.db.add_journal_entry(
+                user["user_id"],
+                f"Достиг {level} уровня",
+                "level"
+            )
+
         if level in (5, 10, 15, 20):
             await g.db.add_world_event(user["user_id"], user["username"],
                                        f"достиг {level} уровня!")
@@ -478,7 +467,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
 # ================= СМЕРТЬ =================
 async def handle_death(chat_id, user, combat):
-    # Феникс вечности — 1 возрождение за бой
     if (user.get("pet_type") == "ephoenix"
             and not combat.get("phoenix_used")):
         await g.db.set_combat_phoenix_used(user["user_id"])
