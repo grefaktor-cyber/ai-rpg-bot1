@@ -8,8 +8,6 @@ from core import globals as g
 from core.game_data import SHOP
 from core.formulas import faction_mult, calc_max_hp, parse_item
 from core.keyboards import main_kb
-from config import ADMIN_IDS
-
 
 router = Router()
 
@@ -60,20 +58,25 @@ async def shop_buy_cb(c: CallbackQuery):
     data = SHOP[item_name]
     user = await g.db.get_user(c.from_user.id)
     price = int(data["price"] * faction_mult(user, "shop_mult"))
-    is_admin = c.from_user.id in ADMIN_IDS
-    if not is_admin:
-        ok = await g.db.spend_gold(c.from_user.id, price)
-        if not ok:
-            await c.answer(f"❌ Нужно {price}💰", show_alert=True); return
+    # Все платят, включая админов
+    ok = await g.db.spend_gold(c.from_user.id, price)
+    if not ok:
+        await c.answer(f"❌ Нужно {price}💰 (у тебя {user['gold']})",
+                       show_alert=True); return
     await g.db.add_item(c.from_user.id, item_name)
-    await c.answer(f"✅ Куплено: {item_name}")
+    await c.answer(f"✅ −{price}💰")
+    u2 = await g.db.get_user(c.from_user.id)
     if data["type"] == "potion":
         await c.message.answer(
-            f"✅ <b>{item_name}</b> куплен!\n/use {item_name}",
+            f"✅ <b>{item_name}</b> куплен (−{price}💰)\n"
+            f"Осталось: {u2['gold']}💰\n"
+            f"Использовать: /use {item_name}",
             parse_mode=ParseMode.HTML)
     else:
         await c.message.answer(
-            f"✅ <b>{item_name}</b> куплен!\n/equip {item_name}",
+            f"✅ <b>{item_name}</b> куплен (−{price}💰)\n"
+            f"Осталось: {u2['gold']}💰\n"
+            f"Экипировать: /equip {item_name}",
             parse_mode=ParseMode.HTML)
 
 
@@ -181,26 +184,23 @@ async def inventory(m: Message):
                                       for k, v in data["bonus"].items())
                 suffix = f" (+{lvl})" if lvl else ""
                 lines.append(f"• {name}{suffix} — {bonus_str}")
-                # Для предметов экипировки — кнопки
-                if name in SHOP and SHOP[name]["type"] in ("weapon", "armor", "accessory"):
-                    rows.append([
-                        InlineKeyboardButton(
-                            text=f"⚔️ {name}",
-                            callback_data=f"equip_item_{it['item_name']}"
-                        ),
-                        InlineKeyboardButton(
-                            text="💰 Продать",
-                            callback_data=f"sell_item_{it['item_name']}"
-                        ),
-                    ])
-                    rows.append([InlineKeyboardButton(
-                        text=f"🗑 Выбросить {name}",
-                        callback_data=f"drop_item_{it['item_name']}"
-                    )])
+                rows.append([
+                    InlineKeyboardButton(
+                        text=f"⚔️ {name}",
+                        callback_data=f"equip_item_{it['item_name']}"
+                    ),
+                    InlineKeyboardButton(
+                        text="💰 Продать",
+                        callback_data=f"sell_item_{it['item_name']}"
+                    ),
+                ])
+                rows.append([InlineKeyboardButton(
+                    text=f"🗑 Выбросить {name}",
+                    callback_data=f"drop_item_{it['item_name']}"
+                )])
         else:
             lines.append(f"• {it['item_name']}")
 
-    # Экипированное
     lines.append("\n<b>Экипировано:</b>")
     for slot, label in [("equipped_weapon", "🗡 Оружие"),
                         ("equipped_armor", "🛡 Броня"),
