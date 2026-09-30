@@ -23,7 +23,10 @@ async def daily(m: Message):
     gold_bonus = streak * 20
     await g.db.add_gold(m.from_user.id, gold_bonus)
     await g.db.add_material(m.from_user.id, "iron", 1)
-    msg = f"🎁 <b>Награда!</b>\n\nДень {streak}\n+{bonus} действий · +{gold_bonus}💰 · +1 🔩"
+    u = await g.db.get_user(m.from_user.id)
+    msg = (f"🎁 <b>Награда!</b>\n\nДень {streak}\n"
+           f"+{gold_bonus}💰 · +1 🔩\n"
+           f"⚡ Энергия полностью восстановлена: {u.get('energy', 0)}/{u.get('energy_max', 20)}")
     if streak == 7:
         await g.db.add_item(m.from_user.id, "Амулет мудреца")
         msg += "\n\n🏆 <b>Амулет мудреца!</b>"
