@@ -90,6 +90,7 @@ dp.include_router(pets_handlers.router)
 dp.include_router(world_events_handlers.router)
 dp.include_router(skills_handlers.router)
 dp.include_router(use_handlers.router)
+dp.include_router(trade_handlers.router)
 # 4) Catch-all — ОБЯЗАТЕЛЬНО ПОСЛЕДНИМ
 dp.include_router(ai_handler_handlers.router)
 
