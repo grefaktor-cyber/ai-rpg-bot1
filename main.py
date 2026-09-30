@@ -111,10 +111,22 @@ async def start_web_server():
 
 
 # ================= ЗАПУСК =================
+async def _cleanup_loop():
+    """Раз в 5 минут чистить брошенные предметы (старше 30 мин) и события."""
+    while True:
+        try:
+            await asyncio.sleep(300)
+            await db.clean_dropped_items(30)
+            await db.clean_expired_events()
+        except Exception as e:
+            logging.error(f"cleanup error: {e}")
+
+
 async def main():
     await db.connect()
     set_globals(bot, db)
     await start_web_server()
+    asyncio.create_task(_cleanup_loop())
     logging.info("🚀 Бот запущен")
     await dp.start_polling(bot)
 
