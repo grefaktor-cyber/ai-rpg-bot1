@@ -244,6 +244,16 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS world_events_log (
+                    id SERIAL PRIMARY KEY,
+                    location_code TEXT,
+                    event_text TEXT,
+                    event_type TEXT DEFAULT 'event',
+                    username TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
             # Таблица для прогресса сюжетных квестов
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS story_quest_progress (
@@ -1715,6 +1725,34 @@ class DB:
                     WHERE created_at > NOW() - ($2 || ' days')::INTERVAL
                 )
             """, keep_min, str(days))
+
+    # ============ ПАМЯТЬ ЛОКАЦИЙ ============
+    async def add_location_event(self, location_code, text,
+                                  event_type="event", username=""):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO world_events_log
+                (location_code, event_text, event_type, username)
+                VALUES ($1, $2, $3, $4)
+            """, location_code, text[:250], event_type, username)
+
+    async def get_location_events_recent(self, location_code, hours=24, limit=10):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT event_text, event_type, username, created_at
+                FROM world_events_log
+                WHERE location_code=$1
+                AND created_at > NOW() - ($2 || ' hours')::INTERVAL
+                ORDER BY created_at DESC LIMIT $3
+            """, location_code, str(hours), limit)
+            return [dict(r) for r in rows]
+
+    async def cleanup_location_events(self, days=7):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                DELETE FROM world_events_log
+                WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+            """, str(days))
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
