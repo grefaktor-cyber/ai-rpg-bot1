@@ -235,6 +235,42 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            # Таблица для прогресса сюжетных квестов
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS story_quest_progress (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    quest_code TEXT,
+                    progress INTEGER DEFAULT 0,
+                    completed INTEGER DEFAULT 0,
+                    accepted_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, quest_code)
+                )
+            """)
+            # Таблица для ежедневных и еженедельных квестов
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS timed_quest_progress (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    quest_type TEXT, -- 'daily' или 'weekly'
+                    quest_code TEXT,
+                    progress INTEGER DEFAULT 0,
+                    target INTEGER,
+                    reward_gold INTEGER,
+                    reward_xp INTEGER,
+                    completed INTEGER DEFAULT 0,
+                    reset_date TEXT,
+                    UNIQUE(user_id, quest_type, quest_code, reset_date)
+                )
+            """)
+            # Таблица для очков заданий
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS quest_points (
+                    user_id BIGINT PRIMARY KEY,
+                    points INTEGER DEFAULT 0,
+                    total_points INTEGER DEFAULT 0
+                )
+            """)
 
             # ============ МИГРАЦИИ ============
             migrations = [
@@ -1427,6 +1463,145 @@ class DB:
             """, from_id, channel)
             return row["created_at"] if row else None
 
+    # ============ СЮЖЕТНЫЕ КВЕСТЫ ============
+    async def accept_story_quest(self, uid, quest_code):
+        """Принять сюжетный квест."""
+        async with self.pool.acquire() as c:
+            try:
+                await c.execute(
+                    "INSERT INTO story_quest_progress (user_id, quest_code) VALUES ($1,$2)",
+                    uid, quest_code
+                )
+                return True
+            except asyncpg.UniqueViolationError:
+                return False
+
+    async def get_story_quest(self, uid, quest_code):
+        """Получить прогресс по сюжетному квесту."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT * FROM story_quest_progress WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+            return dict(row) if row else None
+
+    async def get_active_story_quests(self, uid):
+        """Все активные (незавершённые) сюжетные квесты."""
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT * FROM story_quest_progress WHERE user_id=$1 AND completed=0",
+                uid
+            )
+            return [dict(r) for r in rows]
+
+    async def incr_story_quest(self, uid, quest_code, amount=1):
+        """Увеличить прогресс сюжетного квеста."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT id, progress, completed FROM story_quest_progress "
+                "WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+            if not row or row["completed"]:
+                return None
+            new_progress = row["progress"] + amount
+            await c.execute(
+                "UPDATE story_quest_progress SET progress=$1 WHERE id=$2",
+                new_progress, row["id"]
+            )
+            return new_progress
+
+    async def complete_story_quest(self, uid, quest_code):
+        """Отметить сюжетный квест как выполненный."""
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE story_quest_progress SET completed=1 WHERE user_id=$1 AND quest_code=$2",
+                uid, quest_code
+            )
+
+    # ============ ЕЖЕДНЕВНЫЕ / ЕЖЕНЕДЕЛЬНЫЕ КВЕСТЫ ============
+    async def get_timed_quests(self, uid, quest_type, reset_date):
+        """Получить ежедневные или еженедельные квесты на текущий период."""
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT * FROM timed_quest_progress WHERE user_id=$1 AND quest_type=$2 AND reset_date=$3",
+                uid, quest_type, reset_date
+            )
+            return [dict(r) for r in rows]
+
+    async def create_timed_quest(self, uid, quest_type, quest_code, target, reward_gold, reward_xp, reset_date):
+        """Создать запись о квесте."""
+        async with self.pool.acquire() as c:
+            try:
+                await c.execute(
+                    """INSERT INTO timed_quest_progress 
+                    (user_id, quest_type, quest_code, target, reward_gold, reward_xp, reset_date) 
+                    VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                    uid, quest_type, quest_code, target, reward_gold, reward_xp, reset_date
+                )
+                return True
+            except asyncpg.UniqueViolationError:
+                return False
+
+    async def incr_timed_quest(self, uid, quest_type, quest_code, reset_date, amount=1):
+        """Увеличить прогресс квеста."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT id, progress, target, completed FROM timed_quest_progress "
+                "WHERE user_id=$1 AND quest_type=$2 AND quest_code=$3 AND reset_date=$4",
+                uid, quest_type, quest_code, reset_date
+            )
+            if not row or row["completed"]:
+                return None
+            new_progress = min(row["progress"] + amount, row["target"])
+            if new_progress >= row["target"]:
+                await c.execute(
+                    "UPDATE timed_quest_progress SET progress=$1, completed=1 WHERE id=$2",
+                    new_progress, row["id"]
+                )
+                return {"completed": True}
+            await c.execute(
+                "UPDATE timed_quest_progress SET progress=$1 WHERE id=$2",
+                new_progress, row["id"]
+            )
+            return {"completed": False, "progress": new_progress}
+
+    # ============ ОЧКИ ЗАДАНИЙ ============
+    async def add_quest_points(self, uid, amount):
+        """Добавить очки заданий."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO quest_points (user_id, points, total_points) 
+                VALUES ($1, $2, $2) 
+                ON CONFLICT (user_id) DO UPDATE 
+                SET points = quest_points.points + $2,
+                    total_points = quest_points.total_points + $2
+            """, uid, amount)
+
+    async def get_quest_points(self, uid):
+        """Получить очки заданий."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT points, total_points FROM quest_points WHERE user_id=$1", uid
+            )
+            if not row:
+                return {"points": 0, "total_points": 0}
+            return dict(row)
+
+    async def spend_quest_points(self, uid, amount):
+        """Потратить очки заданий."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT points FROM quest_points WHERE user_id=$1", uid
+            )
+            if row and row["points"] >= amount:
+                await c.execute(
+                    "UPDATE quest_points SET points=points-$1 WHERE user_id=$2",
+                    amount, uid
+                )
+                return True
+        return False
+    
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
         async with self.pool.acquire() as c:
