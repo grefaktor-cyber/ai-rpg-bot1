@@ -119,4 +119,8 @@ MP_POTION_RESTORE = 40
 
 
 def classes_for_race(race_code):
+    """Классы для расы. Премиум-расы — любые."""
+    # Премиум-расы могут брать любой класс
+    if race_code in ("demon", "angel", "prit"):
+        return CLASSES
     return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
