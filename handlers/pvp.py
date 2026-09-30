@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from core import globals as g
-from core.formulas import effective_stats, faction_mult, calc_max_hp, hp_bar
+from core.formulas import effective_stats, faction_mult, calc_max_hp, hp_bar, calc_p_def, calc_m_def
 from core.keyboards import main_kb, pvp_kb, duel_offer_kb
 
 
