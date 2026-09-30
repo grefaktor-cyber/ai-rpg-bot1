@@ -89,6 +89,7 @@ def calc_max_hp(user):
     lvl = user.get("level", 1)
     role_bonus = ROLE_HP_BONUS.get(get_role(user), 10)
     hp = eff["con"] * 12 + lvl * 10 + 40 + role_bonus
+    hp = int(hp * racial_hp_mult(user))
     set_b = get_set_bonus(user)
     if set_b and "hp_mult" in set_b:
         hp *= set_b["hp_mult"]
@@ -172,3 +173,53 @@ def apply_defense(damage, defense):
     reduction = defense / (defense + 50)
     final = int(damage * (1 - reduction))
     return max(1, final)
+
+# ================= РАСОВЫЕ ЭФФЕКТЫ (пассив) =================
+def racial_crit_bonus(user):
+    """Бонус к криту от расы. Возвращает +% к шансу."""
+    race = user.get("race", "")
+    if race == "elf":
+        return 15
+    if race == "prit":
+        return 15
+    return 0
+
+
+def racial_magic_mult(user):
+    """Множитель магического урона."""
+    race = user.get("race", "")
+    if race == "dark_elf":
+        return 1.10
+    if race == "demon":
+        return 1.15
+    return 1.0
+
+
+def racial_heal_mult(user):
+    """Множитель силы лечения."""
+    if user.get("race") == "angel":
+        return 1.20
+    return 1.0
+
+
+def racial_gold_mult(user):
+    """Множитель золота."""
+    if user.get("race") == "prit":
+        return 1.10
+    return 1.0
+
+
+def racial_hp_mult(user):
+    """Множитель max HP."""
+    if user.get("race") == "orc":
+        return 1.15
+    return 1.0
+
+
+def racial_low_hp_mult(user):
+    """Для 'Воля' (human): +20% урона при HP < 30%."""
+    if user.get("race") == "human":
+        max_hp = user.get("max_hp", 100)
+        if max_hp > 0 and user.get("hp", 0) < max_hp * 0.30:
+            return 1.20
+    return 1.0
