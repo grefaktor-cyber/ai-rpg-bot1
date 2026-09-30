@@ -198,3 +198,13 @@ async def admin_spawn_event(m: Message):
     )
     loc_name = W.get_location(loc_code)["name"]
     await m.answer(f"🛠 Событие {tpl['name']} в {loc_name}.")
+    
+    
+@router.message(Command("admin_premium"))
+async def admin_premium(m: Message):
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    u = await g.db.get_user(m.from_user.id)
+    new_val = 0 if u.get("is_premium") else 1
+    await g.db.set_premium(m.from_user.id, new_val)
+    await m.answer(f"🛠 Премиум: {'ВКЛ' if new_val else 'ВЫКЛ'}")
