@@ -4,13 +4,14 @@ from aiogram.types import Message
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.game_data import RACES, CLASSES, FACTIONS, ACHIEVEMENTS, MATERIAL_NAMES
+from core.game_data import (
+    RACES, CLASSES, FACTIONS, ACHIEVEMENTS, MATERIAL_NAMES, classes_for_race,
+)
 from core.formulas import (
-    calc_stats, effective_stats, calc_max_hp, faction_mult,
+    calc_stats, effective_stats, calc_max_hp, calc_max_mp, faction_mult,
 )
 from core.keyboards import (
-    main_kb, race_selection_kb, class_selection_kb, faction_selection_kb,
-    pvp_kb, combat_kb,
+    main_kb, race_selection_kb, faction_selection_kb, pvp_kb, combat_kb,
 )
 from core.texts import EXCLUDE_FROM_AI
 from config import ADMIN_IDS, AI_MARKER
@@ -29,8 +30,14 @@ async def _show_race(m):
 
 
 async def _show_class(m, race_code):
+    classes = classes_for_race(race_code)
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = [[InlineKeyboardButton(
+        text=f"{cl['name']} — {cl['desc']}",
+        callback_data=f"class_{code}"
+    )] for code, cl in classes.items()]
     await g.bot.send_message(m.chat.id, "⚔️ <b>Выбери класс:</b>",
-                             reply_markup=class_selection_kb(CLASSES),
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                              parse_mode=ParseMode.HTML)
 
 
@@ -76,9 +83,9 @@ async def handle(m: Message):
 
     if not user["consent_given"]:
         await m.answer("⚠️ Сначала /start"); return
-    if not user["race"]:
+    if not user["race"] or user["race"] not in RACES:
         await _show_race(m); return
-    if not user["class"]:
+    if not user["class"] or user["class"] not in CLASSES:
         await _show_class(m, user["race"]); return
     if not user["faction"]:
         await _show_faction(m); return
@@ -89,13 +96,14 @@ async def handle(m: Message):
         if len(name) < 2:
             await m.answer("✏️ Имя 2–20 символов:"); return
         stats = calc_stats(user["race"], user["class"])
-        hp_base = stats["con"] * 20 + 15
-        user_tmp = {"faction": user["faction"], "level": 1, "stat_con": stats["con"],
-                    "stat_str": stats["str"], "stat_dex": stats["dex"],
-                    "stat_int": stats["int"], "stat_wit": stats["wit"],
-                    "stat_men": stats["men"], "pet_type": None}
-        hp = int(hp_base * faction_mult(user_tmp, "hp_mult"))
+        user_tmp = dict(user)
+        for k in ["str", "dex", "con", "int", "wit", "men"]:
+            user_tmp[f"stat_{k}"] = stats[k]
+        user_tmp["level"] = 1
+        hp = calc_max_hp(user_tmp)
+        mp = calc_max_mp(user_tmp)
         await g.db.set_char(uid, name, stats, hp)
+        await g.db.update_stats(uid, stats, hp, mp)
         await m.answer(
             f"🎉 <b>Герой создан!</b>\n\n"
             f"<b>{name}</b>\n"
@@ -103,7 +111,7 @@ async def handle(m: Message):
             f"{FACTIONS[user['faction']]['name']}\n\n"
             f"STR {stats['str']} · DEX {stats['dex']} · CON {stats['con']}\n"
             f"INT {stats['int']} · WIT {stats['wit']} · MEN {stats['men']}\n"
-            f"❤️ HP: {hp} · 💰 100\n\n"
+            f"❤️ HP: {hp} · 💧 MP: {mp} · 💰 100\n\n"
             f"📍 Начальная деревня.",
             reply_markup=main_kb(), parse_mode=ParseMode.HTML)
         await run_tutorial(uid, m.chat.id)
@@ -153,7 +161,6 @@ async def handle(m: Message):
                                 user_for_ai, event, owner)
     response = result["text"]
 
-    # Списать энергию (кроме админа и премиума)
     if not is_admin:
         await g.db.spend_energy(uid, 1)
 
@@ -217,8 +224,15 @@ async def handle(m: Message):
     if leveled_up:
         u = await g.db.get_user(uid)
         nm = calc_max_hp(u)
+        nmp = calc_max_mp(u)
         await g.db.update_hp_max(uid, nm, nm)
-        response += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm}/{nm}"
+        # Автоматически +1 очко умений за уровень
+        async with g.db.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET skill_points = skill_points + 1, "
+                "mp=$1, max_mp=$1 WHERE user_id=$2", nmp, uid
+            )
+        response += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
         if level in (5, 10):
             await g.db.add_world_event(uid, user["username"],
                                        f"достиг {level} уровня!")
@@ -229,7 +243,6 @@ async def handle(m: Message):
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
 
-    # Показываем остаток энергии
     if is_admin:
         energy_line = "∞ (admin)"
     elif updated.get("is_premium"):
