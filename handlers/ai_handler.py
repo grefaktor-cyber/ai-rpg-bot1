@@ -5,10 +5,7 @@ from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.game_data import (
-from core.game_data import (
     RACES, CLASSES, FACTIONS, ACHIEVEMENTS, MATERIAL_NAMES, classes_for_race,
-)
-from core.titles import ACHIEVEMENT_REWARDS, TITLES, get_available_titles
 )
 from core.formulas import (
     calc_stats, effective_stats, calc_max_hp, calc_max_mp, faction_mult,
@@ -17,6 +14,7 @@ from core.keyboards import (
     main_kb, race_selection_kb, faction_selection_kb, pvp_kb, combat_kb,
 )
 from core.texts import EXCLUDE_FROM_AI
+from core.titles import ACHIEVEMENT_REWARDS, TITLES, get_available_titles
 from config import ADMIN_IDS, AI_MARKER
 from handlers.onboarding import offer_tutorial
 from services.combat_service import start_combat_from_ai
@@ -53,29 +51,40 @@ async def _show_faction(m):
 async def check_achievements(uid, user):
     new = []
     if user["action_count"] >= 1:
-        if await g.db.add_achievement(uid, "first_step"): new.append("first_step")
+        if await g.db.add_achievement(uid, "first_step"):
+            new.append("first_step")
     locs = await g.db.get_locations(uid)
     if len(locs) >= 5:
-        if await g.db.add_achievement(uid, "explorer_5"): new.append("explorer_5")
+        if await g.db.add_achievement(uid, "explorer_5"):
+            new.append("explorer_5")
     if len(locs) >= 10:
-        if await g.db.add_achievement(uid, "explorer_10"): new.append("explorer_10")
+        if await g.db.add_achievement(uid, "explorer_10"):
+            new.append("explorer_10")
     if len(locs) >= len(W.LOCATIONS):
-        if await g.db.add_achievement(uid, "explorer_all"): new.append("explorer_all")
+        if await g.db.add_achievement(uid, "explorer_all"):
+            new.append("explorer_all")
     items = await g.db.get_inventory(uid)
     if len(items) >= 5:
-        if await g.db.add_achievement(uid, "collector_5"): new.append("collector_5")
+        if await g.db.add_achievement(uid, "collector_5"):
+            new.append("collector_5")
     if user["level"] >= 5:
-        if await g.db.add_achievement(uid, "level_5"): new.append("level_5")
+        if await g.db.add_achievement(uid, "level_5"):
+            new.append("level_5")
     if user["level"] >= 10:
-        if await g.db.add_achievement(uid, "level_10"): new.append("level_10")
+        if await g.db.add_achievement(uid, "level_10"):
+            new.append("level_10")
     if user["level"] >= 20:
-        if await g.db.add_achievement(uid, "level_20"): new.append("level_20")
+        if await g.db.add_achievement(uid, "level_20"):
+            new.append("level_20")
     if user["referral_count"] >= 3:
-        if await g.db.add_achievement(uid, "referral_3"): new.append("referral_3")
+        if await g.db.add_achievement(uid, "referral_3"):
+            new.append("referral_3")
     if user["daily_streak"] >= 7:
-        if await g.db.add_achievement(uid, "daily_7"): new.append("daily_7")
+        if await g.db.add_achievement(uid, "daily_7"):
+            new.append("daily_7")
     if user["gold"] >= 1000:
-        if await g.db.add_achievement(uid, "rich"): new.append("rich")
+        if await g.db.add_achievement(uid, "rich"):
+            new.append("rich")
     return new
 
 
@@ -85,19 +94,24 @@ async def handle(m: Message):
     user = await g.db.get_user(uid, m.from_user.username or "")
 
     if not user["consent_given"]:
-        await m.answer("⚠️ Сначала /start"); return
+        await m.answer("⚠️ Сначала /start")
+        return
     if not user["race"] or user["race"] not in RACES:
-        await _show_race(m); return
+        await _show_race(m)
+        return
     if not user["class"] or user["class"] not in CLASSES:
-        await _show_class(m, user["race"]); return
+        await _show_class(m, user["race"])
+        return
     if not user["faction"]:
-        await _show_faction(m); return
+        await _show_faction(m)
+        return
 
     # Создание героя
     if not user["char_name"]:
         name = m.text.strip()[:20]
         if len(name) < 2:
-            await m.answer("✏️ Имя 2–20 символов:"); return
+            await m.answer("✏️ Имя 2–20 символов:")
+            return
         stats = calc_stats(user["race"], user["class"])
         user_tmp = dict(user)
         for k in ["str", "dex", "con", "int", "wit", "men"]:
@@ -229,7 +243,6 @@ async def handle(m: Message):
         nm = calc_max_hp(u)
         nmp = calc_max_mp(u)
         await g.db.update_hp_max(uid, nm, nm)
-        # Автоматически +1 очко умений за уровень
         async with g.db.pool.acquire() as conn:
             await conn.execute(
                 "UPDATE users SET skill_points = skill_points + 1, "
@@ -249,13 +262,13 @@ async def handle(m: Message):
             await g.db.update_mp(uid, new_mp)
             updated["mp"] = new_mp
 
-    # Проверка титулов по уровню
+    # Титулы по уровню
     earned_ach = await g.db.get_achievements(uid)
     codes_ach = {a["code"] for a in earned_ach}
     avail_titles = get_available_titles(updated, codes_ach)
     for t_code in avail_titles:
         await g.db.add_unlocked_title(uid, t_code)
-    
+
     new_ach = await check_achievements(uid, updated)
     if new_ach:
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
@@ -272,12 +285,12 @@ async def handle(m: Message):
             await g.db.add_gold(uid, total_gold)
             await g.db.add_xp(uid, total_xp)
             response += f"\n💰 +{total_gold} · ⭐ +{total_xp} XP"
-        # Титулы
+        # Новые титулы
         earned = await g.db.get_achievements(uid)
         codes = {a["code"] for a in earned}
-        avail = get_available_titles(updated, codes)
+        avail2 = get_available_titles(updated, codes)
         new_titles = []
-        for code in avail:
+        for code in avail2:
             if await g.db.add_unlocked_title(uid, code):
                 new_titles.append(code)
         if new_titles:
