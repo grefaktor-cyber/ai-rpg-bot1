@@ -58,8 +58,12 @@ async def stats_cmd(m: Message):
     set_b = get_set_bonus(u)
     set_line = f"\n🎁 <b>Сет:</b> {set_b['desc']}" if set_b else ""
 
+    from core.titles import format_active_title
+    title_str = format_active_title(u)
+    title_line = f" — {title_str}" if title_str else ""
+
     await m.answer(
-        f"⭐ <b>{u['char_name']}</b>\n\n"
+        f"⭐ <b>{u['char_name']}</b>{title_line}\n\n"
         f"Раса: {race_name}\n"
         f"Класс: {class_name} ({role})\n"
         f"Тип урона: {dmg_t}\n"
