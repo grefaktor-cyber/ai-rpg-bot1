@@ -31,6 +31,7 @@ from handlers import (
     trade as trade_handlers,
     onboarding as onboarding_handlers,
     chat as chat_handlers,
+    titles as titles_handlers,
     ai_handler as ai_handler_handlers,
 )
 
@@ -95,6 +96,7 @@ dp.include_router(skills_handlers.router)
 dp.include_router(use_handlers.router)
 dp.include_router(trade_handlers.router)
 dp.include_router(chat_handlers.router)
+dp.include_router(titles_handlers.router)
 # 4) Catch-all — ОБЯЗАТЕЛЬНО ПОСЛЕДНИМ
 dp.include_router(ai_handler_handlers.router)
 
@@ -122,6 +124,7 @@ async def _cleanup_loop():
             await asyncio.sleep(300)
             await db.clean_dropped_items(30)
             await db.clean_expired_events()
+            await db.cleanup_chat(7)
         except Exception as e:
             logging.error(f"cleanup error: {e}")
 
