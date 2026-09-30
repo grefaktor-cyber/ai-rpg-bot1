@@ -130,6 +130,21 @@ RACIAL_SKILLS = {
         "effect": "passive", "mult": 0.15,
         "desc": "Пассивно: +15% max HP",
     },
+    "demon": {
+        "code": "rac_demon", "name": "Адское пламя", "req_level": 5, "mp_cost": 0,
+        "effect": "passive", "mult": 0.15,
+        "desc": "Пассивно: +15% урона магией, −10% к лечению",
+    },
+    "angel": {
+        "code": "rac_angel", "name": "Небесный щит", "req_level": 5, "mp_cost": 0,
+        "effect": "passive", "mult": 0.20,
+        "desc": "Пассивно: +20% силы лечения, +10% HP",
+    },
+    "prit": {
+        "code": "rac_prit", "name": "Из тени", "req_level": 5, "mp_cost": 0,
+        "effect": "passive", "mult": 0.15,
+        "desc": "Пассивно: +15% крита, +10% золота",
+    },
 }
 
 
