@@ -1,7 +1,8 @@
-"""Старт: /start, согласие, создание героя, главное меню."""
+"""Старт: /start, согласие, создание героя, главное меню, /newchar."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
+                           InlineKeyboardButton)
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -88,6 +89,63 @@ async def consent_no(c: CallbackQuery):
     await c.message.edit_text("❌ Без согласия бот не сохранит прогресс.")
 
 
+# ================= НОВЫЙ ГЕРОЙ =================
+@router.message(Command("newchar"))
+async def newchar_cmd(m: Message):
+    u = await g.db.get_user(m.from_user.id)
+    if not u["char_name"]:
+        await m.answer("У тебя ещё нет героя. Начни через /start."); return
+    if await g.db.get_combat(m.from_user.id):
+        await m.answer("⚔️ Сначала закончи бой!"); return
+
+    # Показать предупреждение
+    warn = (f"⚠️ <b>Создать нового героя?</b>\n\n"
+            f"Текущий герой: <b>{u['char_name']}</b> "
+            f"({RACES.get(u['race'], {}).get('name', '?')}, "
+            f"{CLASSES.get(u['class'], {}).get('name', '?')}, ур. {u['level']})\n\n"
+            f"<b>Что будет сброшено:</b>\n"
+            f"• Имя, раса, класс, фракция\n"
+            f"• Уровень, XP, HP, MP, статы\n"
+            f"• Золото, материалы, инвентарь\n"
+            f"• Питомец, гильдия, скилы\n"
+            f"• Достижения, репутация, PvP-статистика\n\n"
+            f"<b>Что сохранится:</b>\n"
+            f"• Энергия и её максимум\n"
+            f"• Премиум\n"
+            f"• Рефералы\n\n"
+            f"<i>Это действие нельзя отменить!</i>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Создать нового",
+                             callback_data="newchar_confirm"),
+        InlineKeyboardButton(text="❌ Отмена",
+                             callback_data="newchar_cancel"),
+    ]])
+    await m.answer(warn, reply_markup=kb, parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "newchar_confirm")
+async def newchar_confirm_cb(c: CallbackQuery):
+    await g.db.reset_character(c.from_user.id)
+    try:
+        await c.message.edit_text(
+            "🔄 <b>Герой сброшен.</b>\n\nВыбери расу:",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        pass
+    await show_race_selection(c.message)
+
+
+@router.callback_query(F.data == "newchar_cancel")
+async def newchar_cancel_cb(c: CallbackQuery):
+    try:
+        await c.message.edit_text("✅ Отменено. Герой сохранён.")
+    except Exception:
+        pass
+    await c.answer()
+
+
 # ================= СОЗДАНИЕ ГЕРОЯ =================
 async def show_race_selection(m):
     await g.bot.send_message(m.chat.id, "🧝 <b>Выбери расу:</b>",
@@ -101,7 +159,6 @@ async def on_race(c: CallbackQuery):
     if code not in RACES:
         await c.answer("Ошибка"); return
     await g.db.set_race(c.from_user.id, code)
-    # Сбросить класс — может быть несовместим с новой расой
     await g.db.set_class(c.from_user.id, "")
     await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
                               parse_mode=ParseMode.HTML)
@@ -130,21 +187,14 @@ async def on_class(c: CallbackQuery):
     if code not in CLASSES:
         await c.answer("Ошибка"); return
     user = await g.db.get_user(c.from_user.id)
-    # Проверка совместимости с расой
     if user["race"] not in CLASSES[code]["races"]:
         await c.answer("Этот класс недоступен твоей расе", show_alert=True); return
     await g.db.set_class(c.from_user.id, code)
-    # Пересчитать статы
     stats = calc_stats(user["race"], code)
-    # HP и MP (пока уровень 1)
     user_tmp = dict(user)
     user_tmp["class"] = code
-    user_tmp["stat_str"] = stats["str"]
-    user_tmp["stat_dex"] = stats["dex"]
-    user_tmp["stat_con"] = stats["con"]
-    user_tmp["stat_int"] = stats["int"]
-    user_tmp["stat_wit"] = stats["wit"]
-    user_tmp["stat_men"] = stats["men"]
+    for k in ["str", "dex", "con", "int", "wit", "men"]:
+        user_tmp[f"stat_{k}"] = stats[k]
     hp = calc_max_hp(user_tmp)
     mp = calc_max_mp(user_tmp)
     await g.db.update_stats(c.from_user.id, stats, hp, mp)
@@ -183,7 +233,10 @@ async def show_main_menu(m, user):
 
     header = f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
     header += f"⭐ Ур. {user['level']} · XP: {user['xp']}\n"
-    header += f"❤️ HP: {user['hp']}/{user['max_hp']}\n"
+    header += f"❤️ HP: {user['hp']}/{user['max_hp']}"
+    if user.get("max_mp", 0) > 0:
+        header += f" · 💧 MP: {user.get('mp', 0)}/{user.get('max_mp', 0)}"
+    header += "\n"
     if user.get("is_premium"):
         header += "⚡ Энергия: ∞\n"
     else:
