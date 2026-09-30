@@ -8,9 +8,12 @@ from core.game_data import RACES, CLASSES, FACTIONS, ACHIEVEMENTS, MATERIAL_NAME
 from core.formulas import (
     calc_stats, effective_stats, calc_max_hp, faction_mult,
 )
-from core.keyboards import main_kb, race_selection_kb, class_selection_kb, faction_selection_kb, pvp_kb, combat_kb
+from core.keyboards import (
+    main_kb, race_selection_kb, class_selection_kb, faction_selection_kb,
+    pvp_kb, combat_kb,
+)
 from core.texts import EXCLUDE_FROM_AI
-from config import ADMIN_IDS, FREE_DAILY_LIMIT, AI_MARKER
+from config import ADMIN_IDS, AI_MARKER
 from handlers.onboarding import run_tutorial
 from services.combat_service import start_combat_from_ai
 import world as W
@@ -37,7 +40,6 @@ async def _show_faction(m):
                              parse_mode=ParseMode.HTML)
 
 
-# ================= ДОСТИЖЕНИЯ =================
 async def check_achievements(uid, user):
     new = []
     if user["action_count"] >= 1:
@@ -67,7 +69,6 @@ async def check_achievements(uid, user):
     return new
 
 
-# ================= ОСНОВНОЙ ОБРАБОТЧИК =================
 @router.message(F.text, ~F.text.in_(EXCLUDE_FROM_AI))
 async def handle(m: Message):
     uid = m.from_user.id
@@ -117,13 +118,18 @@ async def handle(m: Message):
             await m.answer("⚔️ Ты в бою! Жми кнопки.", reply_markup=combat_kb())
         return
 
-    # Лимит
+    # Энергия
     is_admin = uid in ADMIN_IDS
-    if not is_admin and not user["is_premium"] and user["requests_today"] >= FREE_DAILY_LIMIT:
+    if not is_admin and not user["is_premium"] and user.get("energy", 0) <= 0:
+        wait_min = await g.db.get_energy_wait(uid)
         await m.answer(
-            f"⏳ Лимит исчерпан ({FREE_DAILY_LIMIT}).\n\n"
-            "💎 Премиум · 👥 Друг · 🎁 Награда",
-            reply_markup=main_kb())
+            f"⏳ <b>Энергия исчерпана</b>\n\n"
+            f"⚡ 0/{user.get('energy_max', 20)}\n"
+            f"🕐 До +1: ~{wait_min} мин\n\n"
+            f"<i>Энергия восстанавливается +1 каждые 30 мин.\n"
+            f"Премиум — ×2 регенерация.</i>\n\n"
+            f"💎 Премиум · 👥 Друг · 🎁 Награда",
+            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
         return
 
     await g.bot.send_chat_action(m.chat.id, "typing")
@@ -147,8 +153,11 @@ async def handle(m: Message):
                                 user_for_ai, event, owner)
     response = result["text"]
 
+    # Списать энергию (кроме админа и премиума)
+    if not is_admin:
+        await g.db.spend_energy(uid, 1)
+
     if result["enemy"]:
-        await g.db.increment(uid)
         await g.db.incr_action_count(uid)
         new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
         await g.db.update_story(uid, new_story)
@@ -202,7 +211,6 @@ async def handle(m: Message):
 
     new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
     await g.db.update_story(uid, new_story)
-    await g.db.increment(uid)
     await g.db.incr_action_count(uid)
 
     level, xp, leveled_up = await g.db.add_xp(uid, 10)
@@ -221,11 +229,15 @@ async def handle(m: Message):
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
 
-    left = ("∞ (admin)" if is_admin
-            else "∞" if user["is_premium"]
-            else FREE_DAILY_LIMIT - user["requests_today"] - 1)
+    # Показываем остаток энергии
+    if is_admin:
+        energy_line = "∞ (admin)"
+    elif updated.get("is_premium"):
+        energy_line = "∞"
+    else:
+        energy_line = f"{updated.get('energy', 0)}/{updated.get('energy_max', 20)}"
     need = level * level * 100
     await m.answer(
         f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated['gold']} · "
-        f"❤️ {updated['hp']}/{updated['max_hp']} · Осталось: {left}</i>",
+        f"❤️ {updated['hp']}/{updated['max_hp']} · ⚡ {energy_line}</i>",
         parse_mode=ParseMode.HTML)
