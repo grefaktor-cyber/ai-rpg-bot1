@@ -297,6 +297,8 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_boots TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_shield TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_ring TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_title TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_titles TEXT DEFAULT '[]'",
             ]
             for sql in migrations:
                 try:
@@ -416,6 +418,7 @@ class DB:
             "equipped_helmet": "", "equipped_boots": "",
             "equipped_shield": "", "equipped_ring": "",
             "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
+            "active_title": "", "unlocked_titles": "[]",
         }
 
     async def give_consent(self, uid):
@@ -1443,3 +1446,31 @@ class DB:
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM world_events_dyn WHERE expires_at < NOW()")
+
+    # ============ ТИТУЛЫ ============
+    async def set_active_title(self, uid, code):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE users SET active_title=$1 WHERE user_id=$2", code, uid
+            )
+
+    async def add_unlocked_title(self, uid, code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_titles FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                arr = json.loads(row["unlocked_titles"] or "[]")
+            except Exception:
+                arr = []
+            if code in arr:
+                return False
+            arr.append(code)
+            await c.execute(
+                "UPDATE users SET unlocked_titles=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
