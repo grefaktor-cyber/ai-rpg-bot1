@@ -274,8 +274,34 @@ async def equip(m: Message):
     parts = m.text.split(maxsplit=1)
     if len(parts) < 2:
         await m.answer("Использование: /equip Название"); return
-    item_name = parts[1].strip()
-    await _do_equip(m.from_user.id, item_name, m)
+
+    item_query = parts[1].strip()
+    inv = await g.db.get_inventory(m.from_user.id)
+    inv_names = [i["item_name"] for i in inv]
+    if not inv_names:
+        await m.answer("🎒 Инвентарь пуст."); return
+
+    from core.fuzzy import find_inventory_item
+    exact, suggestions = find_inventory_item(item_query, inv_names)
+
+    if exact:
+        await _do_equip(m.from_user.id, exact, m)
+        return
+    if suggestions:
+        rows = []
+        for s in suggestions[:10]:
+            rows.append([InlineKeyboardButton(
+                text=f"⚔️ Надеть {s}",
+                callback_data=f"equip_item_{s}"
+            )])
+        rows.append([InlineKeyboardButton(text="❌ Отмена",
+                                          callback_data="fuzzy_cancel")])
+        await m.answer(
+            f"🔍 Нашёл несколько, уточни:\n\n<code>{item_query}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode=ParseMode.HTML)
+        return
+    await m.answer(f"❌ Не нашёл «{item_query}» в инвентаре.")
 
 
 @router.callback_query(F.data.startswith("equip_item_"))
