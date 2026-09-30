@@ -23,18 +23,29 @@ from config import ADMIN_IDS
 router = Router()
 
 
+async def _clear_kb(c: CallbackQuery):
+    """Убирает кнопки со старого сообщения, чтобы игрок не нажал повторно."""
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+
 # ================= БАЗОВЫЕ =================
 @router.callback_query(F.data == "combat_attack")
 async def cb_attack(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
     if not combat:
-        await c.answer("⚔️ Бой уже завершён. Напиши, что делает герой — например «атакую волка».",
-                       show_alert=True)
+        await c.answer(
+            "⌛ Этот бой уже завершён. Напиши, что делает герой.",
+            show_alert=True)
+        await _clear_kb(c)
         return
     if combat.get("is_pvp"):
         await c.answer("🛡 Это не монстр. Используй кнопки дуэли.", show_alert=True)
         return
+    await _clear_kb(c)
     await c.answer("⚔️ Атака!")
     await process_combat_round(c.message.chat.id, user, combat, "attack")
 
@@ -44,12 +55,13 @@ async def cb_defend(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
     if not combat:
-        await c.answer("⚔️ Бой уже завершён. Напиши, что делает герой.",
-                       show_alert=True)
+        await c.answer("⌛ Этот бой уже завершён.", show_alert=True)
+        await _clear_kb(c)
         return
     if combat.get("is_pvp"):
         await c.answer("🛡 Это не монстр.", show_alert=True)
         return
+    await _clear_kb(c)
     await c.answer("🛡 Защита")
     await process_combat_round(c.message.chat.id, user, combat, "defend")
 
@@ -63,15 +75,16 @@ async def cb_skill(c: CallbackQuery):
         await c.answer("Скил не найден"); return
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⌛ Этот бой уже завершён.", show_alert=True)
+        await _clear_kb(c)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр.", show_alert=True); return
     if user["mp"] < s["mp_cost"]:
         await c.answer(f"❌ Нужно {s['mp_cost']} MP", show_alert=True); return
+    await _clear_kb(c)
     await c.answer(f"✨ {s['name']}")
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
     await process_combat_round(c.message.chat.id, user, combat, "skill", skill_code)
 
 
@@ -80,8 +93,12 @@ async def cb_skill(c: CallbackQuery):
 async def cb_potion(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⌛ Этот бой уже завершён.", show_alert=True)
+        await _clear_kb(c)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр.", show_alert=True); return
     if user["hp"] >= user["max_hp"]:
         await c.answer("❤️ HP полное!", show_alert=True); return
     is_admin = c.from_user.id in ADMIN_IDS
@@ -92,11 +109,8 @@ async def cb_potion(c: CallbackQuery):
     new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
     await g.db.update_hp(c.from_user.id, new_hp)
     user["hp"] = new_hp
+    await _clear_kb(c)
     await c.answer(f"💚 +{POTION_HEAL} HP")
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
     # Враг бьёт
     event = await g.db.get_active_event(user.get("location_code", "village"))
     enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
@@ -119,8 +133,12 @@ async def cb_potion(c: CallbackQuery):
 async def cb_mp_potion(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⌛ Этот бой уже завершён.", show_alert=True)
+        await _clear_kb(c)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр.", show_alert=True); return
     if user["mp"] >= user["max_mp"]:
         await c.answer("💧 MP полное!", show_alert=True); return
     is_admin = c.from_user.id in ADMIN_IDS
@@ -131,12 +149,8 @@ async def cb_mp_potion(c: CallbackQuery):
     new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
     await g.db.update_mp(c.from_user.id, new_mp)
     user["mp"] = new_mp
+    await _clear_kb(c)
     await c.answer(f"🔮 +{MP_POTION_RESTORE} MP")
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    # Враг бьёт
     event = await g.db.get_active_event(user.get("location_code", "village"))
     enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
     enemy_dmg = int((combat["enemy_level"] * 5 + random.randint(0, 5)) * enemy_dmg_mult)
@@ -158,12 +172,17 @@ async def cb_mp_potion(c: CallbackQuery):
 async def cb_flee(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⌛ Этот бой уже завершён.", show_alert=True)
+        await _clear_kb(c)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр.", show_alert=True); return
     if combat["is_boss"]:
         await c.answer("🐉 От босса не убежать!", show_alert=True); return
     if combat.get("is_dungeon"):
         await c.answer("🏰 Из подземелья не сбежать!", show_alert=True); return
+    await _clear_kb(c)
     if random.randint(1, 100) <= 50:
         await g.db.end_combat(c.from_user.id)
         await c.answer("🏃 Побег!")
@@ -227,6 +246,7 @@ async def dungeon_enter(c: CallbackQuery):
         if not await g.db.spend_gold(c.from_user.id, d["entry"]):
             await c.answer(f"Нужно {d['entry']}💰", show_alert=True); return
     await g.db.start_dungeon(c.from_user.id, code)
+    await _clear_kb(c)
     await c.answer("Вход!")
     await c.message.answer(f"🏰 Входишь в <b>{d['name']}</b>...", parse_mode=ParseMode.HTML)
     await spawn_dungeon_enemy(c.message.chat.id, c.from_user.id, code, 1)
@@ -268,24 +288,15 @@ async def dungeon_next_cb(c: CallbackQuery):
     d = DUNGEONS.get(u["dungeon_id"])
     next_room = u["dungeon_room"] + 1
     if next_room > d["rooms"]:
-        try:
-            await c.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await _clear_kb(c)
         await dungeon_finish(c.message.chat.id, c.from_user.id, "Подземелье пройдено!")
         return
     await g.db.advance_dungeon(c.from_user.id, 0, u["dungeon_loot_items"])
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    await _clear_kb(c)
     await spawn_dungeon_enemy(c.message.chat.id, c.from_user.id, u["dungeon_id"], next_room)
 
 
 @router.callback_query(F.data == "dungeon_leave")
 async def dungeon_leave_cb(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    await _clear_kb(c)
     await dungeon_finish(c.message.chat.id, c.from_user.id, "Ты выходишь с добычей.")
