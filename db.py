@@ -235,6 +235,15 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS player_journal (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    entry_text TEXT,
+                    entry_type TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
             # Таблица для прогресса сюжетных квестов
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS story_quest_progress (
@@ -338,6 +347,7 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_classes TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_cosmetics TEXT DEFAULT '[]'",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS phoenix_used INTEGER DEFAULT 0",
+                "ALTER TABLE player_journal ADD COLUMN IF NOT EXISTS entry_type TEXT DEFAULT 'event'",
             ]
             for sql in migrations:
                 try:
@@ -1671,6 +1681,40 @@ class DB:
             await c.execute(
                 "UPDATE active_combat SET phoenix_used=1 WHERE user_id=$1", uid
             )
+
+        # ============ ДНЕВНИК ИГРОКА ============
+    async def add_journal_entry(self, uid, text, entry_type="event"):
+        """Записать ключевое событие в дневник."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO player_journal (user_id, entry_text, entry_type)
+                VALUES ($1, $2, $3)
+            """, uid, text[:300], entry_type)
+
+    async def get_journal(self, uid, limit=20):
+        """Последние N записей дневника."""
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT entry_text, entry_type, created_at
+                FROM player_journal WHERE user_id=$1
+                ORDER BY created_at DESC LIMIT $2
+            """, uid, limit)
+            return [dict(r) for r in rows]
+
+    async def cleanup_journal(self, days=30, keep_min=50):
+        """Удалить старые записи, оставить минимум keep_min последних."""
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                DELETE FROM player_journal
+                WHERE user_id IN (
+                    SELECT user_id FROM player_journal
+                    GROUP BY user_id HAVING COUNT(*) > $1
+                )
+                AND id NOT IN (
+                    SELECT id FROM player_journal
+                    WHERE created_at > NOW() - ($2 || ' days')::INTERVAL
+                )
+            """, keep_min, str(days))
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
