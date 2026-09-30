@@ -560,10 +560,9 @@ class DB:
                     "UPDATE users SET mp=$1, max_mp=$1 WHERE user_id=$2", mp, uid
                 )
                 
-        async def reset_character(self, uid):
+    async def reset_character(self, uid):
         """Сбросить героя, сохранив энергию, премиум, рефералов, username."""
         async with self.pool.acquire() as c:
-            # Удаляем: инвентарь, локации, достижения, питомец, квесты
             await c.execute("DELETE FROM inventory WHERE user_id=$1", uid)
             await c.execute("DELETE FROM locations WHERE user_id=$1", uid)
             await c.execute("DELETE FROM user_achievements WHERE user_id=$1", uid)
@@ -572,10 +571,7 @@ class DB:
             await c.execute("DELETE FROM daily_quests WHERE user_id=$1", uid)
             await c.execute("DELETE FROM tutorial_progress WHERE user_id=$1", uid)
             await c.execute("DELETE FROM active_combat WHERE user_id=$1", uid)
-            # Убираем из гильдии
             await c.execute("DELETE FROM guild_members WHERE user_id=$1", uid)
-            # Сбрасываем поля, НЕ трогая: username, energy*, is_premium,
-            # referred_by, referral_count, consent_given, consent_date
             await c.execute("""UPDATE users SET
                 race='', class='', faction='', char_name='',
                 story='', arc=1, action_count=0,
