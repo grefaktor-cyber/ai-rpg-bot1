@@ -1,30 +1,45 @@
-"""Логика подземелий: спавн врагов, завершение."""
+"""Логика подземелий: спавн врагов, регенерация, завершение."""
 import json
 
 from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.game_data import DUNGEONS
+from core.formulas import calc_enemy_hp, regen_between_rooms
 from services.combat_service import send_combat_state
 
 
 async def spawn_dungeon_enemy(chat_id, uid, dungeon_id, room):
-    """Создать врага в комнате подземелья."""
     d = DUNGEONS[dungeon_id]
     enemy_name = d["enemies"][min(room - 1, len(d["enemies"]) - 1)]
     is_boss = 1 if room == d["rooms"] else 0
     base_level = d["level_req"] + room - 1
     enemy_level = base_level + (2 if is_boss else 0)
-    enemy_hp = enemy_level * (30 if is_boss else 20)
-    await g.db.start_combat(uid, enemy_name, enemy_level, enemy_hp, boss=is_boss, dungeon=1)
+
+    u = await g.db.get_user(uid)
+    # Новые формулы HP
+    enemy_hp = calc_enemy_hp(enemy_level, u["level"], is_boss=bool(is_boss))
+
+    # Регенерация перед боем (кроме первой комнаты)
+    if room > 1:
+        new_hp, new_mp = regen_between_rooms(u, hp_pct=0.20, mp_pct=0.30)
+        await g.db.update_hp(uid, new_hp)
+        await g.db.update_mp(uid, new_mp)
+        u = await g.db.get_user(uid)
+
+    await g.db.start_combat(uid, enemy_name, enemy_level, enemy_hp,
+                            boss=is_boss, dungeon=1)
     u = await g.db.get_user(uid)
     combat = await g.db.get_combat(uid)
     label = "🐉 БОСС" if is_boss else f"Комната {room}/{d['rooms']}"
-    await send_combat_state(chat_id, u, combat, f"🏰 <b>{label}</b>")
+    regen_note = ""
+    if room > 1:
+        regen_note = "\n💚 <i>+20% HP · +30% MP между комнатами</i>"
+    await send_combat_state(chat_id, u, combat,
+                            f"🏰 <b>{label}</b>{regen_note}")
 
 
 async def dungeon_finish(chat_id, uid, msg):
-    """Завершить подземелье, выдать добычу."""
     u = await g.db.get_user(uid)
     loot_gold = u.get("dungeon_loot_gold", 0)
     try:
