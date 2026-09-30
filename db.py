@@ -200,6 +200,7 @@ class DB:
 
             # ============ МИГРАЦИИ ============
             migrations = [
+                # --- базовые ---
                 "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS class TEXT DEFAULT ''",
@@ -232,23 +233,26 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS dungeon_loot_items TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS location_code TEXT DEFAULT 'village'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS guild_id BIGINT DEFAULT 0",
+                # --- энергия ---
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy INTEGER DEFAULT 20",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy_max INTEGER DEFAULT 20",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_energy_regen TIMESTAMP DEFAULT NOW()",
+                # --- MP + скилы ---
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS mp INTEGER DEFAULT 50",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_mp INTEGER DEFAULT 50",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS skill_points INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_skills TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS learned_skills TEXT DEFAULT '{}'",
+                # --- бой ---
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_pvp INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS opponent_id BIGINT DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS stake INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_turn INTEGER DEFAULT 1",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_dungeon INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS next_atk_mult REAL DEFAULT 1.0",
-                                # === Этап 2.1: миграция на новые расы/классы ===
+                # --- Этап 2.1: миграция на новые расы/классы ---
                 "UPDATE users SET race='', class='', char_name='' WHERE race='dwarf'",
                 "UPDATE users SET class='' WHERE race IN ('human','elf','dark_elf','orc') AND class NOT IN ('warrior','knight','mage','archer','guardian','bard','assassin','necro','dancer','destroyer','tyrant','overlord')",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS mp INTEGER DEFAULT 50",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_mp INTEGER DEFAULT 50",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS skill_points INTEGER DEFAULT 0",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_skills TEXT DEFAULT '[]'",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS learned_skills TEXT DEFAULT '{}'",
             ]
             for sql in migrations:
                 try:
@@ -364,7 +368,6 @@ class DB:
             "dungeon_id": "", "dungeon_room": 0,
             "dungeon_loot_gold": 0, "dungeon_loot_items": "[]",
             "energy": 20, "energy_max": 20, "last_energy_regen": None,
-            "mp": 50, "max_mp": 50,
             "mp": 50, "max_mp": 50,
             "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
         }
@@ -538,8 +541,8 @@ class DB:
                             name, stats["str"], stats["dex"], stats["con"],
                             stats["int"], stats["wit"], stats["men"], hp, uid)
         await self._refresh_energy(uid)
-        
-            async def update_stats(self, uid, stats, hp=None, mp=None):
+
+    async def update_stats(self, uid, stats, hp=None, mp=None):
         """Обновить статы персонажа (при смене класса)."""
         async with self.pool.acquire() as c:
             await c.execute("""UPDATE users SET
@@ -704,6 +707,13 @@ class DB:
     async def end_combat(self, uid):
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM active_combat WHERE user_id=$1", uid)
+
+    async def set_next_atk_mult(self, uid, mult):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET next_atk_mult=$1 WHERE user_id=$2",
+                mult, uid
+            )
 
     # ============ PVP ============
     async def start_pvp_combat(self, a, b, stake):
@@ -1138,7 +1148,8 @@ class DB:
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, NOW() + ($9 || ' minutes')::INTERVAL)
             """, location_code, event_code, event_name, event_desc,
                 xp_mult, gold_mult, spawn_mult, enemy_dmg_mult, str(duration_min))
-                # ============ СКИЛЫ ============
+
+    # ============ СКИЛЫ ============
     async def set_active_skills(self, uid, json_str):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1164,7 +1175,7 @@ class DB:
                 return True
         return False
 
-        # ============ MP ============
+    # ============ MP ============
     async def update_mp(self, uid, mp):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1189,14 +1200,6 @@ class DB:
             await c.execute("""
                 UPDATE users SET mp=LEAST(max_mp, mp+$1) WHERE user_id=$2
             """, amount, uid)
-
-    # ============ БАФ АТАКИ ============
-    async def set_next_atk_mult(self, uid, mult):
-        async with self.pool.acquire() as c:
-            await c.execute(
-                "UPDATE active_combat SET next_atk_mult=$1 WHERE user_id=$2",
-                mult, uid
-            )
 
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
