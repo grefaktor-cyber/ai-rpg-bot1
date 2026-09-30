@@ -34,9 +34,13 @@ async def admin_reset(m: Message):
     nm = calc_max_hp(u)
     await g.db.update_hp_max(m.from_user.id, nm, nm)
     async with g.db.pool.acquire() as conn:
-        await conn.execute("UPDATE users SET requests_today=0 WHERE user_id=$1",
-                           m.from_user.id)
-    await m.answer(f"🛠 HP: {nm}/{nm}", parse_mode=ParseMode.HTML)
+        await conn.execute(
+            "UPDATE users SET requests_today=0, energy=energy_max, "
+            "last_energy_regen=NOW() WHERE user_id=$1",
+            m.from_user.id
+        )
+    await m.answer(f"🛠 HP: {nm}/{nm} · Энергия: {u.get('energy_max', 20)}",
+                   parse_mode=ParseMode.HTML)
 
 
 @router.message(Command("admin_gold"))
