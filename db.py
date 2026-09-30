@@ -365,6 +365,7 @@ class DB:
             "dungeon_loot_gold": 0, "dungeon_loot_items": "[]",
             "energy": 20, "energy_max": 20, "last_energy_regen": None,
             "mp": 50, "max_mp": 50,
+            "mp": 50, "max_mp": 50,
             "skill_points": 0, "active_skills": "[]", "learned_skills": "{}",
         }
 
@@ -1162,6 +1163,40 @@ class DB:
                 )
                 return True
         return False
+
+        # ============ MP ============
+    async def update_mp(self, uid, mp):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE users SET mp=GREATEST(0, LEAST(max_mp, $1)) WHERE user_id=$2",
+                mp, uid
+            )
+
+    async def spend_mp(self, uid, amount):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT mp FROM users WHERE user_id=$1", uid
+            )
+            if row and row["mp"] >= amount:
+                await c.execute(
+                    "UPDATE users SET mp=mp-$1 WHERE user_id=$2", amount, uid
+                )
+                return True
+        return False
+
+    async def restore_mp(self, uid, amount):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE users SET mp=LEAST(max_mp, mp+$1) WHERE user_id=$2
+            """, amount, uid)
+
+    # ============ БАФ АТАКИ ============
+    async def set_next_atk_mult(self, uid, mult):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET next_atk_mult=$1 WHERE user_id=$2",
+                mult, uid
+            )
 
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
