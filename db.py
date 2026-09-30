@@ -208,6 +208,21 @@ class DB:
                     dropped_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS trade_offers (
+                    id SERIAL PRIMARY KEY,
+                    from_id BIGINT, from_name TEXT,
+                    to_id BIGINT, to_name TEXT,
+                    from_items TEXT DEFAULT '[]',
+                    to_items TEXT DEFAULT '[]',
+                    from_gold INTEGER DEFAULT 0,
+                    to_gold INTEGER DEFAULT 0,
+                    from_confirmed INTEGER DEFAULT 0,
+                    to_confirmed INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
 
             # ============ МИГРАЦИИ ============
             migrations = [
@@ -1313,6 +1328,36 @@ class DB:
                 DELETE FROM dropped_items
                 WHERE dropped_at < NOW() - ($1 || ' minutes')::INTERVAL
             """, str(max_age_min))
+    # ============ TRADE (обмен) ============
+    async def create_trade_offer(self, from_id, from_name, to_id, to_name):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                INSERT INTO trade_offers (from_id, from_name, to_id, to_name)
+                VALUES ($1,$2,$3,$4) RETURNING id
+            """, from_id, from_name, to_id, to_name)
+            return row["id"]
+
+    async def get_trade_offer(self, oid):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("SELECT * FROM trade_offers WHERE id=$1", oid)
+            return dict(row) if row else None
+
+    async def update_trade_field(self, oid, field, value):
+        # Белый список полей
+        allowed = {"from_items", "to_items", "from_gold", "to_gold",
+                   "from_confirmed", "to_confirmed"}
+        if field not in allowed:
+            return False
+        async with self.pool.acquire() as c:
+            await c.execute(
+                f"UPDATE trade_offers SET {field}=$1 WHERE id=$2", value, oid
+            )
+            return True
+
+    async def set_trade_status(self, oid, status):
+        async with self.pool.acquire() as c:
+            await c.execute("UPDATE trade_offers SET status=$1 WHERE id=$2",
+                            status, oid)
 
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
