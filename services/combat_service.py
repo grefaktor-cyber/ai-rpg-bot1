@@ -416,6 +416,13 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             f"Победил босса «{combat['enemy_name']}»",
             "boss"
         )
+        loc_code = user.get("location_code", "village")
+        await g.db.add_location_event(
+            loc_code,
+            f"победил босса «{combat['enemy_name']}»",
+            "boss",
+            user["username"]
+        )
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
         if await g.db.add_achievement(user["user_id"], "first_boss"):
@@ -503,6 +510,13 @@ async def handle_death(chat_id, user, combat):
         user["user_id"],
         f"Пал в бою с «{combat['enemy_name']}»",
         "death"
+    )
+    loc_code = user.get("location_code", "village")
+    await g.db.add_location_event(
+        loc_code,
+        f"пал в бою с «{combat['enemy_name']}»",
+        "death",
+        user["username"]
     )
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
