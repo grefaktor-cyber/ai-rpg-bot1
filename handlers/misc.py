@@ -28,11 +28,11 @@ def _help_menu_kb():
         [InlineKeyboardButton(text="💰 Экономика", callback_data="help_economy"),
          InlineKeyboardButton(text="🌍 Мир", callback_data="help_world")],
         [InlineKeyboardButton(text="🏛 Гильдии", callback_data="help_guild"),
-         InlineKeyboardButton(text="💎 Премиум", callback_data="help_premium")],
-        [InlineKeyboardButton(text="🔗 Реф-ссылка", callback_data="ref_show"),
-         InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+         InlineKeyboardButton(text="💬 Чат", callback_data="help_chat")],
+        [InlineKeyboardButton(text="💎 Премиум", callback_data="help_premium"),
+         InlineKeyboardButton(text="🔗 Реф-ссылка", callback_data="ref_show")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
     ])
-
 
 # ================= ПОМОЩЬ =================
 @router.message(Command("help"))
@@ -134,6 +134,19 @@ async def help_topic(c):
             "<b>Пригласить:</b> /guild_invite Ник\n"
             "<b>Захватить локацию:</b> 3+ члена здесь\n\n"
             "Захват даёт <b>+15% золота и +10% XP</b>."
+        ),
+        "chat": (
+            "💬 <b>Чат</b>\n\n"
+            "<b>Каналы:</b>\n"
+            "• 🌍 <b>Общий</b> — все игроки\n"
+            "• 🏛 <b>Гильдия</b> — только члены\n"
+            "• ✉️ <b>Личное</b> — 1 на 1\n\n"
+            "<b>Команды:</b>\n"
+            "• /chat — открыть меню чата\n"
+            "• /c текст — в общий\n"
+            "• /g текст — в гильдию\n"
+            "• /w Ник текст — личное\n\n"
+            "<i>Антиспам: 1 сообщение в 3 сек.</i>"
         ),
         "premium": (
             "💎 <b>Премиум</b>\n\n"
