@@ -28,6 +28,7 @@ from handlers import (
     misc as misc_handlers,
     skills as skills_handlers,
     use as use_handlers,
+    trade as trade_handlers,
     ai_handler as ai_handler_handlers,
 )
 
