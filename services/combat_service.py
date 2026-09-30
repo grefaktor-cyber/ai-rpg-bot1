@@ -11,12 +11,25 @@ from core.game_data import (
 )
 from core.formulas import (
     calc_max_hp, calc_max_mp, danger_emoji, effective_stats,
-    faction_mult, hp_bar, calc_damage,
+    faction_mult, hp_bar, calc_damage, get_dmg_type,
+    enemy_p_def, enemy_m_def, apply_defense,
 )
 from core.keyboards import combat_kb, dungeon_continue_kb
 from core.game_data import PETS
 from core.skills import get_skill, skill_multiplier
 import world as W
+
+
+# ================= ВСПОМОГАТЕЛЬНАЯ =================
+def calc_final_damage_safe(user, t_pdef, t_mdef):
+    """Считает базовый урон и режет через защиту цели."""
+    base = calc_damage(user)
+    dmg_type = get_dmg_type(user)
+    if dmg_type == "magic":
+        final = apply_defense(base, t_mdef)
+    else:
+        final = apply_defense(base, t_pdef)
+    return final, dmg_type
 
 
 # ================= СОСТОЯНИЕ БОЯ =================
@@ -48,7 +61,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None):
     if round_text:
         text += f"\n\n{round_text}"
 
-    # Активные скилы
     try:
         active = json.loads(user.get("active_skills") or "[]")
     except Exception:
@@ -85,32 +97,32 @@ def pet_attack_damage(user, round_num):
 
 # ================= РАУНД =================
 async def process_combat_round(chat_id, user, combat, action_type, extra_text=""):
-    """action_type: attack / defend / skill.
-    Для skill в extra_text передаётся код скила."""
+    """action_type: attack / defend / skill."""
     event = await g.db.get_active_event(user.get("location_code", "village"))
     base_enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
 
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
-    def_reduce = 1.0   # множитель урона врага (от buff_def)
-    enemy_debuff = 1.0 # множитель атаки врага (от debuff)
+    def_reduce = 1.0
+    enemy_debuff = 1.0
 
     # ---------- ДЕЙСТВИЕ ИГРОКА ----------
     if action_type == "attack":
         eff = effective_stats(user)
-        dmg_type = user.get("class", "")
-        base_dmg = calc_damage(user)
-        # бонус от previous buff_atk
         next_mult = combat.get("next_atk_mult", 1.0) or 1.0
+
+        t_pdef = enemy_p_def(combat["enemy_level"])
+        t_mdef = enemy_m_def(combat["enemy_level"])
+        dmg_after_def, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
 
         crit_chance = eff["dex"]
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
         if is_crit:
-            base_dmg = int(base_dmg * 2)
+            dmg_after_def = int(dmg_after_def * 2)
 
-        dmg = int(base_dmg * faction_mult(user, "dmg_mult") * next_mult)
+        dmg = int(dmg_after_def * faction_mult(user, "dmg_mult") * next_mult)
         if next_mult != 1.0:
             await g.db.set_next_atk_mult(user["user_id"], 1.0)
 
@@ -159,8 +171,10 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             effect = s["effect"]
 
             if effect == "damage":
-                base = calc_damage(user)
-                dmg = int(base * mult * faction_mult(user, "dmg_mult"))
+                t_pdef = enemy_p_def(combat["enemy_level"])
+                t_mdef = enemy_m_def(combat["enemy_level"])
+                base_dmg, _ = calc_final_damage_safe(user, t_pdef, t_mdef)
+                dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult"))
                 new_enemy_hp = combat["enemy_hp"] - dmg
                 await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
                 extra_text = f"✨ <b>{s['name']}</b> — {dmg} урона (−{mp_cost} MP)"
@@ -198,7 +212,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
 
     # ---------- ХОД ВРАГА ----------
     if not enemy_skip:
-        # HP регенерация питомца
         if user.get("pet_type") == "phoenix":
             plvl = user.get("pet_level", 1)
             heal = int(user["max_hp"] * 0.05) + plvl
@@ -220,7 +233,6 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
     else:
         extra_text += f"\n💫 {combat['enemy_name']} пропускает ход"
 
-    # MP-регенерация в бою (5%)
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
         new_mp = min(user["max_mp"], user["mp"] + regen)
