@@ -3,14 +3,23 @@ from core.equipment import SHOP  # ← SHOP теперь в equipment.py
 
 # ================= РАСЫ =================
 RACES = {
-    "human":    {"name": "Человек",     "desc": "Универсал.",
+    # ---- Обычные (доступны всем) ----
+    "human":    {"name": "Человек",     "desc": "Универсал.", "premium": False,
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
-    "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый.",
+    "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый.", "premium": False,
                  "stats": {"str": 4, "dex": 6, "con": 4, "int": 6, "wit": 6, "men": 4}},
-    "dark_elf": {"name": "Тёмный эльф", "desc": "Сильная магия.",
+    "dark_elf": {"name": "Тёмный эльф", "desc": "Сильная магия.", "premium": False,
                  "stats": {"str": 5, "dex": 5, "con": 4, "int": 6, "wit": 6, "men": 4}},
-    "orc":      {"name": "Орк",         "desc": "Могучий воин.",
+    "orc":      {"name": "Орк",         "desc": "Могучий воин.", "premium": False,
                  "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 5, "men": 4}},
+
+    # ---- Премиум (только с подпиской) ----
+    "demon":    {"name": "😈 Демон",    "desc": "Маг тьмы, агрессивный.", "premium": True,
+                 "stats": {"str": 6, "dex": 4, "con": 4, "int": 7, "wit": 6, "men": 3}},
+    "angel":    {"name": "😇 Ангел",    "desc": "Целитель и защитник.", "premium": True,
+                 "stats": {"str": 4, "dex": 5, "con": 4, "int": 6, "wit": 6, "men": 5}},
+    "prit":     {"name": "🎭 Плут",     "desc": "Ловкач, воровство, крит.", "premium": True,
+                 "stats": {"str": 4, "dex": 7, "con": 4, "int": 5, "wit": 6, "men": 4}},
 }
 
 CLASSES = {
