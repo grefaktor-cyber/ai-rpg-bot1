@@ -559,9 +559,69 @@ async def on_payment(m: Message):
         code = payload.split(":", 1)[1]
         b = BUNDLES.get(code)
         if b:
-            await m.answer(
-                f"📦 <b>Набор получен!</b>\n\n{b['name']} → проверь /inventory",
-                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+            # Что входит в наборы
+            BUNDLE_CONTENTS = {
+                "lord_bundle": {
+                    "items": ["Венец Владыки"],
+                    "consumables": ["revive_potion", "revive_potion",
+                                    "revive_potion", "revive_potion",
+                                    "revive_potion"],
+                },
+                "warrior_bundle": {
+                    "items": ["Клинок Судьбы", "Эгида Богов"],
+                    "consumables": [],
+                },
+                "start_bundle": {
+                    "items": [],
+                    "races": ["prit", "demon", "angel"],  # все 3 расы
+                    "pets": ["lion"],
+                    "consumables": ["revive_potion"] * 5,
+                },
+                "full_bundle": {
+                    "items": ["Клинок Судьбы", "Эгида Богов",
+                              "Венец Владыки", "Лук Апокалипсиса"],
+                    "pets": ["lion", "ephoenix", "edragon"],
+                    "consumables": ["revive_potion"] * 10,
+                    "races": ["prit", "demon", "angel"],
+                },
+            }
+            content = BUNDLE_CONTENTS.get(code, {})
+            gained = []
+
+            # Предметы
+            for item_code in content.get("items", []):
+                await g.db.add_item(m.from_user.id, item_code)
+                gained.append(f"⚔️ {item_code}")
+
+            # Питомцы
+            for pet_code in content.get("pets", []):
+                from core.game_data import PETS
+                pet_data = PETS.get(pet_code, {})
+                await g.db.add_pet(m.from_user.id, pet_code,
+                                   pet_data.get("name", pet_code))
+                gained.append(f"🐾 {pet_data.get('name', pet_code)}")
+
+            # Расы
+            for race_code in content.get("races", []):
+                await g.db.unlock_premium_race(m.from_user.id, race_code)
+                from core.premium import EXCLUSIVE_RACES
+                race_data = EXCLUSIVE_RACES.get(race_code, {})
+                gained.append(f"🎭 {race_data.get('name', race_code)}")
+
+            # Расходники
+            for con_code in content.get("consumables", []):
+                from core.premium import CONSUMABLES
+                con = CONSUMABLES.get(con_code, {})
+                if con_code == "xp_scroll":
+                    await g.db.add_xp(m.from_user.id, 500)
+                else:
+                    await g.db.add_item(m.from_user.id, con.get("name", con_code))
+                gained.append(f"🧪 {con.get('name', con_code)}")
+
+            text = f"📦 <b>{b['name']}</b>\n\n<b>Получено:</b>\n"
+            text += "\n".join(gained) if gained else "—"
+            text += "\n\n<i>Проверь /inventory и /pet</i>"
+            await m.answer(text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
             return
 
     await m.answer("✅ Оплата получена.", reply_markup=main_kb())
