@@ -79,6 +79,17 @@ PETS = {
     "owl":     {"name": "Сова",      "price": 500,  "desc": "+15% крита",   "bonus": {"wit": 2, "int": 1}},
     "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход", "bonus": {"str": 3, "con": 1}},
     "phoenix": {"name": "Феникс",    "price": 3000, "desc": "Лечит 5% HP каждый раунд", "bonus": {"men": 3, "con": 2}},
+    
+    # ---- Эксклюзивные (только за Stars) ----
+    "lion":    {"name": "🦁 Небесный лев",    "price": 99999,
+                "desc": "+15 STR/DEX/CON", "premium": True,
+                "bonus": {"str": 15, "dex": 15, "con": 15}},
+    "ephoenix":{"name": "🦅 Феникс вечности", "price": 99999,
+                "desc": "1 возрождение за бой", "premium": True,
+                "bonus": {"men": 5, "con": 5}},
+    "edragon": {"name": "🐲 Древний дракон",  "price": 99999,
+                "desc": "Атака 25×ур. каждый раунд", "premium": True,
+                "bonus": {"str": 10, "int": 10}},
 }
 
 DUNGEONS = {
