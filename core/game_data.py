@@ -127,6 +127,11 @@ SHOP = {
     "Перстень мудрости":  {"type": "accessory", "price": 200, "bonus": {"int": 3}},
     "Кольцо ловкости":    {"type": "accessory", "price": 200, "bonus": {"dex": 3}},
     "Амулет мудреца":     {"type": "accessory", "price": 800, "bonus": {"int": 5, "wit": 3}},
+        # Зелья — покупаются в бою и вне боя
+    "Зелье HP":     {"type": "potion", "price": 25, "bonus": {}, "heal_hp": 30},
+    "Эликсир HP":   {"type": "potion", "price": 60, "bonus": {}, "heal_hp": 60},
+    "Зелье MP":     {"type": "potion", "price": 25, "bonus": {}, "heal_mp": 40},
+    "Эликсир MP":   {"type": "potion", "price": 60, "bonus": {}, "heal_mp": 70},
 }
 
 # ================= ПИТОМЦЫ =================
@@ -219,3 +224,9 @@ POTION_HEAL = 30
 def classes_for_race(race_code):
     """Список классов, доступных этой расе."""
     return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
+
+# Зелья в бою (без инвентаря — покупаются мгновенно)
+POTION_PRICE = 25
+POTION_HEAL = 30
+MP_POTION_PRICE = 25
+MP_POTION_RESTORE = 40
