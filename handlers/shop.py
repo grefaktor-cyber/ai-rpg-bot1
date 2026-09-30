@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 from core import globals as g
 from core.game_data import SHOP
 from core.formulas import faction_mult, calc_max_hp, parse_item
-from core.keyboards import main_kb, shop_kb
+from core.keyboards import main_kb
 from config import ADMIN_IDS
 
 
@@ -41,7 +41,6 @@ async def shop(m: Message):
                                       for k, v in data["bonus"].items())
                 text += f"• {name} ({price}💰) — {bonus_str}\n"
         text += "\n"
-    # Кнопки
     rows = []
     for name, data in SHOP.items():
         price = int(data["price"] * shop_mult)
@@ -55,7 +54,7 @@ async def shop(m: Message):
 
 @router.callback_query(F.data.startswith("shop_buy_"))
 async def shop_buy_cb(c: CallbackQuery):
-    item_name = c.data.replace("shop_buy_", "")
+    item_name = c.data.replace("shop_buy_", "", 1)
     if item_name not in SHOP:
         await c.answer("Не найдено"); return
     data = SHOP[item_name]
@@ -70,7 +69,7 @@ async def shop_buy_cb(c: CallbackQuery):
     await c.answer(f"✅ Куплено: {item_name}")
     if data["type"] == "potion":
         await c.message.answer(
-            f"✅ <b>{item_name}</b> куплен!\nИспользуй: /use {item_name}",
+            f"✅ <b>{item_name}</b> куплен!\n/use {item_name}",
             parse_mode=ParseMode.HTML)
     else:
         await c.message.answer(
@@ -91,8 +90,7 @@ async def equip(m: Message):
     if SHOP[base_name]["type"] == "potion":
         await m.answer("❌ Зелья не экипируются. /use Название"); return
     inv = await g.db.get_inventory(m.from_user.id)
-    inv_names = [i["item_name"] for i in inv]
-    if item_name not in inv_names:
+    if not any(i["item_name"] == item_name for i in inv):
         await m.answer("❌ Нет в инвентаре."); return
     slot = SHOP[base_name]["type"]
     old = await g.db.equip_item(m.from_user.id, slot, item_name)
@@ -109,6 +107,30 @@ async def equip(m: Message):
     await g.db.update_hp_max(m.from_user.id, min(u["hp"], new_max), new_max)
     if await g.db.add_achievement(m.from_user.id, "equipped"):
         await m.answer("🏆 Достижение: ⚔️ Снаряжён", parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data.startswith("equip_item_"))
+async def equip_item_cb(c: CallbackQuery):
+    item_name = c.data.replace("equip_item_", "", 1)
+    base_name, _ = parse_item(item_name)
+    if base_name not in SHOP or SHOP[base_name]["type"] == "potion":
+        await c.answer("Нельзя экипировать", show_alert=True); return
+    inv = await g.db.get_inventory(c.from_user.id)
+    if not any(i["item_name"] == item_name for i in inv):
+        await c.answer("Нет в инвентаре", show_alert=True); return
+    slot = SHOP[base_name]["type"]
+    old = await g.db.equip_item(c.from_user.id, slot, item_name)
+    await g.db.remove_item(c.from_user.id, item_name)
+    if old:
+        await g.db.add_item(c.from_user.id, old)
+    await c.answer(f"✅ Экипировано: {item_name}")
+    await c.message.answer(
+        f"⚔️ <b>{item_name}</b> экипирован."
+        + (f"\nСнято: {old}" if old else ""),
+        reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    u = await g.db.get_user(c.from_user.id)
+    new_max = calc_max_hp(u)
+    await g.db.update_hp_max(c.from_user.id, min(u["hp"], new_max), new_max)
 
 
 @router.message(Command("unequip"))
@@ -140,7 +162,7 @@ async def inventory(m: Message):
         await m.answer("🎒 Инвентарь пуст.", reply_markup=main_kb()); return
 
     lines = ["🎒 <b>Инвентарь</b>\n"]
-    potion_buttons = []
+    rows = []
     for it in items:
         name, lvl = parse_item(it["item_name"])
         if name in SHOP:
@@ -150,7 +172,7 @@ async def inventory(m: Message):
                 mp = data.get("heal_mp", 0)
                 effect = f"+{hp} HP" if hp else f"+{mp} MP"
                 lines.append(f"• 🧪 {name} — {effect}")
-                potion_buttons.append([InlineKeyboardButton(
+                rows.append([InlineKeyboardButton(
                     text=f"🧪 Использовать {name}",
                     callback_data=f"use_item_{name}"
                 )])
@@ -159,21 +181,50 @@ async def inventory(m: Message):
                                       for k, v in data["bonus"].items())
                 suffix = f" (+{lvl})" if lvl else ""
                 lines.append(f"• {name}{suffix} — {bonus_str}")
+                # Для предметов экипировки — кнопки
+                if name in SHOP and SHOP[name]["type"] in ("weapon", "armor", "accessory"):
+                    rows.append([
+                        InlineKeyboardButton(
+                            text=f"⚔️ {name}",
+                            callback_data=f"equip_item_{it['item_name']}"
+                        ),
+                        InlineKeyboardButton(
+                            text="💰 Продать",
+                            callback_data=f"sell_item_{it['item_name']}"
+                        ),
+                    ])
+                    rows.append([InlineKeyboardButton(
+                        text=f"🗑 Выбросить {name}",
+                        callback_data=f"drop_item_{it['item_name']}"
+                    )])
         else:
             lines.append(f"• {it['item_name']}")
 
     # Экипированное
-    eq_lines = []
+    lines.append("\n<b>Экипировано:</b>")
     for slot, label in [("equipped_weapon", "🗡 Оружие"),
                         ("equipped_armor", "🛡 Броня"),
                         ("equipped_accessory", "💍 Аксессуар")]:
         val = u.get(slot) or "—"
-        eq_lines.append(f"{label}: {val}")
+        lines.append(f"{label}: {val}")
 
-    lines.append("\n<b>Экипировано:</b>")
-    lines.extend(eq_lines)
-    lines.append("\n<i>/equip Название+N · /use Зелье</i>")
+    lines.append("\n<i>/equip · /use · /sell · /drop</i>")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=potion_buttons) if potion_buttons else main_kb()
-    await m.answer("\n".join(lines), reply_markup=kb,
-                   parse_mode=ParseMode.HTML)
+    if rows:
+        rows.append([InlineKeyboardButton(text="❌ Закрыть",
+                                          callback_data="inv_close")])
+        await m.answer("\n".join(lines),
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                       parse_mode=ParseMode.HTML)
+    else:
+        await m.answer("\n".join(lines), reply_markup=main_kb(),
+                       parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "inv_close")
+async def inv_close_cb(c: CallbackQuery):
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer()
