@@ -13,6 +13,8 @@ from core.formulas import (
     calc_max_hp, calc_max_mp, danger_emoji, effective_stats,
     faction_mult, hp_bar, calc_damage, get_dmg_type,
     enemy_p_def, enemy_m_def, apply_defense,
+    racial_crit_bonus, racial_magic_mult, racial_heal_mult,
+    racial_gold_mult, racial_low_hp_mult,   # ← добавил
 )
 from core.keyboards import combat_kb, dungeon_continue_kb
 from core.game_data import PETS
@@ -115,7 +117,12 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         t_mdef = enemy_m_def(combat["enemy_level"])
         dmg_after_def, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
 
-        crit_chance = eff["dex"]
+        # Расовые пассивы
+        if dmg_type == "magic":
+            dmg_after_def = int(dmg_after_def * racial_magic_mult(user))
+        dmg_after_def = int(dmg_after_def * racial_low_hp_mult(user))
+
+        crit_chance = eff["dex"] + racial_crit_bonus(user)
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
@@ -173,14 +180,18 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             if effect == "damage":
                 t_pdef = enemy_p_def(combat["enemy_level"])
                 t_mdef = enemy_m_def(combat["enemy_level"])
-                base_dmg, _ = calc_final_damage_safe(user, t_pdef, t_mdef)
+                base_dmg, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
+                # Расовые пассивы
+                if dmg_type == "magic":
+                    base_dmg = int(base_dmg * racial_magic_mult(user))
+                base_dmg = int(base_dmg * racial_low_hp_mult(user))
                 dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult"))
                 new_enemy_hp = combat["enemy_hp"] - dmg
                 await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
                 extra_text = f"✨ <b>{s['name']}</b> — {dmg} урона (−{mp_cost} MP)"
 
             elif effect == "heal":
-                heal = int(user["max_hp"] * mult)
+                heal = int(user["max_hp"] * mult * racial_heal_mult(user))
                 new_hp = min(user["max_hp"], user["hp"] + heal)
                 await g.db.update_hp(user["user_id"], new_hp)
                 user["hp"] = new_hp
@@ -287,7 +298,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     if combat["is_boss"]:
         exp *= 3
         gold *= 3
-    gold = int(gold * faction_mult(user, "gold_mult"))
+    gold = int(gold * faction_mult(user, "gold_mult") * racial_gold_mult(user))
 
     event = await g.db.get_active_event(user.get("location_code", "village"))
     xp_mult = event.get("xp_mult", 1.0) if event else 1.0
