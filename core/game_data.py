@@ -1,6 +1,7 @@
-"""Игровые данные: расы, классы, фракции, магазин, питомцы, подземелья, крафт."""
+"""Игровые данные: расы, классы, фракции, магазин (из equipment), питомцы, подземелья, крафт."""
+from core.equipment import SHOP  # ← SHOP теперь в equipment.py
 
-# ================= РАСЫ (4, сумма 30 у всех) =================
+# ================= РАСЫ =================
 RACES = {
     "human":    {"name": "Человек",     "desc": "Универсал.",
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
@@ -12,98 +13,35 @@ RACES = {
                  "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 5, "men": 4}},
 }
 
-# ================= КЛАССЫ (12, все +6, привязка к расам) =================
-# role: tank / fighter / agile / mage / universal
-# dmg_type: phys / agile / magic
 CLASSES = {
-    # ---- Человек ----
-    "warrior": {
-        "name": "Воин", "desc": "Мастер меча.",
-        "races": ["human"],
-        "bonus": {"str": 3, "con": 3},
-        "role": "fighter", "dmg_type": "phys",
-    },
-    "knight": {
-        "name": "Рыцарь", "desc": "Танк и защитник.",
-        "races": ["human"],
-        "bonus": {"str": 2, "con": 3, "men": 1},
-        "role": "tank", "dmg_type": "phys",
-    },
-    "mage": {
-        "name": "Маг", "desc": "Боевая магия.",
-        "races": ["human"],
-        "bonus": {"int": 4, "wit": 2},
-        "role": "mage", "dmg_type": "magic",
-    },
-    # ---- Эльф ----
-    "archer": {
-        "name": "Лучник", "desc": "Стрелок.",
-        "races": ["elf"],
-        "bonus": {"str": 3, "dex": 3},
-        "role": "agile", "dmg_type": "agile",
-    },
-    "guardian": {
-        "name": "Страж", "desc": "Защитник природы.",
-        "races": ["elf"],
-        "bonus": {"str": 1, "dex": 2, "con": 2, "wit": 1},
-        "role": "tank", "dmg_type": "agile",
-    },
-    "bard": {
-        "name": "Певчий", "desc": "Магия поддержки.",
-        "races": ["elf"],
-        "bonus": {"int": 2, "wit": 2, "men": 2},
-        "role": "mage", "dmg_type": "magic",
-    },
-    # ---- Тёмный эльф ----
-    "assassin": {
-        "name": "Убийца", "desc": "Скрытность и крит.",
-        "races": ["dark_elf"],
-        "bonus": {"str": 2, "dex": 4},
-        "role": "agile", "dmg_type": "agile",
-    },
-    "necro": {
-        "name": "Некромант", "desc": "Тёмная магия.",
-        "races": ["dark_elf"],
-        "bonus": {"int": 4, "wit": 2},
-        "role": "mage", "dmg_type": "magic",
-    },
-    "dancer": {
-        "name": "Танцор", "desc": "Быстрые атаки.",
-        "races": ["dark_elf"],
-        "bonus": {"str": 3, "dex": 2, "men": 1},
-        "role": "universal", "dmg_type": "agile",
-    },
-    # ---- Орк ----
-    "destroyer": {
-        "name": "Разрушитель", "desc": "Максимальный урон.",
-        "races": ["orc"],
-        "bonus": {"str": 5, "con": 1},
-        "role": "fighter", "dmg_type": "phys",
-    },
-    "tyrant": {
-        "name": "Тиранин", "desc": "Быстрые атаки.",
-        "races": ["orc"],
-        "bonus": {"str": 4, "dex": 2},
-        "role": "agile", "dmg_type": "agile",
-    },
-    "overlord": {
-        "name": "Владыка", "desc": "Гибрид воина и мага.",
-        "races": ["orc"],
-        "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1},
-        "role": "universal", "dmg_type": "magic",
-    },
+    "warrior": {"name": "Воин", "desc": "Мастер меча.", "races": ["human"],
+                "bonus": {"str": 3, "con": 3}, "role": "fighter", "dmg_type": "phys"},
+    "knight": {"name": "Рыцарь", "desc": "Танк и защитник.", "races": ["human"],
+               "bonus": {"str": 2, "con": 3, "men": 1}, "role": "tank", "dmg_type": "phys"},
+    "mage": {"name": "Маг", "desc": "Боевая магия.", "races": ["human"],
+             "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
+    "archer": {"name": "Лучник", "desc": "Стрелок.", "races": ["elf"],
+               "bonus": {"str": 3, "dex": 3}, "role": "agile", "dmg_type": "agile"},
+    "guardian": {"name": "Страж", "desc": "Защитник природы.", "races": ["elf"],
+                 "bonus": {"str": 1, "dex": 2, "con": 2, "wit": 1}, "role": "tank", "dmg_type": "agile"},
+    "bard": {"name": "Певчий", "desc": "Магия поддержки.", "races": ["elf"],
+             "bonus": {"int": 2, "wit": 2, "men": 2}, "role": "mage", "dmg_type": "magic"},
+    "assassin": {"name": "Убийца", "desc": "Скрытность и крит.", "races": ["dark_elf"],
+                 "bonus": {"str": 2, "dex": 4}, "role": "agile", "dmg_type": "agile"},
+    "necro": {"name": "Некромант", "desc": "Тёмная магия.", "races": ["dark_elf"],
+              "bonus": {"int": 4, "wit": 2}, "role": "mage", "dmg_type": "magic"},
+    "dancer": {"name": "Танцор", "desc": "Быстрые атаки.", "races": ["dark_elf"],
+               "bonus": {"str": 3, "dex": 2, "men": 1}, "role": "universal", "dmg_type": "agile"},
+    "destroyer": {"name": "Разрушитель", "desc": "Максимальный урон.", "races": ["orc"],
+                  "bonus": {"str": 5, "con": 1}, "role": "fighter", "dmg_type": "phys"},
+    "tyrant": {"name": "Тиранин", "desc": "Быстрые атаки.", "races": ["orc"],
+               "bonus": {"str": 4, "dex": 2}, "role": "agile", "dmg_type": "agile"},
+    "overlord": {"name": "Владыка", "desc": "Гибрид воина и мага.", "races": ["orc"],
+                 "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1}, "role": "universal", "dmg_type": "magic"},
 }
 
-# Бонусы HP по ролям (для формулы max_hp)
-ROLE_HP_BONUS = {
-    "tank":      20,
-    "fighter":   15,
-    "universal": 10,
-    "agile":     5,
-    "mage":      10,
-}
+ROLE_HP_BONUS = {"tank": 20, "fighter": 15, "universal": 10, "agile": 5, "mage": 10}
 
-# ================= ФРАКЦИИ =================
 FACTIONS = {
     "light": {"name": "Орден Света",     "desc": "+10% HP, скидка 10%",
               "hp_mult": 1.10, "shop_mult": 0.90, "gold_mult": 0.90, "dmg_mult": 1.00},
@@ -111,58 +49,24 @@ FACTIONS = {
               "hp_mult": 0.80, "shop_mult": 1.00, "gold_mult": 1.20, "dmg_mult": 1.15},
 }
 
-# ================= МАГАЗИН =================
-SHOP = {
-    "Железный меч":       {"type": "weapon", "price": 50,   "bonus": {"str": 2}},
-    "Стальной меч":       {"type": "weapon", "price": 250,  "bonus": {"str": 5}},
-    "Клинок тьмы":        {"type": "weapon", "price": 1200, "bonus": {"str": 10, "dex": 2}},
-    "Посох мага":         {"type": "weapon", "price": 200,  "bonus": {"int": 4}},
-    "Лук охотника":       {"type": "weapon", "price": 200,  "bonus": {"dex": 4}},
-    "Кожаная броня":      {"type": "armor",  "price": 50,   "bonus": {"con": 2}},
-    "Кольчуга":           {"type": "armor",  "price": 300,  "bonus": {"con": 5}},
-    "Мантия мага":        {"type": "armor",  "price": 250,  "bonus": {"int": 3, "wit": 2}},
-    "Латы рыцаря":        {"type": "armor",  "price": 1200, "bonus": {"con": 10}},
-    "Амулет удачи":       {"type": "accessory", "price": 150, "bonus": {"men": 3}},
-    "Кольцо силы":        {"type": "accessory", "price": 200, "bonus": {"str": 3}},
-    "Перстень мудрости":  {"type": "accessory", "price": 200, "bonus": {"int": 3}},
-    "Кольцо ловкости":    {"type": "accessory", "price": 200, "bonus": {"dex": 3}},
-    "Амулет мудреца":     {"type": "accessory", "price": 800, "bonus": {"int": 5, "wit": 3}},
-        # Зелья — покупаются в бою и вне боя
-    "Зелье HP":     {"type": "potion", "price": 25, "bonus": {}, "heal_hp": 30},
-    "Эликсир HP":   {"type": "potion", "price": 60, "bonus": {}, "heal_hp": 60},
-    "Зелье MP":     {"type": "potion", "price": 25, "bonus": {}, "heal_mp": 40},
-    "Эликсир MP":   {"type": "potion", "price": 60, "bonus": {}, "heal_mp": 70},
-}
-
-# ================= ПИТОМЦЫ =================
 PETS = {
-    "wolf":    {"name": "Волк",      "price": 500,  "desc": "Атака +5×(ур)",
-                "bonus": {"str": 2, "dex": 1}},
-    "owl":     {"name": "Сова",      "price": 500,  "desc": "+15% крита",
-                "bonus": {"wit": 2, "int": 1}},
-    "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход",
-                "bonus": {"str": 3, "con": 1}},
-    "phoenix": {"name": "Феникс",    "price": 3000, "desc": "Лечит 5% HP каждый раунд",
-                "bonus": {"men": 3, "con": 2}},
+    "wolf":    {"name": "Волк",      "price": 500,  "desc": "Атака +5×(ур)", "bonus": {"str": 2, "dex": 1}},
+    "owl":     {"name": "Сова",      "price": 500,  "desc": "+15% крита",   "bonus": {"wit": 2, "int": 1}},
+    "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход", "bonus": {"str": 3, "con": 1}},
+    "phoenix": {"name": "Феникс",    "price": 3000, "desc": "Лечит 5% HP каждый раунд", "bonus": {"men": 3, "con": 2}},
 }
 
-# ================= ПОДЗЕМЕЛЬЯ =================
 DUNGEONS = {
-    "goblin_cave": {"name": "Пещера гоблинов",  "level_req": 1,  "entry": 50,
-                    "rooms": 3, "reward_mult": 1.0,
+    "goblin_cave": {"name": "Пещера гоблинов",  "level_req": 1,  "entry": 50, "rooms": 3, "reward_mult": 1.0,
                     "enemies": ["Гоблин-разведчик", "Гоблин-воин", "Вождь гоблинов"]},
-    "old_ruins":   {"name": "Древние руины",    "level_req": 4,  "entry": 200,
-                    "rooms": 4, "reward_mult": 2.0,
+    "old_ruins":   {"name": "Древние руины",    "level_req": 4,  "entry": 200, "rooms": 4, "reward_mult": 2.0,
                     "enemies": ["Скелет-страж", "Проклятый рыцарь", "Каменный голем", "Древний лич"]},
-    "crypt":       {"name": "Проклятый склеп",  "level_req": 9,  "entry": 600,
-                    "rooms": 5, "reward_mult": 4.0,
+    "crypt":       {"name": "Проклятый склеп",  "level_req": 9,  "entry": 600, "rooms": 5, "reward_mult": 4.0,
                     "enemies": ["Вампир-новичок", "Призрак", "Некромант", "Тёмный жрец", "Король вампиров"]},
-    "abyss":       {"name": "Бездна",           "level_req": 16, "entry": 2000,
-                    "rooms": 5, "reward_mult": 8.0,
+    "abyss":       {"name": "Бездна",           "level_req": 16, "entry": 2000, "rooms": 5, "reward_mult": 8.0,
                     "enemies": ["Демон", "Архидемон", "Пожиратель душ", "Повелитель Бездны", "Древний дракон"]},
 }
 
-# ================= КРАФТ =================
 CRAFT_RECIPES = {
     "Стальной меч":     {"base": "Железный меч",   "count": 3, "mat": "iron",    "mat_count": 5},
     "Кольчуга":         {"base": "Кожаная броня",  "count": 3, "mat": "leather", "mat_count": 5},
@@ -175,58 +79,35 @@ CRAFT_RECIPES = {
     "Перстень мудрости":{"base": "Амулет удачи",   "count": 1, "mat": "crystal", "mat_count": 3},
 }
 
-MATERIAL_NAMES = {"iron": "железо", "leather": "кожа",
-                  "dust": "магическая пыль", "crystal": "кристалл"}
+MATERIAL_NAMES = {"iron": "железо", "leather": "кожа", "dust": "магическая пыль", "crystal": "кристалл"}
 
 DROP_TABLE = ["Кожаная броня", "Железный меч", "Амулет удачи", "Кольцо силы",
               "Кольцо ловкости", "Перстень мудрости", "Посох мага", "Лук охотника"]
 
 ACHIEVEMENTS = {
-    "first_step":  "🌟 Первый шаг",
-    "explorer_5":  "🗺 Исследователь — 5 локаций",
-    "explorer_10": "🗺 Странник — 10 локаций",
-    "explorer_all":"🌍 Покоритель мира",
-    "collector_5": "🎒 Коллекционер",
-    "level_5":     "⭐ Опытный — 5 уровень",
-    "level_10":    "👑 Ветеран — 10 уровень",
-    "level_20":    "🔥 Легенда — 20 уровень",
-    "first_boss":  "⚔️ Убийца боссов",
-    "boss_5":      "🐉 Легенда — 5 боссов",
-    "referral_3":  "👥 Друг друзей",
-    "daily_7":     "🎁 Верный игрок",
-    "rich":        "💰 Богач",
-    "equipped":    "⚔️ Снаряжён",
-    "survivor":    "💀 Выживший",
-    "first_blood": "🩸 Первая кровь",
-    "duelist":     "🗡 Дуэлянт",
-    "arena_king":  "⚜️ Гроза арены",
-    "coward":      "🏳️ Трус",
-    "graffiti":    "✍️ Летописец",
-    "social":      "👥 Общительный",
-    "pet_owner":   "🐾 Хозяин",
-    "pet_10":      "🐕 Друг навек",
-    "dungeon_1":   "🏰 Пещерный ход",
-    "dungeon_5":   "🏰 Покоритель подземелий",
-    "crafter":     "⚒️ Кузнец",
-    "upgrader":    "🔨 Улучшатель",
-    "guild_founder":"🏛 Основатель гильдии",
-    "guild_member":"🏛 Член гильдии",
-    "conqueror":   "⚔️ Захватчик",
-    "event_hunter":"🎯 Охотник за событиями",
-    "quest_master":"📜 Мастер квестов",
+    "first_step": "🌟 Первый шаг", "explorer_5": "🗺 Исследователь — 5 локаций",
+    "explorer_10": "🗺 Странник — 10 локаций", "explorer_all": "🌍 Покоритель мира",
+    "collector_5": "🎒 Коллекционер", "level_5": "⭐ Опытный — 5 уровень",
+    "level_10": "👑 Ветеран — 10 уровень", "level_20": "🔥 Легенда — 20 уровень",
+    "first_boss": "⚔️ Убийца боссов", "boss_5": "🐉 Легенда — 5 боссов",
+    "referral_3": "👥 Друг друзей", "daily_7": "🎁 Верный игрок",
+    "rich": "💰 Богач", "equipped": "⚔️ Снаряжён", "survivor": "💀 Выживший",
+    "first_blood": "🩸 Первая кровь", "duelist": "🗡 Дуэлянт",
+    "arena_king": "⚜️ Гроза арены", "coward": "🏳️ Трус",
+    "graffiti": "✍️ Летописец", "social": "👥 Общительный",
+    "pet_owner": "🐾 Хозяин", "pet_10": "🐕 Друг навек",
+    "dungeon_1": "🏰 Пещерный ход", "dungeon_5": "🏰 Покоритель подземелий",
+    "crafter": "⚒️ Кузнец", "upgrader": "🔨 Улучшатель",
+    "guild_founder": "🏛 Основатель гильдии", "guild_member": "🏛 Член гильдии",
+    "conqueror": "⚔️ Захватчик", "event_hunter": "🎯 Охотник за событиями",
+    "quest_master": "📜 Мастер квестов",
 }
 
 POTION_PRICE = 25
 POTION_HEAL = 30
-
-
-# ================= ХЕЛПЕРЫ =================
-def classes_for_race(race_code):
-    """Список классов, доступных этой расе."""
-    return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
-
-# Зелья в бою (без инвентаря — покупаются мгновенно)
-POTION_PRICE = 25
-POTION_HEAL = 30
 MP_POTION_PRICE = 25
 MP_POTION_RESTORE = 40
+
+
+def classes_for_race(race_code):
+    return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
