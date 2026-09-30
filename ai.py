@@ -100,12 +100,10 @@ ROLE_NAMES = {
 }
 DMG_NAMES = {"phys": "физический", "agile": "ловкий", "magic": "магический"}
 
-_client = None
-
-
 import time
-_last_call = 0
+
 _client = None
+_last_call = 0
 
 def _get_client():
     global _client, _last_call
