@@ -1,8 +1,10 @@
-"""Формулы: статы, HP, MP, P.Def, M.Def, урон, полоски, эмодзи."""
+"""Формулы: статы, HP, MP, P.Def, M.Def, урон, сеты."""
 import re
-
 from core.game_data import (
     SHOP, PETS, FACTIONS, RACES, CLASSES, ROLE_HP_BONUS,
+)
+from core.equipment import (
+    SLOTS, get_set_bonus,
 )
 
 
@@ -16,7 +18,6 @@ def parse_item(s):
 
 
 def calc_stats(race_code, class_code):
-    """Базовые статы = раса + бонус класса."""
     if race_code not in RACES or class_code not in CLASSES:
         return {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}
     race = RACES[race_code]["stats"].copy()
@@ -26,71 +27,85 @@ def calc_stats(race_code, class_code):
 
 
 def effective_stats(user):
-    """Статы с учётом экипировки и питомца."""
+    """Статы с учётом 7 слотов, питомца и сетов."""
     base = {
         "str": user.get("stat_str", 5), "dex": user.get("stat_dex", 5),
         "con": user.get("stat_con", 5), "int": user.get("stat_int", 5),
         "wit": user.get("stat_wit", 5), "men": user.get("stat_men", 5),
     }
-    for slot in ["equipped_weapon", "equipped_armor", "equipped_accessory"]:
-        raw = user.get(slot, "")
-        if raw:
-            name, lvl = parse_item(raw)
-            if name in SHOP:
-                for k, v in SHOP[name]["bonus"].items():
-                    bonus = int(v * (1 + lvl * 0.10))
-                    base[k] = base.get(k, 0) + bonus
+    # Все 7 слотов
+    for slot in SLOTS:
+        raw = user.get(f"equipped_{slot}", "")
+        if not raw:
+            continue
+        name, lvl = parse_item(raw)
+        if name in SHOP:
+            for k, v in SHOP[name]["bonus"].items():
+                bonus = int(v * (1 + lvl * 0.10))
+                base[k] = base.get(k, 0) + bonus
+    # Питомец
     if user.get("pet_type"):
         pet = PETS.get(user["pet_type"])
         if pet:
             for k, v in pet["bonus"].items():
                 base[k] = base.get(k, 0) + v
+    # Сетовый бонус (только DEX для light)
+    set_b = get_set_bonus(user)
+    if set_b and "dex_bonus" in set_b:
+        base["dex"] = base.get("dex", 0) + set_b["dex_bonus"]
     return base
 
 
 def get_role(user):
-    """Роль класса: tank / fighter / agile / mage / universal."""
-    cls = CLASSES.get(user.get("class", ""), {})
-    return cls.get("role", "fighter")
+    return CLASSES.get(user.get("class", ""), {}).get("role", "fighter")
 
 
 def get_dmg_type(user):
-    """Тип урона: phys / agile / magic."""
-    cls = CLASSES.get(user.get("class", ""), {})
-    return cls.get("dmg_type", "phys")
+    return CLASSES.get(user.get("class", ""), {}).get("dmg_type", "phys")
 
 
 def calc_p_def(user):
-    """Физическая защита."""
     eff = effective_stats(user)
     lvl = user.get("level", 1)
-    return int(eff["con"] * 1.5 + lvl * 2)
+    val = eff["con"] * 1.5 + lvl * 2
+    set_b = get_set_bonus(user)
+    if set_b and "pdef_mult" in set_b:
+        val *= set_b["pdef_mult"]
+    return int(val)
 
 
 def calc_m_def(user):
-    """Магическая защита."""
     eff = effective_stats(user)
     lvl = user.get("level", 1)
-    return int(eff["men"] * 1.5 + eff["int"] * 0.5 + lvl * 2)
+    val = eff["men"] * 1.5 + eff["int"] * 0.5 + lvl * 2
+    set_b = get_set_bonus(user)
+    if set_b and "mdef_mult" in set_b:
+        val *= set_b["mdef_mult"]
+    return int(val)
 
 
 def calc_max_hp(user):
-    """Максимальное HP с учётом роли и фракции."""
     eff = effective_stats(user)
     lvl = user.get("level", 1)
     role_bonus = ROLE_HP_BONUS.get(get_role(user), 10)
     hp = eff["con"] * 12 + lvl * 10 + 40 + role_bonus
+    set_b = get_set_bonus(user)
+    if set_b and "hp_mult" in set_b:
+        hp *= set_b["hp_mult"]
     f = FACTIONS.get(user.get("faction", ""), None)
     if f:
-        hp = int(hp * f["hp_mult"])
-    return hp
+        hp *= f["hp_mult"]
+    return int(hp)
 
 
 def calc_max_mp(user):
-    """Максимальное MP (для скилов)."""
     eff = effective_stats(user)
     lvl = user.get("level", 1)
-    return 50 + eff["int"] * 5 + lvl * 3
+    mp = 50 + eff["int"] * 5 + lvl * 3
+    set_b = get_set_bonus(user)
+    if set_b and "mp_mult" in set_b:
+        mp *= set_b["mp_mult"]
+    return int(mp)
 
 
 def hp_bar(current, maximum, length=10):
@@ -120,7 +135,6 @@ def faction_mult(user, key):
 
 
 def calc_damage(user):
-    """Базовый урон по типу класса."""
     eff = effective_stats(user)
     dmg_type = get_dmg_type(user)
     if dmg_type == "phys":
@@ -131,36 +145,30 @@ def calc_damage(user):
         return int(eff["int"] * 1.5 + eff["wit"])
     return int(eff["str"] * 2 + eff["dex"])
 
+
+def get_crit_chance(user):
+    """Шанс крита с учётом сета и питомца."""
+    eff = effective_stats(user)
+    base = eff["dex"]
+    if user.get("pet_type") == "owl":
+        base += 15
+    set_b = get_set_bonus(user)
+    if set_b and "crit_bonus" in set_b:
+        base += set_b["crit_bonus"]
+    return base
+
+
 def enemy_p_def(level):
-    """P.Def моба от уровня."""
     return int(level * 2 + 3)
 
 
 def enemy_m_def(level):
-    """M.Def моба от уровня."""
     return int(level * 1.5 + 2)
 
 
 def apply_defense(damage, defense):
-    """Снижение урона от защиты. Чем выше def — тем меньше проходит."""
     if defense <= 0:
         return max(1, int(damage))
     reduction = defense / (defense + 50)
     final = int(damage * (1 - reduction))
     return max(1, final)
-
-
-def get_target_def(dmg_type, target_pdef, target_mdef):
-    """Какая защита применяется против этого типа урона."""
-    if dmg_type == "magic":
-        return target_mdef
-    return target_pdef  # phys и agile идут через P.Def
-
-
-def calc_final_damage(user, target_pdef, target_mdef):
-    """Итоговый урон с учётом защиты цели. Возвращает (урон, тип)."""
-    base = calc_damage(user)
-    dmg_type = get_dmg_type(user)
-    tdef = get_target_def(dmg_type, target_pdef, target_mdef)
-    final = apply_defense(base, tdef)
-    return final, dmg_type
