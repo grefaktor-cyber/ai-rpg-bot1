@@ -1,4 +1,5 @@
 """Хендлеры боя: кнопки, скилы, зелья, подземелья."""
+import logging
 import random
 import json
 
@@ -27,8 +28,13 @@ router = Router()
 async def cb_attack(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⚔️ Бой уже завершён. Напиши, что делает герой — например «атакую волка».",
+                       show_alert=True)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр. Используй кнопки дуэли.", show_alert=True)
+        return
     await c.answer("⚔️ Атака!")
     await process_combat_round(c.message.chat.id, user, combat, "attack")
 
@@ -37,8 +43,13 @@ async def cb_attack(c: CallbackQuery):
 async def cb_defend(c: CallbackQuery):
     user = await g.db.get_user(c.from_user.id)
     combat = await g.db.get_combat(c.from_user.id)
-    if not combat or combat.get("is_pvp"):
-        await c.answer("Бой окончен."); return
+    if not combat:
+        await c.answer("⚔️ Бой уже завершён. Напиши, что делает герой.",
+                       show_alert=True)
+        return
+    if combat.get("is_pvp"):
+        await c.answer("🛡 Это не монстр.", show_alert=True)
+        return
     await c.answer("🛡 Защита")
     await process_combat_round(c.message.chat.id, user, combat, "defend")
 
