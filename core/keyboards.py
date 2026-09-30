@@ -2,8 +2,7 @@
 from aiogram.types import (InlineKeyboardMarkup, InlineKeyboardButton,
                            ReplyKeyboardMarkup, KeyboardButton)
 
-from core.game_data import SHOP, FACTIONS, GUILD_MENU_DUMMY if False else None  # заглушка
-from core.game_data import SHOP, POTION_PRICE
+from core.game_data import POTION_PRICE
 
 
 # ================= ГЛАВНОЕ МЕНЮ =================
