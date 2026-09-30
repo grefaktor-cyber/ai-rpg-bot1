@@ -249,29 +249,40 @@ class DB:
 
     # ============ ЭНЕРГИЯ ============
     async def _refresh_energy(self, uid):
-        """Пересчитать energy_max и регенерировать energy. Всё в SQL."""
+        """Пересчитать energy_max, подтянуть energy к росту max + регенерация."""
         async with self.pool.acquire() as c:
             await c.execute("""
-                UPDATE users SET
-                    energy_max = LEAST(9999, GREATEST(20,
-                        ((20 + level * 2 + referral_count * 10) *
-                         (CASE WHEN is_premium=1 THEN 1.5 ELSE 1.0 END))::int
-                    )),
-                    energy = LEAST(
-                        GREATEST(20,
-                            ((20 + level * 2 + referral_count * 10) *
+                WITH calc AS (
+                    SELECT
+                        user_id,
+                        LEAST(9999, GREATEST(20,
+                            ((20 + level * 2 + COALESCE(referral_count, 0) * 10) *
                              (CASE WHEN is_premium=1 THEN 1.5 ELSE 1.0 END))::int
-                        ),
-                        energy + GREATEST(0,
-                            FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(last_energy_regen, NOW()))) / 1800)
-                        )::int * (CASE WHEN is_premium=1 THEN 2 ELSE 1 END)
-                    ),
+                        ))::int AS new_max,
+                        COALESCE(energy, 0) AS old_energy,
+                        COALESCE(energy_max, 20) AS old_max,
+                        COALESCE(last_energy_regen, NOW()) AS old_regen,
+                        is_premium
+                    FROM users WHERE user_id = $1
+                )
+                UPDATE users u SET
+                    energy_max = calc.new_max,
+                    energy = LEAST(
+                        calc.new_max,
+                        GREATEST(0,
+                            calc.old_energy
+                            + GREATEST(0, calc.new_max - calc.old_max)
+                            + (FLOOR(EXTRACT(EPOCH FROM (NOW() - calc.old_regen)) / 1800)::int
+                               * (CASE WHEN calc.is_premium=1 THEN 2 ELSE 1 END))
+                        )
+                    )::int,
                     last_energy_regen = CASE
-                        WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(last_energy_regen, NOW()))) >= 1800
+                        WHEN EXTRACT(EPOCH FROM (NOW() - calc.old_regen)) >= 1800
                         THEN NOW()
-                        ELSE COALESCE(last_energy_regen, NOW())
+                        ELSE calc.old_regen
                     END
-                WHERE user_id = $1
+                FROM calc
+                WHERE u.user_id = calc.user_id
             """, uid)
 
     async def spend_energy(self, uid, amount=1):
