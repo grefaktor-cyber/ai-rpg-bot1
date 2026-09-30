@@ -148,17 +148,25 @@ async def newchar_cancel_cb(c: CallbackQuery):
 
 # ================= СОЗДАНИЕ ГЕРОЯ =================
 async def show_race_selection(m):
-    # Показать обычные всем, премиум — только премиум-игрокам
     u = await g.db.get_user(m.from_user.id)
-    is_prem = bool(u.get("is_premium"))
+    import json
+    try:
+        owned = set(json.loads(u.get("unlocked_premium_races") or "[]"))
+    except Exception:
+        owned = set()
+
     available = {}
     for code, r in RACES.items():
-        if r.get("premium") and not is_prem:
+        if r.get("premium") and code not in owned:
             continue
         available[code] = r
-    hint = ""
-    if not is_prem:
-        hint = "\n\n💎 <i>Премиум-расы откроются с подпиской.</i>"
+
+    all_common = sum(1 for r in RACES.values() if not r.get("premium"))
+    if len(available) == all_common:
+        hint = "\n\n💎 <i>Премиум-расы покупаются в /premium.</i>"
+    else:
+        hint = ""
+
     await g.bot.send_message(m.chat.id, "🧝 <b>Выбери расу:</b>" + hint,
                              reply_markup=race_selection_kb(available),
                              parse_mode=ParseMode.HTML)
@@ -169,11 +177,10 @@ async def on_race(c: CallbackQuery):
     code = c.data.replace("race_", "")
     if code not in RACES:
         await c.answer("Ошибка"); return
-    # Проверка премиума
     if RACES[code].get("premium"):
-        u = await g.db.get_user(c.from_user.id)
-        if not u.get("is_premium"):
-            await c.answer("💎 Только для премиум-игроков", show_alert=True); return
+        ok = await g.db.has_premium_race(c.from_user.id, code)
+        if not ok:
+            await c.answer("💎 Купи расу в /premium", show_alert=True); return
     await g.db.set_race(c.from_user.id, code)
     await g.db.set_class(c.from_user.id, "")
     await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
