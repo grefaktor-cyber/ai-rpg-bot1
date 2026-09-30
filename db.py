@@ -12,7 +12,7 @@ class DB:
         self.pool = None
 
     async def connect(self):
-        self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
             # ============ ОСНОВНЫЕ ТАБЛИЦЫ ============
             await conn.execute("""
