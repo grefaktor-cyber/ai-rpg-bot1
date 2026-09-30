@@ -5,7 +5,10 @@ from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.game_data import (
+from core.game_data import (
     RACES, CLASSES, FACTIONS, ACHIEVEMENTS, MATERIAL_NAMES, classes_for_race,
+)
+from core.titles import ACHIEVEMENT_REWARDS, TITLES, get_available_titles
 )
 from core.formulas import (
     calc_stats, effective_stats, calc_max_hp, calc_max_mp, faction_mult,
@@ -246,10 +249,41 @@ async def handle(m: Message):
             await g.db.update_mp(uid, new_mp)
             updated["mp"] = new_mp
 
+    # Проверка титулов по уровню
+    earned_ach = await g.db.get_achievements(uid)
+    codes_ach = {a["code"] for a in earned_ach}
+    avail_titles = get_available_titles(updated, codes_ach)
+    for t_code in avail_titles:
+        await g.db.add_unlocked_title(uid, t_code)
+    
     new_ach = await check_achievements(uid, updated)
     if new_ach:
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
+        # Награды
+        total_gold = 0
+        total_xp = 0
+        for c in new_ach:
+            rw = ACHIEVEMENT_REWARDS.get(c)
+            if rw:
+                total_gold += rw[0]
+                total_xp += rw[1]
+        if total_gold or total_xp:
+            await g.db.add_gold(uid, total_gold)
+            await g.db.add_xp(uid, total_xp)
+            response += f"\n💰 +{total_gold} · ⭐ +{total_xp} XP"
+        # Титулы
+        earned = await g.db.get_achievements(uid)
+        codes = {a["code"] for a in earned}
+        avail = get_available_titles(updated, codes)
+        new_titles = []
+        for code in avail:
+            if await g.db.add_unlocked_title(uid, code):
+                new_titles.append(code)
+        if new_titles:
+            t_lines = "\n".join(f"• {TITLES[c]['icon']} <b>{TITLES[c]['name']}</b>"
+                                for c in new_titles if c in TITLES)
+            response += f"\n\n🎖 <b>Новый титул!</b>\n{t_lines}\n<i>Открой /titles</i>"
 
     if is_admin:
         energy_line = "∞ (admin)"
