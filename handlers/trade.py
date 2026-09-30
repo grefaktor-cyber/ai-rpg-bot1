@@ -30,6 +30,9 @@ def _sell_price(item_name):
     base_name, lvl = parse_item(item_name)
     if base_name not in SHOP:
         return 0
+    # Эксклюзивные за Stars — нельзя продать
+    if SHOP[base_name].get("premium"):
+        return 0
     base = SHOP[base_name]["price"]
     return int(base * (1 + lvl * 0.2) * SELL_RATE)
 
@@ -78,7 +81,10 @@ async def sell_item_cb(c: CallbackQuery):
     if base_name not in SHOP:
         await c.answer("Нельзя продать", show_alert=True); return
     price = _sell_price(item_name)
-    ok = await g.db.sell_item(c.from_user.id, item_name, price)
+    if price == 0:
+        await m.answer("❌ Эксклюзивные предметы нельзя продать.")
+        return
+    ok = await g.db.sell_item(m.from_user.id, item_name, price)
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     u = await g.db.get_user(c.from_user.id)
