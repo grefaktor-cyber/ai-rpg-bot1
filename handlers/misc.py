@@ -30,10 +30,11 @@ def _help_menu_kb():
         [InlineKeyboardButton(text="🏛 Гильдии", callback_data="help_guild"),
          InlineKeyboardButton(text="💬 Чат", callback_data="help_chat")],
         [InlineKeyboardButton(text="💎 Премиум", callback_data="help_premium"),
-        [InlineKeyboardButton(text="🏆 Титулы", callback_data="help_titles"),
-         InlineKeyboardButton(text="🔗 Реф-ссылка", callback_data="ref_show")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+         InlineKeyboardButton(text="🏆 Титулы", callback_data="help_titles")],
+        [InlineKeyboardButton(text="🔗 Реф-ссылка", callback_data="ref_show"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
     ])
+
 
 # ================= ПОМОЩЬ =================
 @router.message(Command("help"))
@@ -99,18 +100,6 @@ async def help_topic(c):
             "• +5% в бою (в раунд)\n"
             "• +20% вне боя (за действие)"
         ),
-        "titles": (
-            "🏆 <b>Титулы</b>\n\n"
-            "Титулы отображаются рядом с именем.\n\n"
-            "<b>Как получить:</b>\n"
-            "• 🌟 По уровню (3, 5, 10, 15, 20, 30)\n"
-            "• 🎓 За обучение\n"
-            "• 🗡 За 5 побед в дуэлях\n"
-            "• 🐉 За 5 боссов\n"
-            "• 🏛 За создание гильдии\n"
-            "• 🏴 За захват локации\n\n"
-            "<b>Как включить:</b> /titles"
-        ),
         "economy": (
             "💰 <b>Экономика</b>\n\n"
             "<b>Заработок:</b>\n"
@@ -160,6 +149,18 @@ async def help_topic(c):
             "• /g текст — в гильдию\n"
             "• /w Ник текст — личное\n\n"
             "<i>Антиспам: 1 сообщение в 3 сек.</i>"
+        ),
+        "titles": (
+            "🏆 <b>Титулы</b>\n\n"
+            "Титулы отображаются рядом с именем.\n\n"
+            "<b>Как получить:</b>\n"
+            "• 🌟 По уровню (3, 5, 10, 15, 20, 30)\n"
+            "• 🎓 За обучение\n"
+            "• 🗡 За 5 побед в дуэлях\n"
+            "• 🐉 За 5 боссов\n"
+            "• 🏛 За создание гильдии\n"
+            "• 🏴 За захват локации\n\n"
+            "<b>Как включить:</b> /titles"
         ),
         "premium": (
             "💎 <b>Премиум</b>\n\n"
