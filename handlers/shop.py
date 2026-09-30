@@ -45,9 +45,9 @@ async def shop(m: Message):
     for cat_type, label in categories:
         cat_items = []
         for name, data in SHOP.items():
-            # Фильтр по типу категории
+            # Фильтр по категории
             if cat_type == "accessory":
-                if data["type"] not in ("accessory",):
+                if data["type"] != "accessory":
                     continue
             elif cat_type == "shield":
                 if data["type"] != "shield":
@@ -56,15 +56,16 @@ async def shop(m: Message):
                 if data["type"] != cat_type:
                     continue
 
-            # Проверка доступа
+            # Проверка доступа по классу
             if data["type"] == "potion":
                 can_use = True
             else:
                 can_use = can_use_item(u["class"], name)
             if not can_use:
                 continue
-            level_ok = u["level"] >= data.get("level_req", 1)
-            if not level_ok:
+
+            # Проверка уровня
+            if u["level"] < data.get("level_req", 1):
                 continue
 
             price = int(data["price"] * shop_mult)
@@ -93,9 +94,9 @@ async def shop(m: Message):
         text += "\n"
 
     if not buttons:
-        text += "<i>Нет доступных предметов для твоего класса.</i>"
+        text += "<i>Нет доступных предметов для твоего класса.</i>\n"
 
-    text += "🔷 = D-грейд · 🔶 = C-грейд"
+    text += "\n🔷 = D-грейд · 🔶 = C-грейд · Без метки = Обычный"
     rows = buttons + [[InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")]]
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                    parse_mode=ParseMode.HTML)
@@ -167,23 +168,20 @@ async def _do_equip(uid, item_name, message, cb=None):
         await (cb.answer(msg, show_alert=True) if cb else message.answer(msg))
         return
     data = SHOP[base_name]
-    if data["type"] in ("potion",):
+    if data["type"] == "potion":
         msg = "❌ Не экипируется."
         await (cb.answer(msg, show_alert=True) if cb else message.answer(msg))
         return
 
     user = await g.db.get_user(uid)
-    # Проверка класса
     if not can_use_item(user["class"], base_name):
         msg = "❌ Твой класс не может носить это."
         await (cb.answer(msg, show_alert=True) if cb else message.answer(msg))
         return
-    # Проверка уровня
     if user["level"] < data.get("level_req", 1):
         msg = f"❌ Нужен {data['level_req']} уровень."
         await (cb.answer(msg, show_alert=True) if cb else message.answer(msg))
         return
-    # Проверка инвентаря
     inv = await g.db.get_inventory(uid)
     if not any(i["item_name"] == item_name for i in inv):
         msg = "❌ Нет в инвентаре."
@@ -196,7 +194,6 @@ async def _do_equip(uid, item_name, message, cb=None):
     if old:
         await g.db.add_item(uid, old)
 
-    # Пересчёт HP/MP
     u = await g.db.get_user(uid)
     new_max_hp = calc_max_hp(u)
     new_max_mp = calc_max_mp(u)
@@ -265,10 +262,9 @@ async def inventory(m: Message):
                                       for k, v in data["bonus"].items())
                 suffix = f" (+{lvl})" if lvl else ""
                 lines.append(f"• {g_icon} {name}{suffix} — {bonus_str}")
-                # Доступен классу?
                 if can_use_item(u["class"], name):
                     rows.append([
-                        InlineKeyboardButton(text=f"⚔️ Надеть {name[:12]}",
+                        InlineKeyboardButton(text=f"⚔️ {name[:12]}",
                                              callback_data=f"equip_item_{it['item_name']}"),
                         InlineKeyboardButton(text="💰",
                                              callback_data=f"sell_item_{it['item_name']}"),
@@ -283,13 +279,11 @@ async def inventory(m: Message):
         else:
             lines.append(f"• {it['item_name']}")
 
-    # Экипировано
     lines.append("\n<b>Экипировано:</b>")
     for slot in SLOTS:
         val = u.get(f"equipped_{slot}") or "—"
         lines.append(f"{SLOT_NAMES[slot]}: {val}")
 
-    # Сетовый бонус?
     from core.equipment import get_set_bonus
     set_b = get_set_bonus(u)
     if set_b:
