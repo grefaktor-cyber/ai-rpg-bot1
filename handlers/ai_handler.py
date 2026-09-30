@@ -15,7 +15,7 @@ from core.keyboards import (
 )
 from core.texts import EXCLUDE_FROM_AI
 from config import ADMIN_IDS, AI_MARKER
-from handlers.onboarding import run_tutorial
+from handlers.onboarding import offer_tutorial
 from services.combat_service import start_combat_from_ai
 import world as W
 import ai
@@ -114,7 +114,7 @@ async def handle(m: Message):
             f"❤️ HP: {hp} · 💧 MP: {mp} · 💰 100\n\n"
             f"📍 Начальная деревня.",
             reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-        await run_tutorial(uid, m.chat.id)
+        await offer_tutorial(m.chat.id, uid)
         return
 
     # Если в бою — кнопки
