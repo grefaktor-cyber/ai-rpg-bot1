@@ -25,12 +25,15 @@ def _boss_text(boss, damage_list, u):
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
     bar = _hp_bar(boss["current_hp"], boss["max_hp"])
 
-    text = (f"🐉 <b>{boss_data.get('name', '?')}</b> "
+    dmg_type = boss_data.get("dmg_type", "phys")
+    dmg_type_icon = "🔮 Магия" if dmg_type == "magic" else "⚔️ Физика"
+    text += (f"🐉 <b>{boss_data.get('name', '?')}</b> "
             f"(Ур. {boss_data.get('level', '?')})\n"
             f"<i>{boss_data.get('desc', '')}</i>\n\n"
             f"{bar}\n"
             f"HP: <b>{boss['current_hp']}/{boss['max_hp']}</b>\n"
-            f"⚔️ Урон в ответ: ~{boss_data.get('attack_dmg', 100)}\n\n")
+            f"⚔️ Урон: ~{boss_data.get('attack_dmg', 100)} ({dmg_type_icon})\n"
+            f"<i>Твоя {'M.Def' if dmg_type == 'magic' else 'P.Def'} защищает</i>\n\n")
 
     # HP игрока
     hp_pct = int((u["hp"] / max(1, u["max_hp"])) * 100)
