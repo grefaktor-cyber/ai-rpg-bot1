@@ -35,7 +35,7 @@ async def add_attack(c: CallbackQuery):
         await c.answer("Бой завершён", show_alert=True); return
     ok, reason = await queue_action(c.from_user.id, "attack")
     if not ok:
-        await c.answer("Очередь полна (3 действия)", show_alert=True); return
+        await c.answer("Очередь полна (4 действия)", show_alert=True); return
     await c.answer("⚔️ +Атака")
     user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
