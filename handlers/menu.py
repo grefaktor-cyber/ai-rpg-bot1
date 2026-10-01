@@ -72,11 +72,12 @@ async def cb_progress(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ЗАПУСК РАЗДЕЛОВ (через fake_message) =================
+# ================= ЗАПУСК РАЗДЕЛОВ =================
 async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
     """Запустить xxx_cmd(fake_message) с правильным from_user.
-    Удаляем меню бота, чтобы не копилось."""
-    # Сохраняем ссылку на message ДО удаления
+    Отслеживаем 'затуп' игрока — если 3 раза подряд ошибка, предложить /help."""
+    from services.hints import register_lost_action, clear_lost, check_lost_hint
+
     msg_obj = c.message
     try:
         await msg_obj.delete()
@@ -93,6 +94,7 @@ async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
         module = __import__(f"handlers.{module_name}", fromlist=[func_name])
         func = getattr(module, func_name)
         await func(msg)
+        clear_lost(c.from_user.id)
     except Exception as e:
         import logging
         logging.error(f"_run_cmd {module_name}.{func_name}: {e}")
@@ -100,6 +102,9 @@ async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
             await msg_obj.answer("⚠️ Ошибка открытия раздела.")
         except Exception:
             pass
+        # Регистрируем "затуп"
+        if register_lost_action(c.from_user.id):
+            await check_lost_hint(c.from_user.id, c.message.chat.id)
 
 
 @router.callback_query(F.data == "menu_inv")
@@ -130,7 +135,7 @@ async def cb_quests(c: CallbackQuery):
 @router.callback_query(F.data == "menu_dungeon")
 async def cb_dungeon(c: CallbackQuery):
     await _run_cmd(c, "combat", "dungeon_cmd")
-    
+
 
 @router.callback_query(F.data == "menu_map")
 async def cb_map(c: CallbackQuery):
