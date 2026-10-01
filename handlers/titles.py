@@ -68,10 +68,8 @@ async def _show_menu(chat_id, u):
 
 @router.callback_query(F.data == "title_close")
 async def title_close(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
 
 
