@@ -1,4 +1,4 @@
-"""Inline-меню категорий главного меню + автоочистка."""
+"""Inline-меню категорий + запуск разделов через fake_message."""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
@@ -7,7 +7,7 @@ from core import globals as g
 from core.keyboards import (
     menu_game_kb, menu_social_kb, menu_progress_kb,
 )
-from services.ui import send_menu
+from services.ui import send_menu, fake_message
 
 router = Router()
 
@@ -18,8 +18,7 @@ async def menu_game(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "🎮 <b>Игра</b>\n\nВыбери раздел:",
-                    menu_game_kb())
+    await send_menu(m, "🎮 <b>Игра</b>\n\nВыбери раздел:", menu_game_kb())
 
 
 @router.message(F.text == "👥 Социум")
@@ -27,8 +26,7 @@ async def menu_social(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "👥 <b>Социум</b>\n\nВыбери раздел:",
-                    menu_social_kb())
+    await send_menu(m, "👥 <b>Социум</b>\n\nВыбери раздел:", menu_social_kb())
 
 
 @router.message(F.text == "📊 Прогресс")
@@ -36,8 +34,7 @@ async def menu_progress(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "📊 <b>Прогресс</b>\n\nВыбери раздел:",
-                    menu_progress_kb())
+    await send_menu(m, "📊 <b>Прогресс</b>\n\nВыбери раздел:", menu_progress_kb())
 
 
 # ================= CALLBACK'И КАТЕГОРИЙ =================
@@ -75,104 +72,70 @@ async def cb_progress(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ЗАПУСК РАЗДЕЛОВ =================
-@router.callback_query(F.data == "menu_inv")
-async def cb_inv(c: CallbackQuery):
-    await c.answer()
+# ================= ЗАПУСК РАЗДЕЛОВ (через fake_message) =================
+async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
+    """Запустить xxx_cmd(c.message) с правильным from_user."""
     try:
         await c.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    from handlers.inventory import inventory_cmd
-    await inventory_cmd(c.message)
+    await c.answer()
+    try:
+        module = __import__(f"handlers.{module_name}", fromlist=[func_name])
+        func = getattr(module, func_name)
+        await func(fake_message(c))
+    except Exception as e:
+        import logging
+        logging.error(f"_run_cmd {module_name}.{func_name}: {e}")
+        try:
+            await c.message.answer("⚠️ Ошибка открытия раздела.")
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data == "menu_inv")
+async def cb_inv(c: CallbackQuery):
+    await _run_cmd(c, "inventory", "inventory_cmd")
 
 
 @router.callback_query(F.data == "menu_shop")
 async def cb_shop(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.shop import shop
-    await shop(c.message)
+    await _run_cmd(c, "shop", "shop")
 
 
 @router.callback_query(F.data == "menu_skills")
 async def cb_skills(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.skills import skills_cmd
-    await skills_cmd(c.message)
+    await _run_cmd(c, "skills", "skills_cmd")
 
 
 @router.callback_query(F.data == "menu_craft")
 async def cb_craft(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.craft import craft_cmd
-    await craft_cmd(c.message)
+    await _run_cmd(c, "craft", "craft_cmd")
 
 
 @router.callback_query(F.data == "menu_quests")
 async def cb_quests(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.quests import quests_cmd
-    await quests_cmd(c.message)
+    await _run_cmd(c, "quests", "quests_cmd")
 
 
 @router.callback_query(F.data == "menu_dungeon")
 async def cb_dungeon(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.combat import dungeon_cmd
-    await dungeon_cmd(c.message)
+    await _run_cmd(c, "combat", "dungeon_cmd")
 
 
 @router.callback_query(F.data == "menu_who")
 async def cb_who(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.travel import who_cmd
-    await who_cmd(c.message)
+    await _run_cmd(c, "travel", "who_cmd")
 
 
 @router.callback_query(F.data == "menu_guild")
 async def cb_guild(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.guild import guild_cmd
-    await guild_cmd(c.message)
+    await _run_cmd(c, "guild", "guild_cmd")
 
 
 @router.callback_query(F.data == "menu_chat")
 async def cb_chat(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.chat import chat_cmd
-    await chat_cmd(c.message)
+    await _run_cmd(c, "chat", "chat_cmd")
 
 
 @router.callback_query(F.data == "menu_trade")
@@ -187,87 +150,39 @@ async def cb_duel_info(c: CallbackQuery):
 
 @router.callback_query(F.data == "menu_profile")
 async def cb_profile(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.profile import stats_cmd
-    await stats_cmd(c.message)
+    await _run_cmd(c, "profile", "stats_cmd")
 
 
 @router.callback_query(F.data == "menu_ach")
 async def cb_ach(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.profile import achievements_cmd
-    await achievements_cmd(c.message)
+    await _run_cmd(c, "profile", "achievements_cmd")
 
 
 @router.callback_query(F.data == "menu_top")
 async def cb_top(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.profile import top_cmd
-    await top_cmd(c.message)
+    await _run_cmd(c, "profile", "top_cmd")
 
 
 @router.callback_query(F.data == "menu_daily")
 async def cb_daily(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.daily_premium import daily
-    await daily(c.message)
+    await _run_cmd(c, "daily_premium", "daily")
 
 
 @router.callback_query(F.data == "menu_journal")
 async def cb_journal(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.journal import journal_cmd
-    await journal_cmd(c.message)
+    await _run_cmd(c, "journal", "journal_cmd")
 
 
 @router.callback_query(F.data == "menu_premium")
 async def cb_premium(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.premium import premium_cmd
-    await premium_cmd(c.message)
+    await _run_cmd(c, "premium", "premium_cmd")
 
 
 @router.callback_query(F.data == "menu_pet")
 async def cb_pet(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.pets import pet_cmd
-    await pet_cmd(c.message)
+    await _run_cmd(c, "pets", "pet_cmd")
 
 
 @router.callback_query(F.data == "menu_titles")
 async def cb_titles(c: CallbackQuery):
-    await c.answer()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    from handlers.titles import titles_cmd
-    await titles_cmd(c.message)
+    await _run_cmd(c, "titles", "titles_cmd")
