@@ -16,7 +16,8 @@ def main_kb():
             [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
             [KeyboardButton(text="🏛 Гильдия"),   KeyboardButton(text="✨ Скилы")],
             [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
-            [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="🐉 Боссы")],
+            [KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
         input_field_placeholder="Что делает герой?"
