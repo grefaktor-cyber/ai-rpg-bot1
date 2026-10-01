@@ -2,6 +2,7 @@
 import logging
 
 from aiogram.enums import ParseMode
+from aiogram.types import CallbackQuery
 
 
 # Запоминаем последнее меню бота: uid -> message_id
@@ -59,7 +60,7 @@ async def send_menu(m, text, kb=None, uid=None):
 
 
 async def edit_or_send(c, text, kb=None):
-    """Для callback: пытается edit_text, иначе send_message + запоминает."""
+    """Для callback: пытается edit_text, иначе send_message."""
     try:
         await c.message.edit_text(text, reply_markup=kb,
                                    parse_mode=ParseMode.HTML)
@@ -73,11 +74,9 @@ async def edit_or_send(c, text, kb=None):
             return None
 
 
-
-
 async def close_menu(c: CallbackQuery):
     """Удалить сообщение с inline-меню при нажатии «Закрыть».
-    Если удалить нельзя (например, уже удалено) — просто убираем кнопки.
+    Если удалить нельзя — просто убираем кнопки.
     """
     try:
         await c.message.delete()
