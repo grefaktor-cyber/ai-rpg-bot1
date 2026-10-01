@@ -1,15 +1,14 @@
-"""Меню скилов: просмотр, настройка слотов, прокачка."""
+"""Меню скилов + изучение книг."""
 import json
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.skills import (
-    available_skills, get_skill, skill_level,
-)
+from core.skills import available_skills, get_skill
+from core.books import SKILL_BOOKS
 from core.keyboards import (
     main_kb, skills_main_kb, skills_back_kb,
     skills_slot_choice_kb, skills_upgrade_kb,
@@ -33,8 +32,16 @@ def _load_active(user):
         return []
 
 
+def _load_learned_books(user):
+    try:
+        return set(json.loads(user.get("learned_books") or "[]"))
+    except Exception:
+        return set()
+
+
 def _render_main(user):
-    available = available_skills(user)
+    learned_books = _load_learned_books(user)
+    available = available_skills(user, learned_books)
     active = _load_active(user)
     learned = _load_learned(user)
     sp = user.get("skill_points", 0)
@@ -55,8 +62,10 @@ def _render_main(user):
         else:
             text += f"{i+1}. <i>(пусто)</i>\n"
 
-    text += f"\n<b>Всего доступно скилов:</b> {len(available)}\n"
-    text += f"<i>Уровень {user['level']} · Скилы открываются по мере прокачки</i>"
+    book_skills = [s for s in available if s.get("source") == "book"]
+    text += f"\n<b>Всего скилов:</b> {len(available)}"
+    if book_skills:
+        text += f" (из книг: {len(book_skills)})"
     return text
 
 
@@ -101,18 +110,18 @@ async def skills_noop_cb(c: CallbackQuery):
 @router.callback_query(F.data == "skills_list")
 async def skills_list_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
-    available = available_skills(u)
+    learned_books = _load_learned_books(u)
+    available = available_skills(u, learned_books)
     learned = _load_learned(u)
 
     text = "📚 <b>Все доступные скилы</b>\n\n"
     for s in available:
         lvl = learned.get(s["code"], 1)
+        src = " 📖" if s.get("source") == "book" else ""
         if s["effect"] == "passive":
-            text += f"🟢 <b>{s['name']}</b> (пассив)\n"
-            text += f"   {s['desc']}\n\n"
+            text += f"🟢 <b>{s['name']}</b> (пассив){src}\n   {s['desc']}\n\n"
         else:
-            text += f"• <b>{s['name']}</b> (ур.{lvl})\n"
-            text += f"   {s['mp_cost']} MP · {s['desc']}\n\n"
+            text += f"• <b>{s['name']}</b> (ур.{lvl}){src}\n   {s['mp_cost']} MP · {s['desc']}\n\n"
 
     if len(text) > 3500:
         text = text[:3500] + "\n<i>...список обрезан</i>"
@@ -126,7 +135,96 @@ async def skills_list_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= НАСТРОЙКА СЛОТОВ =================
+# ================= ИЗУЧЕНИЕ КНИГ =================
+@router.callback_query(F.data == "skills_learn_menu")
+async def skills_learn_menu(c: CallbackQuery):
+    u = await g.db.get_user(c.from_user.id)
+    inv = await g.db.get_inventory(c.from_user.id)
+    books_in_inv = []
+    for it in inv:
+        name = it["item_name"]
+        # Книги обозначаются по имени из SKILL_BOOKS
+        for code, b in SKILL_BOOKS.items():
+            if b["name"] == name:
+                books_in_inv.append((code, b))
+                break
+
+    learned_books = _load_learned_books(u)
+
+    text = "📖 <b>Изучение книг</b>\n\n"
+    if not books_in_inv:
+        text += "<i>В инвентаре нет книг.</i>\n\n"
+        text += "💡 <b>Где найти книги:</b>\n"
+        text += "• 3-5% шанс с боссов локаций\n"
+        text += "• Мировые боссы — чаще\n"
+        text += "• Еженедельные квесты\n"
+    else:
+        text += "Нажми на книгу, чтобы изучить:\n\n"
+
+    rows = []
+    for code, b in books_in_inv:
+        already = code in learned_books
+        # Проверка класса
+        user_class = u.get("class", "")
+        if b.get("class") and b["class"] != user_class:
+            text += f"❌ {b['name']} — не твой класс ({b['class']})\n"
+            continue
+        if already:
+            text += f"✅ {b['name']} — изучено\n"
+            continue
+        text += f"• {b['name']}\n"
+        rows.append([InlineKeyboardButton(
+            text=f"📖 Изучить: {b['name']}",
+            callback_data=f"learn_book_{code}"
+        )])
+
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
+
+    try:
+        await c.message.edit_text(text,
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                                  parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text,
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                               parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("learn_book_"))
+async def learn_book_cb(c: CallbackQuery):
+    code = c.data.replace("learn_book_", "")
+    b = SKILL_BOOKS.get(code)
+    if not b:
+        await c.answer("Книга не найдена"); return
+
+    u = await g.db.get_user(c.from_user.id)
+    if b.get("class") and b["class"] != u.get("class"):
+        await c.answer("❌ Не твой класс", show_alert=True); return
+
+    inv = await g.db.get_inventory(c.from_user.id)
+    has = any(i["item_name"] == b["name"] for i in inv)
+    if not has:
+        await c.answer("❌ Нет книги в инвентаре", show_alert=True); return
+
+    # Убираем книгу из инвентаря, добавляем в learned_books
+    await g.db.remove_item(c.from_user.id, b["name"])
+    ok = await g.db.learn_book(c.from_user.id, code)
+    if not ok:
+        await c.answer("Уже изучено"); return
+
+    await c.answer("✅ Скилл изучен!")
+    await c.message.answer(
+        f"📖 <b>Скилл изучен!</b>\n\n"
+        f"<b>{b['name']}</b>\n\n"
+        f"Открой ✨ Скилы → «📚 Все скилы», чтобы увидеть его в пуле.\n"
+        f"Поставь в слот через «🎯 Настроить слоты».",
+        reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    # Обновляем меню
+    await skills_learn_menu(c)
+
+
+# ================= СЛОТЫ =================
 @router.callback_query(F.data == "skills_slots")
 async def skills_slots_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
@@ -141,18 +239,19 @@ async def skills_slots_cb(c: CallbackQuery):
             text += f"{i+1}. <i>(пусто)</i>\n"
     text += "\n<i>Выбери слот для изменения:</i>"
 
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     rows = [
-        [InlineKeyboardButton(text=f"Слот 1", callback_data="skills_slot_1")],
-        [InlineKeyboardButton(text=f"Слот 2", callback_data="skills_slot_2")],
-        [InlineKeyboardButton(text=f"Слот 3", callback_data="skills_slot_3")],
+        [InlineKeyboardButton(text="Слот 1", callback_data="skills_slot_1")],
+        [InlineKeyboardButton(text="Слот 2", callback_data="skills_slot_2")],
+        [InlineKeyboardButton(text="Слот 3", callback_data="skills_slot_3")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")],
     ]
     try:
-        await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        await c.message.edit_text(text,
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                                   parse_mode=ParseMode.HTML)
     except Exception:
-        await c.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        await c.message.answer(text,
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                                parse_mode=ParseMode.HTML)
     await c.answer()
 
@@ -163,8 +262,8 @@ async def skills_slot_pick_cb(c: CallbackQuery):
     if slot_num not in (1, 2, 3):
         await c.answer("Ошибка"); return
     u = await g.db.get_user(c.from_user.id)
-    available = available_skills(u)
-    # Только не-пассивные
+    learned_books = _load_learned_books(u)
+    available = available_skills(u, learned_books)
     active_skills = [s for s in available if s["effect"] != "passive"]
     if not active_skills:
         await c.answer("Нет доступных активных скилов", show_alert=True); return
@@ -183,7 +282,6 @@ async def skills_slot_pick_cb(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("skills_set_"))
 async def skills_set_cb(c: CallbackQuery):
-    # Формат: skills_set_<slot>_<code>
     parts = c.data.split("_", 3)
     if len(parts) < 4:
         await c.answer("Ошибка"); return
@@ -198,13 +296,10 @@ async def skills_set_cb(c: CallbackQuery):
 
     u = await g.db.get_user(c.from_user.id)
     active = _load_active(u)
-    # Расширяем до 3
     while len(active) < 3:
         active.append("")
     active[slot_num - 1] = code
-    # Фильтруем пустые
     active = [x for x in active if x]
-    # Убираем дубликаты
     seen = set()
     unique = []
     for x in active:
@@ -215,7 +310,6 @@ async def skills_set_cb(c: CallbackQuery):
 
     await g.db.set_active_skills(c.from_user.id, json.dumps(active))
     await c.answer(f"✅ Слот {slot_num}: {s['name']}")
-    # Перерисовать меню слотов
     await skills_slots_cb(c)
 
 
@@ -226,12 +320,13 @@ async def skills_upgrade_cb(c: CallbackQuery):
     sp = u.get("skill_points", 0)
     if sp <= 0:
         await c.answer("Нет очков умений. Получай уровни!", show_alert=True); return
-    available = available_skills(u)
+    learned_books = _load_learned_books(u)
+    available = available_skills(u, learned_books)
     learned = _load_learned(u)
     text = (f"⬆️ <b>Прокачка скилов</b>\n\n"
             f"🎯 Очки умений: <b>{sp}</b>\n\n"
             f"<i>Одно очко = +1 уровень скила (макс ур.3).\n"
-            f"Каждый уровень скила: +15% к эффекту.</i>\n\n"
+            f"Каждый уровень: +15% к эффекту.</i>\n\n"
             f"Выбери скил:")
     try:
         await c.message.edit_text(text,
@@ -250,23 +345,16 @@ async def skills_up_cb(c: CallbackQuery):
     s = get_skill(code)
     if not s or s["effect"] == "passive":
         await c.answer("Нельзя прокачать"); return
-
     u = await g.db.get_user(c.from_user.id)
     sp = u.get("skill_points", 0)
     if sp <= 0:
         await c.answer("Нет очков", show_alert=True); return
-
     learned = _load_learned(u)
     cur = learned.get(code, 1)
     if cur >= 3:
         await c.answer("Уже максимум"); return
-
     learned[code] = cur + 1
     await g.db.set_learned_skills(c.from_user.id, json.dumps(learned))
     await g.db.spend_skill_point(c.from_user.id)
-
-    new_lvl = learned[code]
-    await c.answer(f"✅ {s['name']} → ур.{new_lvl}")
-
-    # Перерисовать
+    await c.answer(f"✅ {s['name']} → ур.{learned[code]}")
     await skills_upgrade_cb(c)
