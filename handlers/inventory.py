@@ -368,41 +368,93 @@ async def inv_close_cb(c: CallbackQuery):
 # ================= ПОИСК =================
 @router.callback_query(F.data == "inv_search_start")
 async def inv_search_start(c: CallbackQuery, state: FSMContext):
+    """Редактируем ТЕКУЩЕЕ сообщение в "Введи название" — без создания нового."""
     await state.set_state(InvSearchState.waiting_query)
+    await state.update_data(
+        search_chat_id=c.message.chat.id,
+        search_msg_id=c.message.message_id,
+    )
+    try:
+        await c.message.edit_text(
+            "🔍 <b>Поиск по инвентарю</b>\n\n"
+            "Введи название предмета (можно частично):\n"
+            "<i>Например: «клинок», «зелье», «меч»</i>",
+            reply_markup=inv_search_cancel_kb(),
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(
+            "🔍 <b>Поиск по инвентарю</b>\n\n"
+            "Введи название предмета (можно частично):\n"
+            "<i>Например: «клинок», «зелье», «меч»</i>",
+            reply_markup=inv_search_cancel_kb(),
+            parse_mode=ParseMode.HTML)
     await c.answer()
-    await c.message.answer(
-        "🔍 <b>Поиск по инвентарю</b>\n\n"
-        "Введи название предмета (можно частично):\n"
-        "<i>Например: «клинок», «зелье», «меч»</i>",
-        reply_markup=inv_search_cancel_kb(),
-        parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "inv_search_cancel")
 async def inv_search_cancel(c: CallbackQuery, state: FSMContext):
+    """Отмена — возвращаем меню инвентаря в то же сообщение."""
     await state.clear()
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    u = await g.db.get_user(c.from_user.id)
+    items = await g.db.get_inventory(c.from_user.id)
+    await _show_main(c.message.chat.id, u, items, edit_message=c.message)
     await c.answer("Отменено")
 
 
 @router.message(InvSearchState.waiting_query, F.text)
 async def inv_search_process(m: Message, state: FSMContext):
+    """Результаты поиска показываем в ТОМ ЖЕ сообщении (edit_text)."""
+    data = await state.get_data()
+    chat_id = data.get("search_chat_id")
+    msg_id = data.get("search_msg_id")
     await state.clear()
+
     query = m.text.strip().lower()
     if len(query) < 2:
-        await m.answer("Слишком коротко. Введи хотя бы 2 символа."); return
+        # Редактируем сообщение — ошибка, но не закрываем
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ]])
+        err = "⚠️ Слишком короткий запрос. Введи хотя бы 2 символа."
+        try:
+            await g.bot.edit_message_text(
+                chat_id=chat_id, message_id=msg_id, text=err,
+                reply_markup=kb, parse_mode=ParseMode.HTML)
+        except Exception:
+            await m.answer(err, reply_markup=kb, parse_mode=ParseMode.HTML)
+        return
+
     inv = await g.db.get_inventory(m.from_user.id)
     if not inv:
-        await m.answer("🎒 Инвентарь пуст.", reply_markup=main_kb()); return
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ]])
+        try:
+            await g.bot.edit_message_text(
+                chat_id=chat_id, message_id=msg_id,
+                text="🎒 Инвентарь пуст.",
+                reply_markup=kb, parse_mode=ParseMode.HTML)
+        except Exception:
+            await m.answer("🎒 Инвентарь пуст.", reply_markup=kb)
+        return
+
     matches = [it for it in inv if query in it["item_name"].lower()]
     if not matches:
-        await m.answer(
-            f"❌ Ничего не найдено по запросу: <code>{query}</code>",
-            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ]])
+        err = f"❌ Ничего не найдено: <code>{query}</code>"
+        try:
+            await g.bot.edit_message_text(
+                chat_id=chat_id, message_id=msg_id, text=err,
+                reply_markup=kb, parse_mode=ParseMode.HTML)
+        except Exception:
+            await m.answer(err, reply_markup=kb, parse_mode=ParseMode.HTML)
         return
+
     text = f"🔍 <b>Найдено {len(matches)}:</b>\n\n"
     rows = []
     for it in matches[:20]:
@@ -410,6 +462,21 @@ async def inv_search_process(m: Message, state: FSMContext):
         rows.append([InlineKeyboardButton(
             text=f"📦 {_short(it['item_name'], 24)}",
             callback_data=f"inv_item_{it['item_name']}")])
-    rows.append(_back_close_row("inv_menu"))
-    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                   parse_mode=ParseMode.HTML)
+    rows.append([
+        InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    try:
+        await g.bot.edit_message_text(
+            chat_id=chat_id, message_id=msg_id, text=text,
+            reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        await m.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+
+    # Удаляем сообщение игрока с запросом (чистота)
+    try:
+        await m.delete()
+    except Exception:
+        pass
