@@ -383,6 +383,10 @@ class DB:
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS phoenix_used INTEGER DEFAULT 0",
                 "ALTER TABLE player_journal ADD COLUMN IF NOT EXISTS entry_type TEXT DEFAULT 'event'",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS pending_actions TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS learned_books TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS known_recipes TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS rare_materials TEXT DEFAULT '{}'",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS spoil_used INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -505,6 +509,9 @@ class DB:
             "active_title": "", "unlocked_titles": "[]",
             "unlocked_premium_classes": "[]",
             "unlocked_cosmetics": "[]",
+            "learned_books": "[]",
+            "known_recipes": "[]",
+            "rare_materials": "{}",
         }
 
     async def give_consent(self, uid):
@@ -1885,6 +1892,128 @@ class DB:
             await c.execute(
                 "UPDATE active_combat SET pending_actions='[]' WHERE user_id=$1",
                 uid
+            )
+
+    # ============ КНИГИ СКИЛЛОВ ============
+    async def learn_book(self, uid, skill_code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT learned_books FROM users WHERE user_id=$1", uid
+            )
+            if not row: return False
+            try:
+                arr = json.loads(row["learned_books"] or "[]")
+            except Exception:
+                arr = []
+            if skill_code in arr: return False
+            arr.append(skill_code)
+            await c.execute(
+                "UPDATE users SET learned_books=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
+
+    async def get_learned_books(self, uid):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT learned_books FROM users WHERE user_id=$1", uid
+            )
+            if not row: return []
+            try:
+                return json.loads(row["learned_books"] or "[]")
+            except Exception:
+                return []
+
+    # ============ РЕЦЕПТЫ ============
+    async def learn_recipe(self, uid, recipe_name):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT known_recipes FROM users WHERE user_id=$1", uid
+            )
+            if not row: return False
+            try:
+                arr = json.loads(row["known_recipes"] or "[]")
+            except Exception:
+                arr = []
+            if recipe_name in arr: return False
+            arr.append(recipe_name)
+            await c.execute(
+                "UPDATE users SET known_recipes=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
+
+    async def get_known_recipes(self, uid):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT known_recipes FROM users WHERE user_id=$1", uid
+            )
+            if not row: return []
+            try:
+                return json.loads(row["known_recipes"] or "[]")
+            except Exception:
+                return []
+
+    # ============ РЕДКИЕ МАТЕРИАЛЫ ============
+    async def add_rare_material(self, uid, mat_code, amount=1):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT rare_materials FROM users WHERE user_id=$1", uid
+            )
+            if not row: return
+            try:
+                d = json.loads(row["rare_materials"] or "{}")
+            except Exception:
+                d = {}
+            d[mat_code] = d.get(mat_code, 0) + amount
+            await c.execute(
+                "UPDATE users SET rare_materials=$1 WHERE user_id=$2",
+                json.dumps(d), uid
+            )
+
+    async def get_rare_materials(self, uid):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT rare_materials FROM users WHERE user_id=$1", uid
+            )
+            if not row: return {}
+            try:
+                return json.loads(row["rare_materials"] or "{}")
+            except Exception:
+                return {}
+
+    async def spend_rare_material(self, uid, mat_code, amount):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT rare_materials FROM users WHERE user_id=$1", uid
+            )
+            if not row: return False
+            try:
+                d = json.loads(row["rare_materials"] or "{}")
+            except Exception:
+                return False
+            if d.get(mat_code, 0) < amount: return False
+            d[mat_code] -= amount
+            if d[mat_code] <= 0:
+                del d[mat_code]
+            await c.execute(
+                "UPDATE users SET rare_materials=$1 WHERE user_id=$2",
+                json.dumps(d), uid
+            )
+            return True
+
+    # ============ СПОЙЛ ============
+    async def set_combat_spoil_used(self, uid):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET spoil_used=1 WHERE user_id=$1", uid
             )
     
     async def cleanup_chat(self, days=7):
