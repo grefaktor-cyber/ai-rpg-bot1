@@ -60,7 +60,8 @@ async def _show_main_menu(chat_id, u):
         [InlineKeyboardButton(text="🧪 Расходники", callback_data="prem_cat_consum")],
         [InlineKeyboardButton(text="✨ Косметика", callback_data="prem_cat_cosmetics")],
         [InlineKeyboardButton(text="📦 Наборы", callback_data="prem_cat_bundles")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="prem_close")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="prem_close")],
     ]
     await g.bot.send_message(chat_id, text,
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
