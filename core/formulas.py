@@ -282,6 +282,31 @@ def regen_between_rooms(user, hp_pct=0.20, mp_pct=0.30):
     new_mp = min(max_mp, mp + int(max_mp * mp_pct)) if max_mp > 0 else 0
     return new_hp, new_mp
 
+# ================= УРОН БОССА С УЧЁТОМ ЗАЩИТЫ =================
+def calc_boss_damage_to_player(user, boss_data, phase_mult=1.0):
+    """Рассчитать урон босса по игроку с учётом P.Def/M.Def.
+    Работает как в L2: dmg_type босса определяет, через какую защиту режется.
+    """
+    import random
+    base = boss_data.get("attack_dmg", 100)
+    dmg_type = boss_data.get("dmg_type", "phys")
+    
+    # Разброс ±10%
+    raw = int(base * random.uniform(0.9, 1.1))
+    
+    # Защита игрока
+    if dmg_type == "magic":
+        player_def = calc_m_def(user)
+    else:
+        player_def = calc_p_def(user)
+    
+    # Применяем формулу apply_defense
+    mitigated = apply_player_defense(raw, player_def)
+    
+    # Множитель фазы
+    final = int(mitigated * phase_mult)
+    return max(1, final)
+
 # ================= ЭФФЕКТЫ ЭКСКЛЮЗИВНОЙ ЭКИПИРОВКИ =================
 def _iter_equipped(user):
     """Генератор: (name, level) по всем надётым предметам."""
