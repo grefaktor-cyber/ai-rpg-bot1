@@ -1,14 +1,15 @@
-"""Гильдии: создание, приглашение, захват локаций."""
+"""Гильдии: создание, приглашение, захват. Inline с закрытием."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (Message, CallbackQuery,
+                           InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from core import globals as g
-from core.keyboards import main_kb, guild_menu_kb
 from services.broadcast import broadcast_to_location
+from services.ui import send_menu, close_menu
 import world as W
 
 router = Router()
@@ -16,6 +17,30 @@ router = Router()
 
 class GuildStates(StatesGroup):
     waiting_name_tag = State()
+
+
+# ================= КЛАВИАТУРЫ =================
+def _guild_menu_kb(has_guild):
+    rows = []
+    if has_guild:
+        rows.append([InlineKeyboardButton(text="📋 Инфо", callback_data="guild_info"),
+                     InlineKeyboardButton(text="👥 Участники", callback_data="guild_members")])
+        rows.append([InlineKeyboardButton(text="⚔️ Захватить", callback_data="guild_capture"),
+                     InlineKeyboardButton(text="🚪 Выйти", callback_data="guild_leave")])
+    else:
+        rows.append([InlineKeyboardButton(text="🏛 Создать (1000💰)",
+                                           callback_data="guild_create_start")])
+        rows.append([InlineKeyboardButton(text="🏆 Топ гильдий",
+                                           callback_data="guild_top")])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="guild_close")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _back_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="guild_menu")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="guild_close")],
+    ])
 
 
 # ================= МЕНЮ =================
@@ -28,15 +53,43 @@ async def guild_cmd(m: Message):
     guild = await g.db.get_user_guild(m.from_user.id)
     if guild:
         text = (f"🏛 <b>[{guild['tag']}] {guild['name']}</b>\n\n"
-                f"Уровень: {guild['level']}\nКазна: {guild['treasury']}💰")
-        await m.answer(text, reply_markup=guild_menu_kb(True), parse_mode=ParseMode.HTML)
+                f"📊 Уровень: {guild['level']}\n"
+                f"💰 Казна: {guild['treasury']}")
+        await send_menu(m, text, _guild_menu_kb(True))
     else:
-        await m.answer(
-            "🏛 <b>Гильдии</b>\n\nТы не в гильдии. Создай свою.\n\n"
-            f"Стоимость: <b>{W.GUILD_CREATE_COST}💰</b>",
-            reply_markup=guild_menu_kb(False), parse_mode=ParseMode.HTML)
+        text = ("🏛 <b>Гильдии</b>\n\n"
+                "Ты не в гильдии. Создай свою и приглашай друзей!\n\n"
+                f"<b>Стоимость создания:</b> {W.GUILD_CREATE_COST}💰")
+        await send_menu(m, text, _guild_menu_kb(False))
 
 
+@router.callback_query(F.data == "guild_menu")
+async def guild_menu_cb(c: CallbackQuery):
+    guild = await g.db.get_user_guild(c.from_user.id)
+    if guild:
+        text = (f"🏛 <b>[{guild['tag']}] {guild['name']}</b>\n\n"
+                f"📊 Уровень: {guild['level']}\n"
+                f"💰 Казна: {guild['treasury']}")
+        kb = _guild_menu_kb(True)
+    else:
+        text = ("🏛 <b>Гильдии</b>\n\n"
+                "Ты не в гильдии. Создай свою!\n\n"
+                f"<b>Стоимость:</b> {W.GUILD_CREATE_COST}💰")
+        kb = _guild_menu_kb(False)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await c.answer()
+
+
+@router.callback_query(F.data == "guild_close")
+async def guild_close_cb(c: CallbackQuery):
+    await close_menu(c)
+    await c.answer()
+
+
+# ================= ТОП =================
 @router.callback_query(F.data == "guild_top")
 async def guild_top_cb(c: CallbackQuery):
     guilds = await g.db.get_guilds_top(10)
@@ -48,7 +101,12 @@ async def guild_top_cb(c: CallbackQuery):
         m = medals[i] if i < 3 else f"{i+1}."
         lines.append(f"{m} <b>[{guild['tag']}] {guild['name']}</b> — "
                      f"ур.{guild['level']}, {guild['members']} чел.")
-    await c.message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    try:
+        await c.message.edit_text("\n".join(lines), reply_markup=_back_kb(),
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer("\n".join(lines), reply_markup=_back_kb(),
+                                parse_mode=ParseMode.HTML)
     await c.answer()
 
 
@@ -63,15 +121,20 @@ async def guild_create_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(GuildStates.waiting_name_tag)
     await c.answer()
     await c.message.answer(
-        f"🏛 Напиши название и тег:\nФормат: <code>Название | ТЕГ</code>\n"
+        f"🏛 Напиши название и тег:\n"
+        f"Формат: <code>Название | ТЕГ</code>\n"
         f"Пример: <code>Тёмный Легион | TL</code>\n\n"
-        f"Тег до {W.GUILD_TAG_MAX}, название до {W.GUILD_NAME_MAX}.",
+        f"Тег до {W.GUILD_TAG_MAX}, название до {W.GUILD_NAME_MAX}.\n"
+        f"<i>Отмена: /cancel</i>",
         parse_mode=ParseMode.HTML
     )
 
 
 @router.message(GuildStates.waiting_name_tag)
 async def guild_create_input(m: Message, state: FSMContext):
+    if m.text and m.text.strip() == "/cancel":
+        await state.clear()
+        await m.answer("Отменено."); return
     if "|" not in m.text:
         await m.answer("Нужен формат: Название | ТЕГ"); return
     parts = m.text.split("|", 1)
@@ -82,24 +145,19 @@ async def guild_create_input(m: Message, state: FSMContext):
     u = await g.db.get_user(m.from_user.id)
     if u["gold"] < W.GUILD_CREATE_COST:
         await m.answer(f"Нужно {W.GUILD_CREATE_COST}💰")
-        await state.clear()
-        return
+        await state.clear(); return
     gid = await g.db.create_guild(name, tag, m.from_user.id)
     if not gid:
         await m.answer("Название уже занято."); return
     await g.db.spend_gold(m.from_user.id, W.GUILD_CREATE_COST)
     await g.db.add_achievement(m.from_user.id, "guild_founder")
     await g.db.add_journal_entry(
-        m.from_user.id,
-        f"Основал гильдию «[{tag}] {name}»",
-        "guild"
-    )
+        m.from_user.id, f"Основал гильдию «[{tag}] {name}»", "guild")
     await state.clear()
     await m.answer(
         f"🏛 <b>Гильдия создана!</b>\n\n<b>[{tag}] {name}</b>\n\n"
-        f"Приглашай через /guild_invite Ник",
-        reply_markup=main_kb(), parse_mode=ParseMode.HTML
-    )
+        f"Приглашай: /guild_invite Ник",
+        parse_mode=ParseMode.HTML)
 
 
 # ================= ПРИГЛАШЕНИЕ =================
@@ -123,9 +181,7 @@ async def guild_invite(m: Message):
     await g.db.add_achievement(target["user_id"], "guild_member")
     await g.db.add_journal_entry(
         target["user_id"],
-        f"Вступил в гильдию «[{guild['tag']}] {guild['name']}»",
-        "guild"
-    )
+        f"Вступил в гильдию «[{guild['tag']}] {guild['name']}»", "guild")
     try:
         await g.bot.send_message(target["user_id"],
             f"🏛 Ты принят в гильдию <b>[{guild['tag']}] {guild['name']}</b>!",
@@ -144,11 +200,14 @@ async def guild_info_cb(c: CallbackQuery):
     members = await g.db.get_guild_members(guild["id"])
     owned = [x for x in await g.db.get_all_captured_locations()
              if x["guild_id"] == guild["id"]]
-    text = (f"🏛 <b>[{guild['tag']}] {guild['name']}</b>\n\n"
-            f"Уровень: {guild['level']}\n"
-            f"Участников: {len(members)}\n"
-            f"Захвачено: {len(owned)}")
-    await c.message.answer(text, parse_mode=ParseMode.HTML)
+    text = (f"📋 <b>[{guild['tag']}] {guild['name']}</b>\n\n"
+            f"📊 Уровень: {guild['level']}\n"
+            f"👥 Участников: {len(members)}\n"
+            f"🏴 Захвачено: {len(owned)}")
+    try:
+        await c.message.edit_text(text, reply_markup=_back_kb(), parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=_back_kb(), parse_mode=ParseMode.HTML)
     await c.answer()
 
 
@@ -162,7 +221,12 @@ async def guild_members_cb(c: CallbackQuery):
     for mm in members:
         rank_icon = "👑" if mm["rank"] == "leader" else "•"
         lines.append(f"{rank_icon} <b>{mm['char_name']}</b> — ур.{mm['level']}")
-    await c.message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    try:
+        await c.message.edit_text("\n".join(lines), reply_markup=_back_kb(),
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer("\n".join(lines), reply_markup=_back_kb(),
+                                parse_mode=ParseMode.HTML)
     await c.answer()
 
 
@@ -178,14 +242,10 @@ async def guild_leave_cb(c: CallbackQuery):
     await g.db.remove_guild_member(c.from_user.id)
     await g.db.add_journal_entry(
         c.from_user.id,
-        f"Вышел из гильдии «[{guild_tag}] {guild_name}»",
-        "guild"
-    )
+        f"Вышел из гильдии «[{guild_tag}] {guild_name}»", "guild")
     await c.answer("Ты вышел из гильдии")
-    try:
-        await c.message.edit_text("🚪 Ты покинул гильдию.")
-    except Exception:
-        pass
+    # Перерисовываем меню
+    await guild_menu_cb(c)
 
 
 # ================= ЗАХВАТ =================
@@ -202,7 +262,8 @@ async def guild_capture_cb(c: CallbackQuery):
     players = await g.db.get_players_at_location(code, 0)
     my_count = len([p for p in players if p.get("guild_id") == guild["id"]]) + 1
     if my_count < 3:
-        await c.answer(f"Нужно 3+ членов гильдии здесь (сейчас {my_count})", show_alert=True)
+        await c.answer(f"Нужно 3+ членов гильдии здесь (сейчас {my_count})",
+                       show_alert=True)
         return
     owner = await g.db.get_location_owner(code)
     if owner and owner["guild_id"] == guild["id"]:
@@ -212,24 +273,19 @@ async def guild_capture_cb(c: CallbackQuery):
     await g.db.add_world_event(c.from_user.id, u["username"],
                                f"гильдия [{guild['tag']}] захватила «{loc['name']}»")
     await g.db.add_journal_entry(
-        c.from_user.id,
-        f"Гильдия захватила «{loc['name']}»",
-        "capture"
-    )
+        c.from_user.id, f"Гильдия захватила «{loc['name']}»", "capture")
     await g.db.add_location_event(
-        code,
-        f"гильдия [{guild['tag']}] захватила локацию",
-        "capture",
-        ""
-    )
+        code, f"гильдия [{guild['tag']}] захватила локацию", "capture", "")
     await broadcast_to_location(
         code,
         f"🏴 <b>Гильдия [{guild['tag']}] {guild['name']}</b> захватила «{loc['name']}»!",
-        0
-    )
+        0)
     await c.answer("Захвачено!")
-    await c.message.answer(
-        f"🏴 <b>Локация «{loc['name']}» захвачена!</b>\n\n"
-        f"Члены гильдии получают +15% золота и +10% XP здесь.",
-        reply_markup=main_kb(), parse_mode=ParseMode.HTML
-    )
+    text = (f"🏴 <b>Локация «{loc['name']}» захвачена!</b>\n\n"
+            f"Члены гильдии получают +15% золота и +10% XP здесь.")
+    try:
+        await c.message.edit_text(text, reply_markup=_back_kb(),
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=_back_kb(),
+                                parse_mode=ParseMode.HTML)
