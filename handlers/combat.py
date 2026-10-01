@@ -1,4 +1,4 @@
-"""Хендлеры боя: очередь действий, edit вместо send."""
+"""Хендлеры боя: очередь + спойл + подземелья."""
 import random
 
 from aiogram import Router, F
@@ -10,6 +10,7 @@ from core import globals as g
 from core.game_data import DUNGEONS
 from core.keyboards import dungeons_kb
 from core.skills import get_skill
+from core.materials import SPOIL_CLASSES
 from services.combat_service import (
     execute_queued_round, queue_action, undo_action,
     send_combat_state, handle_death,
@@ -26,7 +27,7 @@ async def _get_active_combat(uid):
     return combat
 
 
-# ================= ДОБАВЛЕНИЕ ДЕЙСТВИЙ (edit) =================
+# ================= ДОБАВЛЕНИЕ =================
 @router.callback_query(F.data == "combat_add_attack")
 async def add_attack(c: CallbackQuery):
     combat = await _get_active_combat(c.from_user.id)
@@ -112,6 +113,30 @@ async def add_potion_mp(c: CallbackQuery):
                             edit_message=c.message)
 
 
+@router.callback_query(F.data == "combat_add_spoil")
+async def add_spoil(c: CallbackQuery):
+    user = await g.db.get_user(c.from_user.id)
+    combat = await _get_active_combat(c.from_user.id)
+    if not combat:
+        await c.answer("Бой завершён", show_alert=True); return
+    if user.get("class") not in SPOIL_CLASSES:
+        await c.answer("Твой класс не умеет спойлить", show_alert=True); return
+    if combat.get("spoil_used"):
+        await c.answer("Спойл уже использован в этом бою", show_alert=True); return
+    ok, reason = await queue_action(c.from_user.id, "spoil")
+    if not ok:
+        await c.answer("Очередь полна", show_alert=True); return
+    await c.answer("🌿 +Спойл")
+    await send_combat_state(c.message.chat.id, user,
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
+
+
+@router.callback_query(F.data == "combat_spoil_noop")
+async def spoil_noop(c: CallbackQuery):
+    await c.answer("Спойл уже использован в этом бою", show_alert=True)
+
+
 @router.callback_query(F.data == "combat_undo")
 async def undo(c: CallbackQuery):
     combat = await _get_active_combat(c.from_user.id)
@@ -173,7 +198,7 @@ async def flee(c: CallbackQuery):
                                 edit_message=c.message)
 
 
-# ================= ПОДЗЕМЕЛЬЯ (без изменений) =================
+# ================= ПОДЗЕМЕЛЬЯ =================
 @router.message(Command("dungeon"))
 @router.message(F.text == "🏰 Подземелья")
 async def dungeon_cmd(m: Message):
@@ -219,7 +244,8 @@ async def dungeon_enter(c: CallbackQuery):
     except Exception:
         pass
     await c.answer("Вход!")
-    await c.message.answer(f"🏰 Входишь в <b>{d['name']}</b>...", parse_mode=ParseMode.HTML)
+    await c.message.answer(f"🏰 Входишь в <b>{d['name']}</b>...",
+                            parse_mode=ParseMode.HTML)
     await spawn_dungeon_enemy(c.message.chat.id, c.from_user.id, code, 1)
 
 
