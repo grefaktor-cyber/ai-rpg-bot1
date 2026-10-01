@@ -210,3 +210,8 @@ async def cb_pet(c: CallbackQuery):
 @router.callback_query(F.data == "menu_titles")
 async def cb_titles(c: CallbackQuery):
     await _run_cmd(c, "titles", "titles_cmd")
+
+
+@router.callback_query(F.data == "menu_season")
+async def cb_season(c: CallbackQuery):
+    await _run_cmd(c, "seasons", "season_cmd")
