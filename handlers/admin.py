@@ -208,3 +208,89 @@ async def admin_premium(m: Message):
     new_val = 0 if u.get("is_premium") else 1
     await g.db.set_premium(m.from_user.id, new_val)
     await m.answer(f"🛠 Премиум: {'ВКЛ' if new_val else 'ВЫКЛ'}")
+
+
+
+# ================= ПРЕМИУМ-РАСЫ И КЛАССЫ =================
+@router.message(Command("admin_unlock_races"))
+async def admin_unlock_races(m: Message):
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    from core.premium import EXCLUSIVE_RACES
+    for code in EXCLUSIVE_RACES:
+        await g.db.unlock_premium_race(m.from_user.id, code)
+    names = ", ".join(r["name"] for r in EXCLUSIVE_RACES.values())
+    await m.answer(
+        f"🛠 Открыты все премиум-расы: <b>{names}</b>\n\n"
+        f"Проверь /newchar → выбор расы.",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_unlock_classes"))
+async def admin_unlock_classes(m: Message):
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    from core.premium import EXCLUSIVE_CLASSES
+    for code in EXCLUSIVE_CLASSES:
+        await g.db.unlock_premium_class(m.from_user.id, code)
+    names = ", ".join(c["name"] for c in EXCLUSIVE_CLASSES.values())
+    await m.answer(
+        f"🛠 Открыты все премиум-классы: <b>{names}</b>\n\n"
+        f"Проверь /newchar → выбор класса.",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_unlock_items"))
+async def admin_unlock_items(m: Message):
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    from core.premium import EXCLUSIVE_ITEMS
+    for code in EXCLUSIVE_ITEMS:
+        await g.db.add_item(m.from_user.id, code)
+    names = ", ".join(EXCLUSIVE_ITEMS.keys())
+    await m.answer(
+        f"🛠 Выданы все премиум-предметы:\n<code>{names}</code>\n\n"
+        f"Проверь /inventory.",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_unlock_all"))
+async def admin_unlock_all(m: Message):
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    from core.premium import EXCLUSIVE_RACES, EXCLUSIVE_CLASSES, EXCLUSIVE_ITEMS, EXCLUSIVE_PETS
+
+    # Расы
+    for code in EXCLUSIVE_RACES:
+        await g.db.unlock_premium_race(m.from_user.id, code)
+
+    # Классы
+    for code in EXCLUSIVE_CLASSES:
+        await g.db.unlock_premium_class(m.from_user.id, code)
+
+    # Предметы
+    for code in EXCLUSIVE_ITEMS:
+        await g.db.add_item(m.from_user.id, code)
+
+    # Питомцы
+    for code, pet in EXCLUSIVE_PETS.items():
+        try:
+            await g.db.add_pet(m.from_user.id, code, pet.get("name", code))
+        except Exception:
+            pass
+
+    # Премиум навсегда
+    await g.db.set_premium(m.from_user.id, 1)
+
+    await m.answer(
+        "🛠 <b>ВСЁ ОТКРЫТО!</b>\n\n"
+        f"🎭 Расы: {len(EXCLUSIVE_RACES)}\n"
+        f"🛡 Классы: {len(EXCLUSIVE_CLASSES)}\n"
+        f"⚔️ Предметы: {len(EXCLUSIVE_ITEMS)}\n"
+        f"🐉 Питомцы: {len(EXCLUSIVE_PETS)}\n\n"
+        "Проверь:\n"
+        "• /newchar → расы и классы\n"
+        "• /inventory → предметы\n"
+        "• /pet → питомцы",
+        parse_mode=ParseMode.HTML)
