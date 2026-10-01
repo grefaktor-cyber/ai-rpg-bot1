@@ -549,6 +549,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if u["dungeon_room"] >= d.get("rooms", 1):
             await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
             await dungeon_finish(chat_id, user["user_id"], "Подземелье пройдено!")
+        await g.bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
+                                 parse_mode=ParseMode.HTML)
             return
         await g.bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
                                  parse_mode=ParseMode.HTML)
@@ -558,6 +560,12 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
     await g.db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
+
+    # Сезонный XP за победу
+    season_exp = combat["enemy_level"] * 2
+    if combat["is_boss"]:
+        season_exp *= 5
+    await g.db.add_season_xp(user["user_id"], season_exp)
 
     diff = combat["enemy_level"] - user["level"]
     xp_note = ""
