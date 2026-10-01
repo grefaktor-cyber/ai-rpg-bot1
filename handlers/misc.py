@@ -1,12 +1,14 @@
 """Команды: /help, /ref, /revoke, /reset, /tutorial + кнопка Помощь."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, CallbackQuery,
+                           InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.keyboards import main_kb
 from core.texts import HELP_TEXT
+from services.ui import send_menu, close_menu
 
 router = Router()
 
@@ -40,28 +42,28 @@ def _help_menu_kb():
 @router.message(Command("help"))
 @router.message(F.text == "❓ Помощь")
 async def help_cmd(m: Message):
-    await m.answer(HELP_TEXT, reply_markup=_help_menu_kb(),
-                   parse_mode=ParseMode.HTML)
+    await send_menu(m, HELP_TEXT, _help_menu_kb())
 
 
 @router.callback_query(F.data == "help_close")
 async def help_close_cb(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
 
+
 @router.callback_query(F.data == "help_back")
-async def help_back(c):
+async def help_back(c: CallbackQuery):
     try:
         await c.message.edit_text(HELP_TEXT, reply_markup=_help_menu_kb(),
-                                  parse_mode=ParseMode.HTML)
+                                   parse_mode=ParseMode.HTML)
     except Exception:
-        pass
+        await c.message.answer(HELP_TEXT, reply_markup=_help_menu_kb(),
+                                parse_mode=ParseMode.HTML)
     await c.answer()
 
 
 @router.callback_query(F.data.startswith("help_"))
-async def help_topic(c):
+async def help_topic(c: CallbackQuery):
     topic = c.data.replace("help_", "")
     if topic in ("close", "back"):
         await c.answer(); return
@@ -78,6 +80,8 @@ async def help_topic(c):
             "• 💚 Зелье — +30 HP за 25💰\n"
             "• 🔮 Зелье MP — +40 MP за 25💰\n"
             "• 🏃 Бежать — 50% (не от боссов)\n\n"
+            "<b>Очередь 4 действий:</b>\n"
+            "Собирай 1-4 действия, потом жми «⚡ Выполнить».\n\n"
             "<b>Урон зависит от:</b>\n"
             "• Тип (физ/ловкий/маг) × P.Def/M.Def\n"
             "• Крит (DEX + бонусы сета)\n"
@@ -93,6 +97,9 @@ async def help_topic(c):
             "• Каждый уровень даёт <b>+1 очко умений</b>\n"
             "• «⬆️ Прокачать скилы» → ур.1 → 3\n"
             "• За уровень скила <b>+15% к эффекту</b>\n\n"
+            "<b>Скрытые скилы из книг:</b>\n"
+            "• Книги падают с боссов (3-5%)\n"
+            "• «📖 Изучить книгу» в меню скилов\n\n"
             "<b>MP:</b>\n"
             "• +5% в бою (в раунд)\n"
             "• +20% вне боя (за действие)"
@@ -109,6 +116,9 @@ async def help_topic(c):
             "• Кузница (⚒️)\n"
             "• Подземелья (🏰)\n"
             "• Зелья (25💰)\n\n"
+            "<b>Крафт B-грейда:</b>\n"
+            "Собирай рецепты с боссов + редкие\n"
+            "материалы через Спойл.\n\n"
             "<b>Обмен:</b>\n"
             "• /trade Имя — обмен\n"
             "• /pay Имя Сумма — золото\n"
@@ -124,8 +134,9 @@ async def help_topic(c):
             "• 🕊 Затишье — меньше врагов\n"
             "• ☠️ Мор — враги сильнее\n"
             "• ✨ Благословение — +50% XP\n\n"
-            "<b>Боссы</b> — уникальные враги.\n"
-            "Дают ×3 награды."
+            "<b>Боссы локаций</b> — ×3 награды.\n\n"
+            "<b>Мировые боссы</b> (15:00, 21:00, 03:00, 09:00 МСК):\n"
+            "Все бьют вместе. Топ-1 — бонус."
         ),
         "guild": (
             "🏛 <b>Гильдии</b>\n\n"
@@ -166,7 +177,12 @@ async def help_topic(c):
             "• Безлимит энергии\n"
             "• ×2 регенерация\n"
             "• Премиум-расы (Демон, Ангел, Плут)\n\n"
-            "Оплата — Telegram Stars."
+            "<b>Тарифы:</b>\n"
+            "• ⚡ Дневной — 15⭐\n"
+            "• 🌙 Недельный — 60⭐\n"
+            "• 👑 Месячный — 150⭐\n"
+            "• 💎 Годовой — 1200⭐\n"
+            "• ⚡ Вечный — 5000⭐"
         ),
     }
     text = topics.get(topic)
@@ -189,17 +205,22 @@ async def ref_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
-    await _show_ref(m.chat.id, u)
+    text, kb = await _render_ref(u)
+    await send_menu(m, text, kb)
 
 
 @router.callback_query(F.data == "ref_show")
-async def ref_show_cb(c):
+async def ref_show_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
-    await _show_ref(c.message.chat.id, u)
+    text, kb = await _render_ref(u)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     await c.answer()
 
 
-async def _show_ref(chat_id, u):
+async def _render_ref(u):
     username = await _get_bot_username()
     link = f"https://t.me/{username}?start=ref_{u['user_id']}"
     count = u.get("referral_count", 0)
@@ -215,14 +236,15 @@ async def _show_ref(chat_id, u):
         f"⚡ Бонус: <b>+{energy_bonus}</b> к максимуму\n\n"
         f"<i>Скопируй ссылку и отправь другу.</i>"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
             text="📤 Поделиться",
             url=f"https://t.me/share/url?url={link}&text=Играю в RPG с нейросетью!"
-        ),
-    ]])
-    await g.bot.send_message(chat_id, text, reply_markup=kb,
-                             parse_mode=ParseMode.HTML)
+        )],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="help_back")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+    ])
+    return text, kb
 
 
 # ================= ПРОЧЕЕ =================
@@ -246,10 +268,9 @@ async def tutorial_cmd(m: Message):
         await m.answer("Сначала создай героя."); return
     await offer_tutorial(m.chat.id, m.from_user.id, force=True)
 
+
+# ================= FUZZY CANCEL =================
 @router.callback_query(F.data == "fuzzy_cancel")
-async def fuzzy_cancel_cb(c):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+async def fuzzy_cancel_cb(c: CallbackQuery):
+    await close_menu(c)
     await c.answer("Отменено")
