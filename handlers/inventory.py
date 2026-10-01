@@ -1,16 +1,18 @@
-"""Инвентарь 4.0: 5 категорий, 8 слотов, редкие материалы."""
+"""Инвентарь 4.0: 5 категорий, 8 слотов, редкие материалы, поиск."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
                            InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from core import globals as g
 from core.equipment import (
     SHOP, SLOTS, SLOT_NAMES, can_use_item, get_set_bonus,
 )
 from core.formulas import parse_item
-from core.keyboards import main_kb
+from core.keyboards import main_kb, inv_search_cancel_kb
 
 router = Router()
 
@@ -23,6 +25,10 @@ CATEGORIES = {
     "potion":    ("🧪 Зелья", "🧪"),
     "other":     ("📦 Прочее", "📦"),
 }
+
+
+class InvSearchState(StatesGroup):
+    waiting_query = State()
 
 
 def _grade_icon(grade):
@@ -87,7 +93,10 @@ async def _show_main(chat_id, u, items, edit_message=None):
         InlineKeyboardButton(text="👑 Экипировано", callback_data="inv_equipped"),
         InlineKeyboardButton(text="📦 Материалы", callback_data="inv_materials"),
     ])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="inv_close")])
+    rows.append([
+        InlineKeyboardButton(text="🔍 Поиск", callback_data="inv_search_start"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="inv_close"),
+    ])
     text += "\n\n⚪ Обычный · 🔷 D · 🔶 C · 💎 B"
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     if edit_message:
@@ -186,7 +195,6 @@ async def inv_item_cb(c: CallbackQuery):
     base_name, lvl = parse_item(item_name)
     data = SHOP.get(base_name)
     if not data:
-        # Не стандартный — возможно книга или рецепт
         await c.answer("Это не обычный предмет", show_alert=True); return
     grade = data.get("grade", "common")
     g_icon = _grade_icon(grade)
@@ -338,3 +346,54 @@ async def inv_close_cb(c: CallbackQuery):
     except Exception:
         pass
     await c.answer()
+
+
+# ================= ПОИСК В ИНВЕНТАРЕ =================
+@router.callback_query(F.data == "inv_search_start")
+async def inv_search_start(c: CallbackQuery, state: FSMContext):
+    await state.set_state(InvSearchState.waiting_query)
+    await c.answer()
+    await c.message.answer(
+        "🔍 <b>Поиск по инвентарю</b>\n\n"
+        "Введи название предмета (можно частично):\n"
+        "<i>Например: «клинок», «зелье», «меч»</i>",
+        reply_markup=inv_search_cancel_kb(),
+        parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "inv_search_cancel")
+async def inv_search_cancel(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await c.answer("Отменено")
+
+
+@router.message(InvSearchState.waiting_query, F.text)
+async def inv_search_process(m: Message, state: FSMContext):
+    await state.clear()
+    query = m.text.strip().lower()
+    if len(query) < 2:
+        await m.answer("Слишком коротко. Введи хотя бы 2 символа."); return
+    inv = await g.db.get_inventory(m.from_user.id)
+    if not inv:
+        await m.answer("🎒 Инвентарь пуст.", reply_markup=main_kb()); return
+    matches = [it for it in inv if query in it["item_name"].lower()]
+    if not matches:
+        await m.answer(
+            f"❌ Ничего не найдено по запросу: <code>{query}</code>",
+            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        return
+    text = f"🔍 <b>Найдено {len(matches)}:</b>\n\n"
+    rows = []
+    for it in matches[:20]:
+        text += f"• {it['item_name']}\n"
+        rows.append([InlineKeyboardButton(
+            text=f"📦 {it['item_name']}",
+            callback_data=f"inv_item_{it['item_name']}")])
+    rows.append([InlineKeyboardButton(text="⬅️ В инвентарь",
+                                       callback_data="inv_menu")])
+    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                   parse_mode=ParseMode.HTML)
