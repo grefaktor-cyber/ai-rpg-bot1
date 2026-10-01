@@ -29,6 +29,8 @@ def menu_game_kb():
          InlineKeyboardButton(text="⚒️ Кузница", callback_data="menu_craft")],
         [InlineKeyboardButton(text="📋 Квесты", callback_data="menu_quests"),
          InlineKeyboardButton(text="🏰 Подземелья", callback_data="menu_dungeon")],
+        [InlineKeyboardButton(text="🗺 Карта", callback_data="menu_map"),
+         InlineKeyboardButton(text="🚶 Идти", callback_data="menu_travel")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
@@ -426,4 +428,19 @@ def skills_upgrade_kb(available, learned):
             callback_data=cb
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+
+# ================= МИР =================
+def world_menu_kb(has_events=False):
+    """Клавиатура для /world."""
+    rows = []
+    if has_events:
+        rows.append([InlineKeyboardButton(text="🔄 Обновить",
+                                           callback_data="world_refresh")])
+    rows.append([InlineKeyboardButton(text="🗺 Карта",
+                                       callback_data="menu_map")])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть",
+                                       callback_data="world_close")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
