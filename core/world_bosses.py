@@ -4,43 +4,52 @@ WORLD_BOSSES = {
     "ancient_dragon": {
         "name": "🐉 Древний Дракон",
         "level": 20,
-        "hp": 15000,
-        "atk_mult": 1.5,
+        "hp": 20000,
+        "attack_dmg": 130,       # урон по игроку в ответ
         "locations": ["cave", "mountains", "abyss"],
-        "desc": "Крылатый ужас, чьё дыхание плавит камень.",
+        "desc": "Крылатый ужас. Требует команды из 3+ игроков.",
     },
     "lich_king": {
         "name": "💀 Король Личей",
         "level": 25,
-        "hp": 20000,
-        "atk_mult": 1.7,
+        "hp": 28000,
+        "attack_dmg": 160,
         "locations": ["ruins", "crypt", "abyss"],
-        "desc": "Повелитель мёртвых. Его армия растёт с каждым вздохом.",
+        "desc": "Повелитель мёртвых. Один не справишься.",
     },
     "forest_titan": {
         "name": "🌳 Лесной Титан",
         "level": 15,
         "hp": 12000,
-        "atk_mult": 1.3,
+        "attack_dmg": 90,
         "locations": ["forest", "glade", "swamp"],
-        "desc": "Древний дух леса, защищающий свои владения.",
+        "desc": "Древний дух леса. Лучше с другом.",
     },
     "sea_kraken": {
         "name": "🐙 Морской Кракен",
         "level": 18,
-        "hp": 14000,
-        "atk_mult": 1.4,
+        "hp": 16000,
+        "attack_dmg": 110,
         "locations": ["sea", "island", "port"],
-        "desc": "Щупальца, что топят корабли в одну секунду.",
+        "desc": "Щупальца, что топят корабли.",
     },
 }
 
-# Респавн раз в 6 часов, живёт 1 час
-SPAWN_INTERVAL_HOURS = 6
-LIFETIME_MINUTES = 60
+# Спавн в 14:00, 20:00, 02:00, 08:00 (МСК)
+SPAWN_HOURS_MSK = [14, 20, 2, 8]
+LIFETIME_MINUTES = 120  # живёт 2 часа
+
+# Кулдаун между атаками игрока
+ATTACK_COOLDOWN_SEC = 8
+
+# Минимум HP для атаки (% от max)
+MIN_HP_PCT = 0.25
 
 # Награды
-GOLD_PER_1K_DAMAGE = 50
-XP_PER_1K_DAMAGE = 80
-TOP1_BONUS_ITEM_CHANCE = 0.5    # 50% что топ-1 получит предмет
-KILLER_BONUS_MULT = 1.5          # +50% золота за последний удар
+GOLD_PER_1K_DAMAGE = 100
+XP_PER_1K_DAMAGE = 150
+TOP1_BONUS_ITEM_CHANCE = 0.7
+KILLER_BONUS_MULT = 1.5
+
+# Штраф при смерти
+DEATH_GOLD_LOSS_PCT = 0.10
