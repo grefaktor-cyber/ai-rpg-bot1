@@ -258,7 +258,7 @@ async def cb_trade(c: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("trade_to_"))
-async def cb_trade_to(c: CallbackQuery):
+async def cb_trade_to(c: CallbackQuery, state: FSMContext):
     target = c.data.replace("trade_to_", "")
     try:
         module = __import__("handlers.trade", fromlist=["trade_cmd"])
@@ -272,7 +272,7 @@ async def cb_trade_to(c: CallbackQuery):
     except Exception:
         pass
     fake = fake_message(c, text=f"/trade {target}")
-    await func(fake)
+    await func(fake, state=state)
 
 
 @router.callback_query(F.data == "trade_manual")
@@ -303,7 +303,7 @@ async def trade_name_input(m: Message, state: FSMContext):
         await m.answer(f"⚠️ /trade недоступен: {e}")
         return
     fake = _FakeMsgFromMessage(m, text=f"/trade {name}")
-    await func(fake)
+    await func(fake, state=state)
 
 
 # ================= СОЦИУМ: ДУЭЛЬ =================
@@ -340,7 +340,7 @@ async def cb_duel(c: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("duel_to_"))
-async def cb_duel_to(c: CallbackQuery):
+async def cb_duel_to(c: CallbackQuery, state: FSMContext):
     target = c.data.replace("duel_to_", "")
     try:
         module = __import__("handlers.pvp", fromlist=["duel_cmd"])
@@ -354,7 +354,7 @@ async def cb_duel_to(c: CallbackQuery):
     except Exception:
         pass
     fake = fake_message(c, text=f"/duel {target}")
-    await func(fake)
+    await func(fake, state=state)
 
 
 @router.callback_query(F.data == "duel_manual")
@@ -385,7 +385,7 @@ async def duel_name_input(m: Message, state: FSMContext):
         await m.answer(f"⚠️ /duel недоступен: {e}")
         return
     fake = _FakeMsgFromMessage(m, text=f"/duel {name}")
-    await func(fake)
+    await func(fake, state=state)
 
 
 # ================= ХЕЛПЕР =================
