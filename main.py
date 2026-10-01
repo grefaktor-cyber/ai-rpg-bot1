@@ -126,9 +126,8 @@ async def start_web_server():
 
 # ================= ЗАПУСК =================
 async def _cleanup_loop():
-    """Раз в 5 минут чистить мусор. Раз в час — спавн боссов."""
+    """Раз в 5 мин — мусор. Раз в 5 мин — проверка спавна босса."""
     from services.world_boss_service import try_spawn_boss
-    tick = 0
     while True:
         try:
             await asyncio.sleep(300)
@@ -137,31 +136,10 @@ async def _cleanup_loop():
             await db.cleanup_chat(7)
             await db.cleanup_journal(days=30, keep_min=50)
             await db.cleanup_location_events(days=7)
+            await db.cleanup_world_bosses(days=3)
 
-            tick += 1
-            # Раз в час пробуем спавнить босса (каждые 12 тиков)
-            if tick % 12 == 0:
-                await db.cleanup_world_bosses(days=3)
-                spawned = await try_spawn_boss()
-                if spawned:
-                    loc_name = spawned.get("location_name", "?")
-                    boss_name = spawned.get("boss_name", "?")
-                    # Broadcast всем игрокам
-                    async with db.pool.acquire() as conn:
-                        rows = await conn.fetch(
-                            "SELECT user_id FROM users WHERE char_name!=''"
-                        )
-                    for r in rows:
-                        try:
-                            await bot.send_message(
-                                r["user_id"],
-                                f"🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
-                                f"<b>{boss_name}</b> появился в «{loc_name}»!\n\n"
-                                f"<i>Иди в локацию и напиши /boss.</i>",
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception:
-                            pass
+            # Проверка спавна (по времени МСК)
+            await try_spawn_boss()
         except Exception as e:
             logging.error(f"cleanup error: {e}")
 
