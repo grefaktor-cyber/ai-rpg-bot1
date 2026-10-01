@@ -6,6 +6,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 
 from core import globals as g
 from core.formulas import (
@@ -25,13 +26,13 @@ MAX_ACTIONS = 4
 
 # ================= ВЫЗОВ =================
 @router.message(Command("duel"))
-async def duel_cmd(m: Message):
+async def duel_cmd(m: Message, state: FSMContext = None):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ Ты уже в бою!"); return
-    parts = m.text.split()
+    parts = (m.text or "").split()
     if len(parts) < 2:
         await m.answer("/duel Имя — ставка 10%\n/duel Имя 100 — своя"); return
     target = await g.db.get_user_by_char_name(parts[1])
