@@ -137,10 +137,9 @@ async def duel_cancel(c: CallbackQuery):
 
 
 # ================= СОСТОЯНИЕ =================
-async def send_pvp_state(uid, user, combat):
+async def send_pvp_state(uid, user, combat, edit_message=None):
     if not combat:
         return
-    # Перезагрузить (могут быть изменения)
     user = await g.db.get_user(uid)
     combat = await g.db.get_combat(uid)
     if not combat:
@@ -151,7 +150,6 @@ async def send_pvp_state(uid, user, combat):
     turn_text = "🎯 <b>Твой ход!</b>" if combat["my_turn"] else "⏳ Ждём хода противника..."
 
     header = f"⚔️ <b>ДУЭЛЬ · РАУНД {combat['round_num']}</b>"
-
     mp = user.get("mp", 0)
     max_mp = user.get("max_mp", 0)
     mp_line = f" · 💧 MP: {mp}/{max_mp}" if max_mp else ""
@@ -164,16 +162,13 @@ async def send_pvp_state(uid, user, combat):
 
     text = f"{header}\n\n{enemy_block}\n\n{player_block}\n\n{turn_text}"
 
-    # Очередь (только если мой ход)
     try:
         pending = json.loads(combat.get("pending_actions") or "[]")
     except Exception:
         pending = []
-
     if combat["my_turn"]:
         text += f"\n\n{combat_pending_text(pending, MAX_ACTIONS)}"
 
-    # Активные скилы
     try:
         active = json.loads(user.get("active_skills") or "[]")
     except Exception:
@@ -182,6 +177,13 @@ async def send_pvp_state(uid, user, combat):
 
     kb = combat_kb(active, mp, pending, prefix="pvp",
                    max_actions=MAX_ACTIONS, is_pvp=True)
+
+    if edit_message:
+        try:
+            await edit_message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
     try:
         await g.bot.send_message(uid, text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
@@ -265,8 +267,9 @@ async def pvp_add_skill(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer(f"✨ +{s['name']}")
-    await send_pvp_state(c.from_user.id, user,
-                          await g.db.get_combat(c.from_user.id))
+await send_pvp_state(c.from_user.id, user,
+                     await g.db.get_combat(c.from_user.id),
+                     edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_add_potion_hp")
@@ -278,8 +281,9 @@ async def pvp_add_potion_hp(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer("💚 +Зелье HP")
-    await send_pvp_state(c.from_user.id, user,
-                          await g.db.get_combat(c.from_user.id))
+await send_pvp_state(c.from_user.id, user,
+                     await g.db.get_combat(c.from_user.id),
+                     edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_add_potion_mp")
@@ -291,8 +295,9 @@ async def pvp_add_potion_mp(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer("🔮 +Зелье MP")
-    await send_pvp_state(c.from_user.id, user,
-                          await g.db.get_combat(c.from_user.id))
+await send_pvp_state(c.from_user.id, user,
+                     await g.db.get_combat(c.from_user.id),
+                     edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_undo")
@@ -497,7 +502,8 @@ async def pvp_execute(c: CallbackQuery):
         pass
     user = await g.db.get_user(uid)
     opp = await g.db.get_user(opp_id)
-    await send_pvp_state(uid, user, await g.db.get_combat(uid))
+    await send_pvp_state(uid, user, await g.db.get_combat(uid),
+                         edit_message=c.message)
     await send_pvp_state(opp_id, opp, await g.db.get_combat(opp_id))
     await c.answer("⚡ Ход передан")
 
