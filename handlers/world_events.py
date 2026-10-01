@@ -17,6 +17,49 @@ router = Router()
 async def world_cmd(m: Message):
     events = await g.db.get_all_active_events()
     captured = await g.db.get_all_captured_locations()
+
+    text = "🌍 <b>Мир</b>\n\n"
+
+    if events:
+        text += "<b>🔥 Активные события:</b>\n"
+        for e in events:
+            loc_name = W.get_location(e["location_code"]).get("name", "?")
+            text += f"• {e['event_name']} в <b>{loc_name}</b> — {e['event_desc']}\n"
+        text += "\n"
+    else:
+        text += "<i>Сейчас в мире тихо.</i>\n\n"
+
+    if captured:
+        text += "<b>🏴 Захваченные локации:</b>\n"
+        for c_ in captured:
+            loc_name = W.get_location(c_["location_code"]).get("name", "?")
+            text += f"• {loc_name} — [{c_['tag']}] {c_['name']}\n"
+        text += "\n"
+
+    recent = await g.db.get_world_events(8)
+    if recent:
+        text += "<b>📰 Последние события:</b>\n"
+        for e in recent:
+            text += f"• <b>{e['username'] or '?'}</b>: {e['event_text']}\n"
+
+    from core.keyboards import world_menu_kb
+    from services.ui import send_menu
+    await send_menu(m, text, world_menu_kb(has_events=bool(events)))
+
+
+@router.callback_query(F.data == "world_close")
+async def world_close_cb(c: CallbackQuery):
+    from services.ui import close_menu
+    await close_menu(c)
+    await c.answer()
+
+
+@router.callback_query(F.data == "world_refresh")
+async def world_refresh_cb(c: CallbackQuery):
+    # Перерисовываем меню
+    events = await g.db.get_all_active_events()
+    captured = await g.db.get_all_captured_locations()
+
     text = "🌍 <b>Мир</b>\n\n"
     if events:
         text += "<b>🔥 Активные события:</b>\n"
@@ -28,17 +71,24 @@ async def world_cmd(m: Message):
         text += "<i>Сейчас в мире тихо.</i>\n\n"
     if captured:
         text += "<b>🏴 Захваченные локации:</b>\n"
-        for c in captured:
-            loc_name = W.get_location(c["location_code"]).get("name", "?")
-            text += f"• {loc_name} — [{c['tag']}] {c['name']}\n"
+        for c_ in captured:
+            loc_name = W.get_location(c_["location_code"]).get("name", "?")
+            text += f"• {loc_name} — [{c_['tag']}] {c_['name']}\n"
         text += "\n"
     recent = await g.db.get_world_events(8)
     if recent:
         text += "<b>📰 Последние события:</b>\n"
         for e in recent:
             text += f"• <b>{e['username'] or '?'}</b>: {e['event_text']}\n"
-    from services.ui import send_menu
-    await send_menu(m, text, main_kb())
+
+    from core.keyboards import world_menu_kb
+    try:
+        await c.message.edit_text(text,
+                                   reply_markup=world_menu_kb(has_events=bool(events)),
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+    await c.answer("🔄")
 
 
 # ================= NPC =================
