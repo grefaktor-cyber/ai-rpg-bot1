@@ -398,6 +398,7 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_xp INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_titles TEXT DEFAULT '[]'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_races TEXT DEFAULT '[]'",
             ]
             for sql in migrations:
                 try:
@@ -522,6 +523,7 @@ class DB:
             "known_recipes": "[]",
             "rare_materials": "{}",
             "season_xp": 0, "season_number": 0, "season_titles": "[]",
+            "unlocked_premium_races": "[]",
         }
 
     async def give_consent(self, uid):
@@ -1675,6 +1677,42 @@ class DB:
                 json.dumps(arr), uid
             )
             return True
+
+    async def unlock_premium_race(self, uid, race_code):
+        """Открыть премиум-расу (навсегда)."""
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_premium_races FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                arr = json.loads(row["unlocked_premium_races"] or "[]")
+            except Exception:
+                arr = []
+            if race_code in arr:
+                return True
+            arr.append(race_code)
+            await c.execute(
+                "UPDATE users SET unlocked_premium_races=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
+            return True
+
+    async def has_premium_race(self, uid, race_code):
+        """Проверить, открыта ли премиум-раса у игрока."""
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT unlocked_premium_races FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return False
+            try:
+                return race_code in json.loads(row["unlocked_premium_races"] or "[]")
+            except Exception:
+                return False
 
     async def has_premium_class(self, uid, class_code):
         import json
