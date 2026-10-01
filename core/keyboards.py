@@ -401,13 +401,15 @@ def skills_main_kb():
         [InlineKeyboardButton(text="📖 Изучить книгу", callback_data="skills_learn_menu")],
         [InlineKeyboardButton(text="🎯 Настроить слоты", callback_data="skills_slots")],
         [InlineKeyboardButton(text="⬆️ Прокачать скилы", callback_data="skills_upgrade")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="skills_close")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_game"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
 def skills_back_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
@@ -445,15 +447,14 @@ def skills_upgrade_kb(available, learned):
 
 # ================= МИР =================
 def world_menu_kb(has_events=False):
-    """Клавиатура для /world."""
     rows = []
     if has_events:
         rows.append([InlineKeyboardButton(text="🔄 Обновить",
                                            callback_data="world_refresh")])
-    rows.append([InlineKeyboardButton(text="🗺 Карта",
-                                       callback_data="menu_map")])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть",
-                                       callback_data="world_close")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
