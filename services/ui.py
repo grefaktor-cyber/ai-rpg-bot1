@@ -1,18 +1,15 @@
-"""Утилиты UI: автоочистка меню."""
+"""Утилиты UI: автоочистка меню + FakeMessage для вызова cmd из callback."""
 import logging
 
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery
 
 
-# Запоминаем последнее меню бота: uid -> message_id
 _last_menu = {}
 
-# Все reply-кнопки меню (для удаления сообщения игрока)
 MAIN_MENU_BUTTONS = {
     "🎮 Игра", "👥 Социум", "📊 Прогресс", "🌍 Мир",
     "🐉 Боссы", "❓ Помощь",
-    # старые кнопки (если остались в кэше у игроков)
     "🎒 Инвентарь", "🛒 Магазин", "⭐ Профиль", "🏆 Достижения",
     "📋 Квесты", "🗺 Карта", "🚶 Идти", "👥 Кто здесь",
     "🐾 Питомец", "🏰 Подземелья", "⚒️ Кузница", "🏛 Гильдия",
@@ -20,18 +17,40 @@ MAIN_MENU_BUTTONS = {
 }
 
 
-async def send_menu(m, text, kb=None, uid=None):
-    """Отправить меню с автоудалением предыдущего.
+class FakeMessage:
+    """Обёртка для вызова `xxx_cmd(m: Message)` из callback.
 
-    1. Удаляет предыдущее меню бота (если было).
-    2. Удаляет сообщение игрока, если это была reply-кнопка.
-    3. Отправляет новое меню.
-    4. Запоминает его.
+    from_user — настоящий игрок (c.from_user), а не бот (c.message.from_user).
+    Все остальные атрибуты берутся из оригинального сообщения бота.
     """
+    def __init__(self, original_message, from_user):
+        self.chat = original_message.chat
+        self.from_user = from_user
+        self.message_id = original_message.message_id
+        self.bot = original_message.bot
+        self.text = ""
+        self._real = original_message
+
+    async def answer(self, text, **kwargs):
+        return await self._real.answer(text, **kwargs)
+
+    async def delete(self):
+        try:
+            return await self._real.delete()
+        except Exception:
+            return None
+
+
+def fake_message(c: CallbackQuery):
+    """Создать FakeMessage из callback."""
+    return FakeMessage(c.message, c.from_user)
+
+
+async def send_menu(m, text, kb=None, uid=None):
+    """Отправить меню с автоудалением предыдущего."""
     uid = uid or m.from_user.id
     chat_id = m.chat.id
 
-    # 1. Удаляем предыдущее меню бота
     prev_id = _last_menu.pop(uid, None)
     if prev_id:
         try:
@@ -39,7 +58,6 @@ async def send_menu(m, text, kb=None, uid=None):
         except Exception as e:
             logging.debug(f"Не удалось удалить меню {prev_id}: {e}")
 
-    # 2. Удаляем сообщение игрока с reply-кнопкой
     text_btn = (getattr(m, "text", "") or "").strip()
     if text_btn in MAIN_MENU_BUTTONS:
         try:
@@ -47,7 +65,6 @@ async def send_menu(m, text, kb=None, uid=None):
         except Exception as e:
             logging.debug(f"Не удалось удалить сообщение игрока: {e}")
 
-    # 3. Отправляем новое + 4. запоминаем
     try:
         sent = await m.bot.send_message(
             chat_id, text, reply_markup=kb, parse_mode=ParseMode.HTML,
@@ -59,25 +76,8 @@ async def send_menu(m, text, kb=None, uid=None):
         return None
 
 
-async def edit_or_send(c, text, kb=None):
-    """Для callback: пытается edit_text, иначе send_message."""
-    try:
-        await c.message.edit_text(text, reply_markup=kb,
-                                   parse_mode=ParseMode.HTML)
-        return c.message
-    except Exception:
-        try:
-            sent = await c.message.answer(text, reply_markup=kb,
-                                            parse_mode=ParseMode.HTML)
-            return sent
-        except Exception:
-            return None
-
-
 async def close_menu(c: CallbackQuery):
-    """Удалить сообщение с inline-меню при нажатии «Закрыть».
-    Если удалить нельзя — просто убираем кнопки.
-    """
+    """Удалить сообщение с inline-меню при «Закрыть»."""
     try:
         await c.message.delete()
         return True
@@ -90,5 +90,5 @@ async def close_menu(c: CallbackQuery):
 
 
 def forget_menu(uid):
-    """Сбросить запомненное меню (при бое)."""
+    """Сбросить запомненное меню."""
     _last_menu.pop(uid, None)
