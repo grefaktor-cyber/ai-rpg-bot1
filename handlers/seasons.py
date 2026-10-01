@@ -1,4 +1,4 @@
-"""Сезоны: /season — рейтинг и инфо."""
+"""Сезоны: /season — рейтинг. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -16,7 +16,10 @@ router = Router()
 def _season_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="season_refresh")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="season_close")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ],
     ])
 
 
@@ -28,7 +31,6 @@ async def _render_season(uid):
 
     text = f"🏆 <b>Сезон #{info['number']}</b>\n\n"
     text += f"⏳ До конца: <b>{info['days_left']} дней</b>\n\n"
-
     text += f"<b>Твоя позиция:</b> <b>#{rank}</b>\n"
     text += f"⭐ Сезонный XP: <b>{user.get('season_xp', 0)}</b>\n\n"
 
