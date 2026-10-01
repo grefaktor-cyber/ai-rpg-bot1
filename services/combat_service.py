@@ -25,7 +25,26 @@ from core.skills import get_skill, skill_multiplier
 import world as W
 
 
-MAX_ACTIONS = 3
+MAX_ACTIONS = 4
+
+
+def _get_enemy_actions(combat):
+    """Возвращает (n_actions, dmg_mult) для врага.
+    dmg_mult применяется к базовому урону за КАЖДОЕ действие."""
+    is_boss = bool(combat.get("is_boss"))
+    is_dungeon = bool(combat.get("is_dungeon"))
+    if is_boss:
+        # Босс: 2-3 действия, но каждое слабее
+        n = random.choice([2, 3, 3])
+        mult = {2: 0.65, 3: 0.5}[n]
+        return n, mult
+    if is_dungeon:
+        # Элитный моб подземелья: 2 действия
+        return 2, 0.65
+    # Обычный моб: 1-2 действия
+    n = random.choice([1, 1, 2])
+    mult = {1: 1.0, 2: 0.65}[n]
+    return n, mult
 
 
 # ================= ВСПОМОГАТЕЛЬНЫЕ =================
@@ -299,39 +318,40 @@ async def _exec_player_action(user, combat, action, log):
 # ================= ХОД ВРАГА =================
 async def _exec_enemy_turn(chat_id, user, combat, log):
     """Враг делает 1-3 действия. Возвращает (player_dead)."""
-    is_boss = bool(combat["is_boss"])
-    if is_boss:
-        attacks = random.choice([2, 3, 3])  # босс агрессивнее
-    else:
-        attacks = random.choice([1, 2, 2])
+    n_actions, dmg_mult = _get_enemy_actions(combat)
 
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     player_def = get_player_def_for_enemy(user, enemy_dmg_type)
     phase = get_boss_phase(combat)
     phase_mult = phase["dmg_mult"] if phase else 1.0
 
-    total_dmg = 0
-    for i in range(attacks):
+    # Суммарный урон с учётом множителей
+    total_raw = 0
+    per_hit_dmg = []
+    for i in range(n_actions):
         raw = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
-                                   is_boss=is_boss)
-        mitigated = apply_player_defense(raw, player_def)
-        final = max(1, int(mitigated * phase_mult))
-        total_dmg += final
+                                   is_boss=bool(combat["is_boss"]))
+        this_raw = int(raw * dmg_mult * phase_mult)
+        per_hit_dmg.append(this_raw)
+        total_raw += this_raw
+
+    # Применяем защиту игрока к сумме
+    total_dmg = apply_player_defense(total_raw, player_def)
 
     # Проверка блока (Эгида Богов)
     block_chance = get_block_chance(user)
     if block_chance > 0 and random.randint(1, 100) <= block_chance:
-        log.append(f"🛡 <b>Блок!</b> Атака врага отражена")
+        log.append(f"🛡 <b>Блок!</b> Все {n_actions} атак отражены")
         return False
 
     new_hp = max(0, user["hp"] - total_dmg)
     await g.db.update_hp(user["user_id"], new_hp)
     user["hp"] = new_hp
 
-    if attacks > 1:
-        log.append(f"💔 Враг ×{attacks} — {total_dmg} урона")
+    if n_actions == 1:
+        log.append(f"💔 Враг атакует: {total_dmg} урона")
     else:
-        log.append(f"💔 Враг — {total_dmg} урона")
+        log.append(f"💔 Враг ×{n_actions} — итого {total_dmg} урона")
 
     if phase:
         log.append(f"{phase['name']}: {phase['desc']}")
