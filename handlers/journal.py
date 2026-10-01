@@ -1,4 +1,4 @@
-"""Дневник игрока: просмотр истории приключений."""
+"""Дневник игрока. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from core import globals as g
 from core.keyboards import main_kb
 from core.journal import format_journal_entry
+from services.ui import send_menu, close_menu
 
 router = Router()
 
@@ -14,7 +15,10 @@ router = Router()
 def _journal_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="journal_refresh")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="journal_close")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ],
     ])
 
 
@@ -41,7 +45,7 @@ async def journal_cmd(m: Message):
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
     text = await _render_journal(m.from_user.id)
-    await m.answer(text, reply_markup=_journal_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, text, _journal_kb())
 
 
 @router.callback_query(F.data == "journal_refresh")
@@ -59,6 +63,5 @@ async def journal_refresh_cb(c: CallbackQuery):
 
 @router.callback_query(F.data == "journal_close")
 async def journal_close_cb(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
