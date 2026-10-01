@@ -1,4 +1,4 @@
-"""Меню скилов + изучение книг."""
+"""Меню скилов + изучение книг. back+close везде."""
 import json
 
 from aiogram import Router, F
@@ -10,12 +10,20 @@ from core import globals as g
 from core.skills import available_skills, get_skill
 from core.books import SKILL_BOOKS
 from core.keyboards import (
-    main_kb, skills_main_kb, skills_back_kb,
+    main_kb, skills_main_kb,
     skills_slot_choice_kb, skills_upgrade_kb,
 )
+from services.ui import send_menu, close_menu
 
 
 router = Router()
+
+
+def _back_close_row(back_cb):
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
 
 
 def _load_learned(user):
@@ -76,7 +84,7 @@ async def skills_cmd(m: Message):
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
     text = _render_main(u)
-    await m.answer(text, reply_markup=skills_main_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, text, skills_main_kb())
 
 
 @router.callback_query(F.data == "skills_menu")
@@ -94,7 +102,6 @@ async def skills_menu_cb(c: CallbackQuery):
 
 @router.callback_query(F.data == "skills_close")
 async def skills_close_cb(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
 
@@ -104,7 +111,6 @@ async def skills_noop_cb(c: CallbackQuery):
     await c.answer("Максимальный уровень")
 
 
-# ================= СПИСОК ВСЕХ =================
 @router.callback_query(F.data == "skills_list")
 async def skills_list_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
@@ -124,16 +130,14 @@ async def skills_list_cb(c: CallbackQuery):
     if len(text) > 3500:
         text = text[:3500] + "\n<i>...список обрезан</i>"
 
+    kb = InlineKeyboardMarkup(inline_keyboard=[_back_close_row("skills_menu")])
     try:
-        await c.message.edit_text(text, reply_markup=skills_back_kb(),
-                                  parse_mode=ParseMode.HTML)
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
-        await c.message.answer(text, reply_markup=skills_back_kb(),
-                               parse_mode=ParseMode.HTML)
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     await c.answer()
 
 
-# ================= ИЗУЧЕНИЕ КНИГ =================
 @router.callback_query(F.data == "skills_learn_menu")
 async def skills_learn_menu(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
@@ -141,7 +145,6 @@ async def skills_learn_menu(c: CallbackQuery):
     books_in_inv = []
     for it in inv:
         name = it["item_name"]
-        # Книги обозначаются по имени из SKILL_BOOKS
         for code, b in SKILL_BOOKS.items():
             if b["name"] == name:
                 books_in_inv.append((code, b))
@@ -162,7 +165,6 @@ async def skills_learn_menu(c: CallbackQuery):
     rows = []
     for code, b in books_in_inv:
         already = code in learned_books
-        # Проверка класса
         user_class = u.get("class", "")
         if b.get("class") and b["class"] != user_class:
             text += f"❌ {b['name']} — не твой класс ({b['class']})\n"
@@ -176,7 +178,7 @@ async def skills_learn_menu(c: CallbackQuery):
             callback_data=f"learn_book_{code}"
         )])
 
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
+    rows.append(_back_close_row("skills_menu"))
 
     try:
         await c.message.edit_text(text,
@@ -205,7 +207,6 @@ async def learn_book_cb(c: CallbackQuery):
     if not has:
         await c.answer("❌ Нет книги в инвентаре", show_alert=True); return
 
-    # Убираем книгу из инвентаря, добавляем в learned_books
     await g.db.remove_item(c.from_user.id, b["name"])
     ok = await g.db.learn_book(c.from_user.id, code)
     if not ok:
@@ -218,11 +219,9 @@ async def learn_book_cb(c: CallbackQuery):
         f"Открой ✨ Скилы → «📚 Все скилы», чтобы увидеть его в пуле.\n"
         f"Поставь в слот через «🎯 Настроить слоты».",
         reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-    # Обновляем меню
     await skills_learn_menu(c)
 
 
-# ================= СЛОТЫ =================
 @router.callback_query(F.data == "skills_slots")
 async def skills_slots_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
@@ -241,7 +240,7 @@ async def skills_slots_cb(c: CallbackQuery):
         [InlineKeyboardButton(text="Слот 1", callback_data="skills_slot_1")],
         [InlineKeyboardButton(text="Слот 2", callback_data="skills_slot_2")],
         [InlineKeyboardButton(text="Слот 3", callback_data="skills_slot_3")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")],
+        _back_close_row("skills_menu"),
     ]
     try:
         await c.message.edit_text(text,
@@ -311,7 +310,6 @@ async def skills_set_cb(c: CallbackQuery):
     await skills_slots_cb(c)
 
 
-# ================= ПРОКАЧКА =================
 @router.callback_query(F.data == "skills_upgrade")
 async def skills_upgrade_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
