@@ -1,6 +1,4 @@
-"""Меню титулов."""
-import json
-
+"""Меню титулов. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,20 +7,23 @@ from aiogram.enums import ParseMode
 from core import globals as g
 from core.titles import TITLES, get_available_titles
 from core.keyboards import main_kb
+from services.ui import send_menu, close_menu
 
 router = Router()
 
 
 @router.message(Command("titles"))
 @router.message(Command("title"))
+@router.message(F.text == "🏆 Титулы")
 async def titles_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
-    await _show_menu(m.chat.id, u)
+    text, kb = await _build_menu(u)
+    await send_menu(m, text, kb)
 
 
-async def _show_menu(chat_id, u):
+async def _build_menu(u):
     earned = await g.db.get_achievements(u["user_id"])
     achievements_codes = {a["code"] for a in earned}
     unlocked = set(get_available_titles(u, achievements_codes))
@@ -36,7 +37,6 @@ async def _show_menu(chat_id, u):
         text += "<b>Активный:</b> <i>не выбран</i>\n\n"
 
     text += f"Открыто: <b>{len(unlocked)}</b> / {len(TITLES)}\n\n"
-
     text += "<b>Все титулы:</b>\n"
     for code, data in TITLES.items():
         mark = "✅" if code in unlocked else "🔒"
@@ -45,7 +45,6 @@ async def _show_menu(chat_id, u):
         text += f"    <i>{data['desc']}</i>\n"
 
     rows = []
-    # Кнопки для выбора
     for code, data in TITLES.items():
         if code not in unlocked:
             continue
@@ -58,17 +57,15 @@ async def _show_menu(chat_id, u):
             text="🚫 Снять титул",
             callback_data="title_clear"
         )])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть",
-                                      callback_data="title_close")])
-
-    await g.bot.send_message(chat_id, text,
-                             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                             parse_mode=ParseMode.HTML)
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data == "title_close")
 async def title_close(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
 
@@ -78,11 +75,11 @@ async def title_clear(c: CallbackQuery):
     await g.db.set_active_title(c.from_user.id, "")
     await c.answer("🚫 Титул снят")
     u = await g.db.get_user(c.from_user.id)
+    text, kb = await _build_menu(u)
     try:
-        await c.message.edit_reply_markup(reply_markup=None)
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
         pass
-    await _show_menu(c.message.chat.id, u)
 
 
 @router.callback_query(F.data.startswith("title_set_"))
@@ -98,9 +95,9 @@ async def title_set(c: CallbackQuery):
         await c.answer("🔒 Титул не открыт", show_alert=True); return
     await g.db.set_active_title(c.from_user.id, code)
     await c.answer(f"✅ {TITLES[code]['name']}")
+    u = await g.db.get_user(c.from_user.id)
+    text, kb = await _build_menu(u)
     try:
-        await c.message.edit_reply_markup(reply_markup=None)
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
         pass
-    u = await g.db.get_user(c.from_user.id)
-    await _show_menu(c.message.chat.id, u)
