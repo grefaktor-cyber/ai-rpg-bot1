@@ -24,11 +24,10 @@ def main_kb():
     )
 
 
-def combat_kb(active_skills=None, mp=0, pending=None):
+def combat_kb(active_skills=None, mp=0, pending=None,
+              prefix="combat", max_actions=4, is_pvp=False):
     """Боевая клавиатура с очередью действий.
-    active_skills — коды активных скилов (0-3).
-    mp — текущий MP.
-    pending — список уже добавленных действий (для отображения).
+    prefix — 'combat' для PvE, 'pvp' для дуэли.
     """
     from core.skills import get_skill
     from core.game_data import POTION_PRICE, MP_POTION_PRICE
@@ -38,11 +37,13 @@ def combat_kb(active_skills=None, mp=0, pending=None):
 
     # === Ряд 1: базовые действия ===
     rows.append([
-        InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_add_attack"),
-        InlineKeyboardButton(text="🛡 Защита", callback_data="combat_add_defend"),
+        InlineKeyboardButton(text="⚔️ Атака",
+                             callback_data=f"{prefix}_add_attack"),
+        InlineKeyboardButton(text="🛡 Защита",
+                             callback_data=f"{prefix}_add_defend"),
     ])
 
-    # === Ряд 2-3: скилы (только если есть активные) ===
+    # === Ряд 2-3: скилы ===
     if active_skills:
         skill_buttons = []
         for code in active_skills[:3]:
@@ -61,7 +62,7 @@ def combat_kb(active_skills=None, mp=0, pending=None):
             if mp < s["mp_cost"]:
                 text = f"{icon} {short} ❌"
             skill_buttons.append(InlineKeyboardButton(
-                text=text, callback_data=f"combat_add_skill_{code}"
+                text=text, callback_data=f"{prefix}_add_skill_{code}"
             ))
         if len(skill_buttons) <= 2:
             rows.append(skill_buttons)
@@ -72,9 +73,9 @@ def combat_kb(active_skills=None, mp=0, pending=None):
     # === Зелья ===
     rows.append([
         InlineKeyboardButton(text=f"💚 HP ({POTION_PRICE}💰)",
-                             callback_data="combat_add_potion_hp"),
+                             callback_data=f"{prefix}_add_potion_hp"),
         InlineKeyboardButton(text=f"🔮 MP ({MP_POTION_PRICE}💰)",
-                             callback_data="combat_add_potion_mp"),
+                             callback_data=f"{prefix}_add_potion_mp"),
     ])
 
     # === Очередь: убрать + выполнить ===
@@ -82,18 +83,44 @@ def combat_kb(active_skills=None, mp=0, pending=None):
     row_actions = []
     if count > 0:
         row_actions.append(InlineKeyboardButton(
-            text="↩️ Убрать", callback_data="combat_undo"))
+            text="↩️ Убрать", callback_data=f"{prefix}_undo"))
     row_actions.append(InlineKeyboardButton(
-        text=f"⚡ Выполнить ({count}/3)",
-        callback_data="combat_execute"))
+        text=f"⚡ Выполнить ({count}/{max_actions})",
+        callback_data=f"{prefix}_execute"))
     rows.append(row_actions)
 
-    # === Побег ===
-    rows.append([
-        InlineKeyboardButton(text="🏃 Бежать", callback_data="combat_flee"),
-    ])
+    # === Сдаться/бежать ===
+    if is_pvp:
+        rows.append([InlineKeyboardButton(
+            text="🏳️ Сдаться", callback_data="pvp_surrender")])
+    else:
+        rows.append([InlineKeyboardButton(
+            text="🏃 Бежать", callback_data="combat_flee")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def combat_pending_text(pending, max_actions=4):
+    """Отформатировать очередь действий."""
+    if not pending:
+        return f"<i>Очередь пуста. Добавь 1-{max_actions} действий.</i>"
+    lines = [f"<b>📋 Твоя очередь ({len(pending)}/{max_actions}):</b>"]
+    icons = {
+        "attack":     "⚔️ Атака",
+        "defend":     "🛡 Защита",
+        "potion_hp":  "💚 Зелье HP",
+        "potion_mp":  "🔮 Зелье MP",
+    }
+    for i, a in enumerate(pending):
+        if a.startswith("skill_"):
+            code = a.replace("skill_", "")
+            from core.skills import get_skill
+            s = get_skill(code)
+            name = s["name"] if s else code
+            lines.append(f"{i+1}. ✨ {name}")
+        else:
+            lines.append(f"{i+1}. {icons.get(a, a)}")
+    return "\n".join(lines)
 
 
 def combat_pending_text(pending):
