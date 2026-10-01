@@ -1,4 +1,4 @@
-"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг."""
+"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, уведомления."""
 import json
 import random
 
@@ -25,6 +25,10 @@ from core.formulas import (
 from core.keyboards import combat_kb, combat_pending_text, dungeon_continue_kb
 from core.game_data import PETS
 from core.skills import get_skill, skill_multiplier
+from services.notifications import (
+    notify_item, notify_achievement, notify_boss, notify_quest,
+    notify_drop, notify_book, notify_recipe, notify_level,
+)
 import world as W
 
 MAX_ACTIONS = 4
@@ -191,7 +195,7 @@ async def undo_action(uid):
     return False
 
 
-# ================= ДЕЙСТВИЕ =================
+# ================= ДЕЙСТВИЕ ИГРОКА =================
 async def _exec_player_action(user, combat, action, log):
     new_enemy_hp = combat["enemy_hp"]
     def_reduce = 1.0
@@ -393,7 +397,6 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             await g.db.update_mp(user["user_id"], new_mp)
             user["mp"] = new_mp
 
-    # Сводка с иконками и разделителем
     summary = ""
     if player_log:
         summary += "<b>🗡 Твой ход:</b>\n" + "\n".join(f"  {ln}" for ln in player_log)
@@ -427,7 +430,6 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
             drops.append(("📖 Книга", b["name"]))
 
     # === РЕЦЕПТЫ ===
-    # Определяем грейд по уровню босса
     if boss_level < 15:
         pool = [r for r, d in RECIPES.items() if d.get("grade") == "D"]
         chance = 0.05
@@ -443,10 +445,8 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
 
     if pool and random.random() <= chance:
         recipe = random.choice(pool)
-        # Рецепт как предмет "📜 Рецепт: X"
         recipe_item = f"📜 Рецепт: {recipe}"
         await g.db.add_item(uid, recipe_item)
-        # Сразу добавляем в known_recipes
         await g.db.learn_recipe(uid, recipe)
         drops.append(("📜 Рецепт", recipe))
 
@@ -519,11 +519,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                     await g.db.add_rare_material(user["user_id"], mat_code, 1)
                     spoil_reward = mat_data["name"]
                     break
-        # Даже если не попал в конкретного моба — небольшой шанс на "универсальный"
-        if not spoil_reward:
-            if random.random() <= 0.10:
-                # Выдадим any rare из подходящих
-                pass
 
     # === ДРОП С БОССОВ ===
     boss_drops = []
@@ -578,10 +573,12 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     if event:
         text += f"\n<i>{event['event_name']} усиливает награду</i>"
 
-    # Спул
+    # Спойл
     if spoil_reward:
         text += f"\n\n🌿 <b>Спойл:</b> +{spoil_reward}"
+        await notify_drop(chat_id, spoil_reward, source="🌿 Спойл")
 
+    # === БОСС ===
     if combat["is_boss"]:
         await g.db.incr_bosses(user["user_id"])
         await g.db.add_world_event(user["user_id"], user["username"],
@@ -590,16 +587,28 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                                       f"Победил босса «{combat['enemy_name']}»", "boss")
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
+
+        await notify_boss(chat_id, combat["enemy_name"])
+
         if await g.db.add_achievement(user["user_id"], "first_boss"):
             text += "\n🏆 Достижение: ⚔️ Убийца боссов"
-        # Боссовые дропы
+            await notify_achievement(chat_id, "⚔️ Убийца боссов")
+
+        # Дропы с босса — уведомления отдельно
         for cat, name in boss_drops:
             text += f"\n{cat}: <b>{name}</b>"
+            if "Книга" in cat:
+                await notify_book(chat_id, name)
+            elif "Рецепт" in cat:
+                await notify_recipe(chat_id, name)
+            elif "Материал" in cat:
+                await notify_drop(chat_id, name, source="Спойл с босса")
 
     if random.randint(1, 100) <= 30:
         item = random.choice(DROP_TABLE)
         await g.db.add_item(user["user_id"], item)
         text += f"\n\n🎒 <b>Добыча:</b> {item}"
+        await notify_item(chat_id, item)
 
     if user.get("pet_type") == "owl" and random.randint(1, 100) <= 20:
         mat = random.choice(["iron", "leather", "dust", "crystal"])
@@ -618,6 +627,10 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                 user["user_id"]
             )
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
+
+        # Уведомление об уровне
+        await notify_level(chat_id, level, nm, nmp)
+
         if level in (5, 10, 15, 20, 30):
             await g.db.add_journal_entry(user["user_id"],
                                           f"Достиг {level} уровня", "level")
@@ -627,10 +640,13 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
     if await g.db.add_achievement(user["user_id"], "first_blood"):
         text += "\n🏆 Достижение: 🩸 Первая кровь"
+        await notify_achievement(chat_id, "🩸 Первая кровь")
+
     u = await g.db.get_user(user["user_id"])
     if u["bosses_defeated"] >= 5:
         if await g.db.add_achievement(user["user_id"], "boss_5"):
             text += "\n🏆 Достижение: 🐉 Легенда"
+            await notify_achievement(chat_id, "🐉 Легенда — 5 боссов")
 
     await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
 
