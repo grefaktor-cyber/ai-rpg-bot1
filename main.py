@@ -37,6 +37,7 @@ from handlers import (
     onboarding as onboarding_handlers,
     chat as chat_handlers,
     titles as titles_handlers,
+    seasons as seasons_handlers,
     ai_handler as ai_handler_handlers,
 )
 
@@ -78,13 +79,13 @@ dp.callback_query.middleware(ErrorMiddleware())
 
 
 # ================= РОУТЕРЫ =================
-# Порядок важен!
 # 1) Админ + конкретные команды
 dp.include_router(admin_handlers.router)
-dp.include_router(daily_premium_handlers.router)   # ← ТОЛЬКО /daily
-dp.include_router(premium_handlers.router)          # ← новый /premium
+dp.include_router(daily_premium_handlers.router)
+dp.include_router(premium_handlers.router)
 dp.include_router(misc_handlers.router)
 dp.include_router(menu_handlers.router)
+dp.include_router(seasons_handlers.router)
 # 2) Старт и создание героя
 dp.include_router(start_handlers.router)
 dp.include_router(onboarding_handlers.router)
@@ -128,8 +129,16 @@ async def start_web_server():
 
 # ================= ЗАПУСК =================
 async def _cleanup_loop():
-    """Раз в 5 мин — мусор. Раз в 5 мин — проверка спавна босса."""
+    """Раз в 5 мин — мусор + проверка конца сезона."""
     from services.world_boss_service import try_spawn_boss
+    from services.season_service import check_season_end, ensure_season
+
+    try:
+        await ensure_season()
+    except Exception as e:
+        logging.error(f"ensure_season: {e}")
+
+    tick = 0
     while True:
         try:
             await asyncio.sleep(300)
@@ -140,8 +149,12 @@ async def _cleanup_loop():
             await db.cleanup_location_events(days=7)
             await db.cleanup_world_bosses(days=3)
 
-            # Проверка спавна (по времени МСК)
+            # Спавн мирового босса
             await try_spawn_boss()
+
+            tick += 1
+            if tick % 12 == 0:
+                await check_season_end()
         except Exception as e:
             logging.error(f"cleanup error: {e}")
 
