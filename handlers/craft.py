@@ -1,4 +1,4 @@
-"""Кузница: крафт, разбор, улучшение, рецепты."""
+"""Кузница: крафт, разбор, улучшение, рецепты. UI-2.6: короткие кнопки."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -12,6 +12,11 @@ from core.keyboards import main_kb
 
 
 router = Router()
+
+
+def _short(name, n=20):
+    s = str(name)
+    return s if len(s) <= n else s[:n - 1] + "…"
 
 
 # ================= МЕНЮ КУЗНИЦЫ =================
@@ -60,7 +65,6 @@ async def craft_recipes(c: CallbackQuery):
     text = "📜 <b>Рецепты</b>\n\n"
     rows = []
 
-    # Сортируем по грейду
     for result, r in sorted(RECIPES.items(), key=lambda x: x[1].get("grade", "Z")):
         base = r["base"]
         cnt_base = r.get("count_base", 1)
@@ -69,7 +73,6 @@ async def craft_recipes(c: CallbackQuery):
         mats = r.get("materials", {})
         rare_mats = r.get("rare", {})
 
-        # Проверка
         can_craft = have_base >= cnt_base
         for mat, amt in mats.items():
             if u.get(f"mat_{mat}", 0) < amt:
@@ -94,7 +97,7 @@ async def craft_recipes(c: CallbackQuery):
 
         if can_craft:
             rows.append([InlineKeyboardButton(
-                text=f"⚒️ Создать: {result} ({chance}%)",
+                text=f"⚒️ {_short(result, 16)} · {chance}%",
                 callback_data=f"craft_do_{result}"
             )])
 
@@ -156,7 +159,6 @@ async def craft_do(c: CallbackQuery):
     inv_names = [i["item_name"] for i in inv]
     rare = await g.db.get_rare_materials(c.from_user.id)
 
-    # Проверки
     base = r["base"]
     cnt_base = r.get("count_base", 1)
     if inv_names.count(base) < cnt_base:
@@ -168,7 +170,6 @@ async def craft_do(c: CallbackQuery):
         if rare.get(mat, 0) < amt:
             await c.answer(f"❌ Нужно редких: {mat}: {amt}", show_alert=True); return
 
-    # Забираем
     for _ in range(cnt_base):
         await g.db.remove_item(c.from_user.id, base)
     for mat, amt in r.get("materials", {}).items():
@@ -176,7 +177,6 @@ async def craft_do(c: CallbackQuery):
     for mat, amt in r.get("rare", {}).items():
         await g.db.spend_rare_material(c.from_user.id, mat, amt)
 
-    # Попытка
     if random.random() <= r.get("chance", 1.0):
         await g.db.add_item(c.from_user.id, result)
         await c.answer("✅ Успех!")
@@ -214,7 +214,7 @@ async def craft_dismantle_menu(c: CallbackQuery):
         text += "Выбери предмет:"
         for n in items_to_show[:12]:
             rows.append([InlineKeyboardButton(
-                text=f"🔨 {n}",
+                text=f"🔨 {_short(n, 22)}",
                 callback_data=f"disasm_{n}"
             )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="craft_back")])
@@ -279,7 +279,7 @@ async def craft_upgrade_menu(c: CallbackQuery):
         text += "Выбери предмет:"
         for n in items[:12]:
             rows.append([InlineKeyboardButton(
-                text=f"⬆️ {n}",
+                text=f"⬆️ {_short(n, 22)}",
                 callback_data=f"upgrade_{n}"
             )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="craft_back")])
@@ -330,7 +330,7 @@ async def upgrade_cb(c: CallbackQuery):
                                 parse_mode=ParseMode.HTML)
 
 
-# ================= СТАРЫЕ КОМАНДЫ (совместимость) =================
+# ================= СТАРЫЕ КОМАНДЫ =================
 @router.message(Command("dismantle"))
 async def dismantle_cmd(m: Message):
     parts = m.text.split(maxsplit=1)
