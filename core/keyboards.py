@@ -88,7 +88,10 @@ def profile_tabs_kb(active_tab="stats"):
     return InlineKeyboardMarkup(inline_keyboard=[
         [btn("📊 Статы", "stats"), btn("👑 Экип.", "equip")],
         [btn("🏆 Достижения", "ach"), btn("📦 Материалы", "mats")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="prof_close")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="prof_close"),
+        ],
     ])
 
 
