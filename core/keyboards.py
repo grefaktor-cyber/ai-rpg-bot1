@@ -54,11 +54,12 @@ def menu_progress_kb():
          InlineKeyboardButton(text="🏆 Достижения", callback_data="menu_ach")],
         [InlineKeyboardButton(text="🏅 Рейтинг", callback_data="menu_top"),
          InlineKeyboardButton(text="🎁 Награда", callback_data="menu_daily")],
-        [InlineKeyboardButton(text="📜 Дневник", callback_data="menu_journal"),
-         InlineKeyboardButton(text="💎 Премиум", callback_data="menu_premium")],
-        [InlineKeyboardButton(text="🐾 Питомец", callback_data="menu_pet"),
-         InlineKeyboardButton(text="🏆 Титулы", callback_data="menu_titles")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+        [InlineKeyboardButton(text="🏆 Сезон", callback_data="menu_season"),
+         InlineKeyboardButton(text="📜 Дневник", callback_data="menu_journal")],
+        [InlineKeyboardButton(text="💎 Премиум", callback_data="menu_premium"),
+         InlineKeyboardButton(text="🐾 Питомец", callback_data="menu_pet")],
+        [InlineKeyboardButton(text="🏆 Титулы", callback_data="menu_titles"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
