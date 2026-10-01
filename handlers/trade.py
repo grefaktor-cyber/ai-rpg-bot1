@@ -23,14 +23,13 @@ class TradeStates(StatesGroup):
 
 
 # ================= SELL =================
-SELL_RATE = 0.6  # 60% от цены
+SELL_RATE = 0.6
 
 
 def _sell_price(item_name):
     base_name, lvl = parse_item(item_name)
     if base_name not in SHOP:
         return 0
-    # Эксклюзивные за Stars — нельзя продать
     if SHOP[base_name].get("premium"):
         return 0
     base = SHOP[base_name]["price"]
@@ -128,7 +127,7 @@ async def sell_item_cb(c: CallbackQuery):
         reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
 
-# ================= PAY (в любую локацию) =================
+# ================= PAY =================
 @router.message(Command("pay"))
 async def pay_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -305,7 +304,7 @@ async def pickup_cb(c: CallbackQuery):
                            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
 
-# ================= TRADE (обмен предметами) =================
+# ================= TRADE =================
 @router.message(Command("trade"))
 async def trade_cmd(m: Message, state: FSMContext):
     u = await g.db.get_user(m.from_user.id)
@@ -313,7 +312,7 @@ async def trade_cmd(m: Message, state: FSMContext):
         await m.answer("Сначала создай героя."); return
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ В бою нельзя обмениваться."); return
-    parts = m.text.split(maxsplit=1)
+    parts = (m.text or "").split(maxsplit=1)
     if len(parts) < 2:
         await m.answer("Использование: <code>/trade Имя</code>\n\n"
                        "Открывает меню обмена. Ты выбираешь свои предметы, "
@@ -333,7 +332,7 @@ async def trade_cmd(m: Message, state: FSMContext):
     await state.set_state(TradeStates.choosing_mine)
     await state.update_data(trade_id=oid, my_items=[], my_gold=0)
 
-    await _show_trade_menu(m.chat.id, u["user_id"], oid, state)
+    await _show_trade_menu(m.chat.id, u["user_id"], oid)
 
 
 @router.callback_query(F.data.startswith("trade_"))
@@ -488,7 +487,7 @@ async def trade_gold_input(m: Message, state: FSMContext):
     await _refresh_trade_menu(m.from_user.id, oid, is_sender)
 
 
-async def _show_trade_menu(chat_id, uid, oid, state):
+async def _show_trade_menu(chat_id, uid, oid):
     offer = await g.db.get_trade_offer(oid)
     is_sender = uid == offer["from_id"]
     text = _trade_text(offer, is_sender)
@@ -583,7 +582,6 @@ def _trade_kb(offer, is_sender, uid):
     rows.append([InlineKeyboardButton(
         text="💰 Задать золото", callback_data=f"trade_goldprompt_{oid}")])
     for it in mine:
-        # Помечаем эксклюзивы 🔒
         base_name, _ = parse_item(it)
         mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
         rows.append([InlineKeyboardButton(
@@ -617,7 +615,6 @@ async def trade_addprompt(c: CallbackQuery, state: FSMContext):
         n = it["item_name"]
         if n in mine:
             continue
-        # Эксклюзивы тоже можно передавать, помечаем 🔒
         base_name, _ = parse_item(n)
         mark = "🔒 " if (base_name in SHOP and SHOP[base_name].get("premium")) else ""
         rows.append([InlineKeyboardButton(
