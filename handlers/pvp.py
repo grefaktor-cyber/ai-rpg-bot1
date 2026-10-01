@@ -239,7 +239,8 @@ async def pvp_add_attack(c: CallbackQuery):
     await c.answer("⚔️ +Атака")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
-                          await g.db.get_combat(c.from_user.id))
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_add_defend")
@@ -251,7 +252,8 @@ async def pvp_add_defend(c: CallbackQuery):
     await c.answer("🛡 +Защита")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
-                          await g.db.get_combat(c.from_user.id))
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 @router.callback_query(F.data.startswith("pvp_add_skill_"))
@@ -267,9 +269,9 @@ async def pvp_add_skill(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer(f"✨ +{s['name']}")
-await send_pvp_state(c.from_user.id, user,
-                     await g.db.get_combat(c.from_user.id),
-                     edit_message=c.message)
+    await send_pvp_state(c.from_user.id, user,
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_add_potion_hp")
@@ -281,9 +283,9 @@ async def pvp_add_potion_hp(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer("💚 +Зелье HP")
-await send_pvp_state(c.from_user.id, user,
-                     await g.db.get_combat(c.from_user.id),
-                     edit_message=c.message)
+    await send_pvp_state(c.from_user.id, user,
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_add_potion_mp")
@@ -295,9 +297,9 @@ async def pvp_add_potion_mp(c: CallbackQuery):
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
     await c.answer("🔮 +Зелье MP")
-await send_pvp_state(c.from_user.id, user,
-                     await g.db.get_combat(c.from_user.id),
-                     edit_message=c.message)
+    await send_pvp_state(c.from_user.id, user,
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 @router.callback_query(F.data == "pvp_undo")
@@ -308,7 +310,8 @@ async def pvp_undo(c: CallbackQuery):
     await c.answer("↩️")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
-                          await g.db.get_combat(c.from_user.id))
+                          await g.db.get_combat(c.from_user.id),
+                          edit_message=c.message)
 
 
 # ================= ВЫПОЛНЕНИЕ ХОДА =================
@@ -335,9 +338,7 @@ async def pvp_execute(c: CallbackQuery):
     log = []
     enemy_skip = False
 
-    # Применяем каждое действие
     for action in pending:
-        # Проверка: противник ещё жив?
         opp = await g.db.get_user(opp_id)
         if opp["hp"] <= 0:
             break
@@ -363,7 +364,6 @@ async def pvp_execute(c: CallbackQuery):
 
             new_hp = max(0, opp["hp"] - dmg)
             await g.db.update_hp(opp_id, new_hp)
-            # Обновить enemy_hp в combat opponent
             async with g.db.pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
@@ -419,11 +419,9 @@ async def pvp_execute(c: CallbackQuery):
                 log.append(f"✨ {s['name']}: +{heal} HP")
 
             elif effect == "buff_atk":
-                # В PvP не работает долгосрочно, но дадим бонус к след. атаке
                 log.append(f"✨ {s['name']}: бафф атаки")
 
             elif effect == "debuff":
-                # Снимаем урон у противника на его след. ход — упрощённо
                 log.append(f"✨ {s['name']}: дебафф")
 
             elif effect == "stun":
@@ -459,10 +457,8 @@ async def pvp_execute(c: CallbackQuery):
             user["mp"] = new_mp
             log.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
 
-    # Очистка очереди
     await g.db.clear_pending_actions(uid)
 
-    # Проверить победу
     opp = await g.db.get_user(opp_id)
     summary = "<b>🗡 Твои действия:</b>\n" + "\n".join(log)
 
@@ -475,7 +471,6 @@ async def pvp_execute(c: CallbackQuery):
         await pvp_end(winner_id=uid, loser_id=opp_id, stake=combat["stake"])
         return
 
-    # Уведомление оппоненту + переключение хода
     try:
         await g.bot.send_message(opp_id,
             f"⚔️ <b>Ход противника</b> ({user['char_name']})\n\n{summary}",
@@ -484,7 +479,6 @@ async def pvp_execute(c: CallbackQuery):
         pass
 
     if enemy_skip:
-        # Ход остаётся у игрока
         await g.db.set_pending_actions(uid, "[]")
         try:
             await c.message.edit_reply_markup(reply_markup=None)
@@ -496,10 +490,6 @@ async def pvp_execute(c: CallbackQuery):
         return
 
     await g.db.pvp_switch_turn(uid)
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
     user = await g.db.get_user(uid)
     opp = await g.db.get_user(opp_id)
     await send_pvp_state(uid, user, await g.db.get_combat(uid),
