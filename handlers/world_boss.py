@@ -1,4 +1,4 @@
-"""Хендлеры мировых боссов."""
+"""Хендлеры мировых боссов. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -8,6 +8,7 @@ from core import globals as g
 from core.keyboards import main_kb
 from core.world_bosses import WORLD_BOSSES, ATTACK_COOLDOWN_SEC, MIN_HP_PCT
 from services.world_boss_service import attack_boss
+from services.ui import send_menu, close_menu
 import world as W
 
 router = Router()
@@ -21,13 +22,21 @@ def _hp_bar(hp, max_hp, length=15):
     return "█" * filled + "░" * (length - filled)
 
 
+def _back_close_row():
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
 def _boss_text(boss, damage_list, u):
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
     bar = _hp_bar(boss["current_hp"], boss["max_hp"])
 
     dmg_type = boss_data.get("dmg_type", "phys")
     dmg_type_icon = "🔮 Магия" if dmg_type == "magic" else "⚔️ Физика"
-    text += (f"🐉 <b>{boss_data.get('name', '?')}</b> "
+
+    text = (f"🐉 <b>{boss_data.get('name', '?')}</b> "
             f"(Ур. {boss_data.get('level', '?')})\n"
             f"<i>{boss_data.get('desc', '')}</i>\n\n"
             f"{bar}\n"
@@ -35,7 +44,6 @@ def _boss_text(boss, damage_list, u):
             f"⚔️ Урон: ~{boss_data.get('attack_dmg', 100)} ({dmg_type_icon})\n"
             f"<i>Твоя {'M.Def' if dmg_type == 'magic' else 'P.Def'} защищает</i>\n\n")
 
-    # HP игрока
     hp_pct = int((u["hp"] / max(1, u["max_hp"])) * 100)
     text += f"❤️ Твой HP: <b>{u['hp']}/{u['max_hp']}</b> ({hp_pct}%)\n"
     if hp_pct < int(MIN_HP_PCT * 100):
@@ -56,6 +64,7 @@ def _boss_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚔️ Атаковать", callback_data="boss_attack")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="boss_refresh")],
+        _back_close_row(),
     ])
 
 
@@ -83,12 +92,13 @@ async def boss_cmd(m: Message):
         else:
             text += ("<i>Сейчас в мире тихо.</i>\n\n"
                      "🕐 <b>Спавн: 14:00, 20:00, 02:00, 08:00 (МСК)</b>")
-        await m.answer(text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        kb = InlineKeyboardMarkup(inline_keyboard=[_back_close_row()])
+        await send_menu(m, text, kb)
         return
 
     damage_list = await g.db.get_boss_damage_list(boss["id"], limit=5)
     text = _boss_text(boss, damage_list, u)
-    await m.answer(text, reply_markup=_boss_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, text, _boss_kb())
 
 
 @router.callback_query(F.data == "boss_refresh")
@@ -108,6 +118,12 @@ async def boss_refresh_cb(c: CallbackQuery):
     except Exception:
         pass
     await c.answer("🔄")
+
+
+@router.callback_query(F.data == "boss_close")
+async def boss_close_cb(c: CallbackQuery):
+    await close_menu(c)
+    await c.answer()
 
 
 @router.callback_query(F.data == "boss_attack")
@@ -155,7 +171,6 @@ async def boss_attack_cb(c: CallbackQuery):
         except Exception:
             pass
     else:
-        # Обновляем то же сообщение, что и boss_refresh, но без c.answer
         u = await g.db.get_user(c.from_user.id)
         loc_code = u.get("location_code", "village")
         boss = await g.db.get_active_world_boss(loc_code)
