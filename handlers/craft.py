@@ -1,4 +1,4 @@
-"""Кузница: крафт, разбор, улучшение, рецепты. UI-2.6: короткие кнопки."""
+"""Кузница: крафт, разбор, улучшение. UI-2.6: back+close везде."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -17,6 +17,13 @@ router = Router()
 def _short(name, n=20):
     s = str(name)
     return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def _back_close_row(back_cb):
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
 
 
 # ================= МЕНЮ КУЗНИЦЫ =================
@@ -41,10 +48,10 @@ async def craft_cmd(m: Message):
         [InlineKeyboardButton(text="🔨 Разобрать", callback_data="craft_dismantle_menu")],
         [InlineKeyboardButton(text="⬆️ Улучшить (+1..+3)",
                               callback_data="craft_upgrade_menu")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="craft_close")],
+        _back_close_row("menu_game"),
     ]
-    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                   parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, text, InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 @router.callback_query(F.data == "craft_close")
@@ -54,7 +61,6 @@ async def craft_close(c: CallbackQuery):
     await c.answer()
 
 
-# ================= РЕЦЕПТЫ =================
 @router.callback_query(F.data == "craft_recipes")
 async def craft_recipes(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
@@ -103,7 +109,7 @@ async def craft_recipes(c: CallbackQuery):
 
     if not rows:
         text += "<i>Пока ни один рецепт не доступен.</i>"
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="craft_back")])
+    rows.append(_back_close_row("craft_back"))
 
     if len(text) > 3500:
         text = text[:3500] + "\n<i>...обрезано</i>"
@@ -135,7 +141,7 @@ async def craft_back(c: CallbackQuery):
         [InlineKeyboardButton(text="🔨 Разобрать", callback_data="craft_dismantle_menu")],
         [InlineKeyboardButton(text="⬆️ Улучшить (+1..+3)",
                               callback_data="craft_upgrade_menu")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="craft_close")],
+        _back_close_row("menu_game"),
     ]
     try:
         await c.message.edit_text(text,
@@ -217,7 +223,7 @@ async def craft_dismantle_menu(c: CallbackQuery):
                 text=f"🔨 {_short(n, 22)}",
                 callback_data=f"disasm_{n}"
             )])
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="craft_back")])
+    rows.append(_back_close_row("craft_back"))
 
     try:
         await c.message.edit_text(text,
@@ -282,7 +288,7 @@ async def craft_upgrade_menu(c: CallbackQuery):
                 text=f"⬆️ {_short(n, 22)}",
                 callback_data=f"upgrade_{n}"
             )])
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="craft_back")])
+    rows.append(_back_close_row("craft_back"))
 
     try:
         await c.message.edit_text(text,
