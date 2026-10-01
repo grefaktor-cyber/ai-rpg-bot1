@@ -155,4 +155,15 @@ async def boss_attack_cb(c: CallbackQuery):
         except Exception:
             pass
     else:
-        await boss_refresh_cb(c)
+        # Обновляем то же сообщение, что и boss_refresh, но без c.answer
+        u = await g.db.get_user(c.from_user.id)
+        loc_code = u.get("location_code", "village")
+        boss = await g.db.get_active_world_boss(loc_code)
+        if boss:
+            damage_list = await g.db.get_boss_damage_list(boss["id"], limit=5)
+            text = _boss_text(boss, damage_list, u)
+            try:
+                await c.message.edit_text(text, reply_markup=_boss_kb(),
+                                           parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
