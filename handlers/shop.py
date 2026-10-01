@@ -1,4 +1,4 @@
-"""Магазин: категории, покупка с проверками. UI-2.6: короткие кнопки."""
+"""Магазин: категории, покупка. UI-2.6: короткие кнопки + back/close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -15,13 +15,19 @@ router = Router()
 
 
 def _short(name, n=18):
-    """Обрезает длинное имя для мобильной кнопки."""
     s = str(name)
     return s if len(s) <= n else s[:n - 1] + "…"
 
 
 def _grade_icon(grade):
     return {"common": "⚪", "D": "🔷", "C": "🔶", "B": "💎"}.get(grade, "⚪")
+
+
+def _back_close_row(back_cb):
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
 
 
 CATEGORIES = {
@@ -90,7 +96,7 @@ async def shop(m: Message):
             text=f"{label} ({counts[cat]})",
             callback_data=f"shop_cat_{cat}"
         )])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")])
+    rows.append(_back_close_row("menu_game"))
     from services.ui import send_menu
     await send_menu(m, text, InlineKeyboardMarkup(inline_keyboard=rows))
 
@@ -117,7 +123,7 @@ async def shop_menu_cb(c: CallbackQuery):
     for cat, (label, icon) in CATEGORIES.items():
         rows.append([InlineKeyboardButton(
             text=f"{label} ({counts[cat]})", callback_data=f"shop_cat_{cat}")])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")])
+    rows.append(_back_close_row("menu_game"))
     try:
         await c.message.edit_text(text,
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
@@ -172,7 +178,7 @@ async def shop_category(c: CallbackQuery):
             text += "\n\n💡 C-грейд с 30 уровня."
         elif u["level"] < 45:
             text += "\n\n💡 B-грейд с 45 уровня."
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="shop_menu")])
+    rows.append(_back_close_row("shop_menu"))
     try:
         await c.message.edit_text(text,
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
