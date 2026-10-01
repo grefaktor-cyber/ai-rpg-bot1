@@ -1,4 +1,4 @@
-"""Квесты: сюжетные, ежедневные, еженедельные, очки заданий."""
+"""Квесты: сюжетные, ежедневные, еженедельные. back+close."""
 import json
 import random
 from datetime import date, timedelta
@@ -18,7 +18,6 @@ import world as W
 router = Router()
 
 
-# ================= ДАТЫ СБРОСА =================
 def get_daily_reset_date():
     return str(date.today())
 
@@ -34,7 +33,6 @@ def _filter_name(code):
             "daily": "ежедневные", "weekly": "еженедельные"}.get(code, "все")
 
 
-# ================= ГЛАВНОЕ МЕНЮ =================
 @router.message(Command("quests"))
 @router.message(F.text == "📋 Квесты")
 async def quests_cmd(m: Message):
@@ -48,7 +46,6 @@ async def quests_cmd(m: Message):
 
 async def _show_quests(uid, filter_type="all", chat_id=None,
                        edit_message=None, reply_message=None):
-    """Показать / обновить меню квестов с фильтром."""
     u = await g.db.get_user(uid)
     active_story = await g.db.get_active_story_quests(uid)
     daily = await g.db.get_timed_quests(uid, "daily", get_daily_reset_date())
@@ -154,23 +151,21 @@ async def _show_quests(uid, filter_type="all", chat_id=None,
     rows.append([f_btn("⚔️ Ежедн.", "daily"), f_btn("🏆 Еженед.", "weekly")])
     rows.append([InlineKeyboardButton(text="⭐ Очки заданий",
                                        callback_data="quest_points")])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть",
-                                       callback_data="quest_close")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_game"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
-    # === Отправка ===
-    # 1) Reply-сообщение → автоочистка через send_menu
     if reply_message is not None:
         try:
             from services.ui import send_menu
             await send_menu(reply_message, text, kb, uid=uid)
             return
         except Exception:
-            # Если services.ui ещё нет — fallback на обычный ответ
             pass
 
-    # 2) Callback → edit_text
     if edit_message:
         try:
             await edit_message.edit_text(text, reply_markup=kb,
@@ -179,13 +174,11 @@ async def _show_quests(uid, filter_type="all", chat_id=None,
         except Exception:
             pass
 
-    # 3) Обычная отправка в чат
     if chat_id:
         await g.bot.send_message(chat_id, text, reply_markup=kb,
                                   parse_mode=ParseMode.HTML)
 
 
-# ================= ФИЛЬТР =================
 @router.callback_query(F.data.startswith("qfilter_"))
 async def qfilter_cb(c: CallbackQuery):
     filter_type = c.data.replace("qfilter_", "")
@@ -209,7 +202,6 @@ async def quest_close_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= СОЗДАНИЕ КВЕСТОВ =================
 async def _ensure_daily_quests(uid):
     reset_date = get_daily_reset_date()
     existing = await g.db.get_timed_quests(uid, "daily", reset_date)
@@ -235,10 +227,7 @@ async def _ensure_weekly_quests(uid):
         )
 
 
-# ================= ПРОГРЕСС (из боя) =================
 async def progress_quest(uid, quest_type, amount=1, target_name=None):
-    """Обновить прогресс всех подходящих квестов игрока."""
-    # Сюжетные
     active_story = await g.db.get_active_story_quests(uid)
     for q in active_story:
         quest = STORY_QUESTS.get(q["quest_code"])
@@ -248,7 +237,6 @@ async def progress_quest(uid, quest_type, amount=1, target_name=None):
             if target_name and quest["target"].lower() in target_name.lower():
                 await g.db.incr_story_quest(uid, q["quest_code"], amount)
 
-    # Ежедневные
     daily = await g.db.get_timed_quests(uid, "daily", get_daily_reset_date())
     for dq in daily:
         if dq["completed"]:
@@ -267,7 +255,6 @@ async def progress_quest(uid, quest_type, amount=1, target_name=None):
             await g.db.incr_timed_quest(uid, "daily", dq["quest_code"],
                                         get_daily_reset_date(), amount)
 
-    # Еженедельные
     weekly = await g.db.get_timed_quests(uid, "weekly", get_weekly_reset_date())
     for wq in weekly:
         if wq["completed"]:
@@ -283,7 +270,6 @@ async def progress_quest(uid, quest_type, amount=1, target_name=None):
                                         get_weekly_reset_date(), amount)
 
 
-# ================= ВЗЯТИЕ СЮЖЕТНОГО =================
 @router.callback_query(F.data.startswith("quest_take_"))
 async def quest_take_cb(c: CallbackQuery):
     code = c.data.replace("quest_take_", "")
@@ -309,7 +295,6 @@ async def quest_take_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "story", edit_message=c.message)
 
 
-# ================= СДАЧА ЕЖЕДНЕВНЫХ =================
 @router.callback_query(F.data.startswith("quest_turn_"))
 async def quest_turn_cb(c: CallbackQuery):
     raw = c.data.replace("quest_turn_", "")
@@ -340,7 +325,6 @@ async def quest_turn_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "daily", edit_message=c.message)
 
 
-# ================= СДАЧА ЕЖЕНЕДЕЛЬНЫХ =================
 @router.callback_query(F.data.startswith("quest_turnw_"))
 async def quest_turnw_cb(c: CallbackQuery):
     raw = c.data.replace("quest_turnw_", "")
@@ -371,7 +355,6 @@ async def quest_turnw_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "weekly", edit_message=c.message)
 
 
-# ================= ОЧКИ ЗАДАНИЙ =================
 @router.callback_query(F.data == "quest_points")
 async def quest_points_cb(c: CallbackQuery):
     qp = await g.db.get_quest_points(c.from_user.id)
@@ -389,7 +372,10 @@ async def quest_points_cb(c: CallbackQuery):
                 text=f"Купить: {reward['desc']} ({cost}⭐)",
                 callback_data=f"quest_buy_{cost}"
             )])
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="qfilter_all")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="qfilter_all"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
     try:
         await c.message.edit_text(text,
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
