@@ -118,6 +118,20 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         except Exception:
             pass
 
+    # Контекстные подсказки
+    hints = []
+    hp_pct = user["hp"] / max(1, user["max_hp"])
+    if hp_pct < 0.30 and user["hp"] > 0:
+        if user["gold"] >= POTION_PRICE:
+            hints.append("💡 HP низкое — добавь 💚 <b>Зелье HP</b> в очередь")
+        else:
+            hints.append("⚠️ HP низкое, но золота на зелье нет — беги или защищайся")
+    if combat["round_num"] >= 5 and not pending:
+        hints.append("💡 Собери очередь из 3-4 действий для сильного хода")
+
+    if hints:
+        text += "\n\n" + "\n".join(hints)
+
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
 
@@ -379,10 +393,14 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             await g.db.update_mp(user["user_id"], new_mp)
             user["mp"] = new_mp
 
-    summary = ("<b>🗡 Твои действия:</b>\n" +
-               "\n".join(player_log) +
-               "\n\n<b>💀 Действия врага:</b>\n" +
-               "\n".join(enemy_log))
+    # Сводка с иконками и разделителем
+    summary = ""
+    if player_log:
+        summary += "<b>🗡 Твой ход:</b>\n" + "\n".join(f"  {ln}" for ln in player_log)
+    if enemy_log:
+        if summary:
+            summary += "\n\n"
+        summary += "<b>💀 Ответ врага:</b>\n" + "\n".join(f"  {ln}" for ln in enemy_log)
 
     await g.db.incr_combat_round(user["user_id"])
     user = await g.db.get_user(user["user_id"])
