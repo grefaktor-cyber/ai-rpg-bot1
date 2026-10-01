@@ -1,4 +1,4 @@
-"""Логика боя: очередь 4 действия, edit вместо send."""
+"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг."""
 import json
 import random
 
@@ -9,6 +9,9 @@ from core.game_data import (
     DUNGEONS, DROP_TABLE, MATERIAL_NAMES,
     POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION_RESTORE,
 )
+from core.materials import RARE_MATERIALS, SPOIL_CLASSES
+from core.books import SKILL_BOOKS
+from core.crafting import RECIPES
 from core.formulas import (
     calc_max_hp, calc_max_mp, danger_emoji, effective_stats,
     faction_mult, hp_bar, calc_damage, get_dmg_type,
@@ -32,13 +35,11 @@ def _get_enemy_actions(combat):
     is_dungeon = bool(combat.get("is_dungeon"))
     if is_boss:
         n = random.choice([2, 3, 3])
-        mult = {2: 0.65, 3: 0.5}[n]
-        return n, mult
+        return n, {2: 0.65, 3: 0.5}[n]
     if is_dungeon:
         return 2, 0.65
     n = random.choice([1, 1, 2])
-    mult = {1: 1.0, 2: 0.65}[n]
-    return n, mult
+    return n, {1: 1.0, 2: 0.65}[n]
 
 
 def calc_final_damage_safe(user, t_pdef, t_mdef):
@@ -49,10 +50,9 @@ def calc_final_damage_safe(user, t_pdef, t_mdef):
     return apply_defense(base, t_pdef), dmg_type
 
 
-# ================= СОСТОЯНИЕ (с edit) =================
+# ================= СОСТОЯНИЕ =================
 async def send_combat_state(chat_id, user, combat, round_text="", event=None,
                             edit_message=None):
-    """Отправить/обновить состояние боя. Если edit_message — редактируем."""
     user = await g.db.get_user(user["user_id"])
     combat = await g.db.get_combat(user["user_id"])
     if not combat:
@@ -104,7 +104,11 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         active = []
     active = [x for x in active if x][:3]
 
-    kb = combat_kb(active, mp, pending)
+    can_spoil = user.get("class") in SPOIL_CLASSES
+    spoil_used = bool(combat.get("spoil_used"))
+
+    kb = combat_kb(active, mp, pending, can_spoil=can_spoil,
+                   spoil_used=spoil_used)
 
     if edit_message:
         try:
@@ -112,7 +116,7 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
                                           parse_mode=ParseMode.HTML)
             return
         except Exception:
-            pass  # fallback — новое сообщение
+            pass
 
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
@@ -173,7 +177,7 @@ async def undo_action(uid):
     return False
 
 
-# ================= ВЫПОЛНЕНИЕ ОДНОГО ДЕЙСТВИЯ =================
+# ================= ДЕЙСТВИЕ =================
 async def _exec_player_action(user, combat, action, log):
     new_enemy_hp = combat["enemy_hp"]
     def_reduce = 1.0
@@ -203,8 +207,6 @@ async def _exec_player_action(user, combat, action, log):
         new_enemy_hp = combat["enemy_hp"] - total_dmg
         await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
         line = f"⚔️ {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
-        if next_mult != 1.0:
-            line += f" (бафф ×{next_mult:.2f})"
         if pet_dmg > 0:
             line += f"\n  {pet_text} — {pet_dmg}!"
         log.append(line)
@@ -213,11 +215,16 @@ async def _exec_player_action(user, combat, action, log):
         def_reduce = 0.5
         log.append("🛡 Защита: −50% урона")
 
+    elif action == "spoil":
+        await g.db.set_combat_spoil_used(user["user_id"])
+        log.append("🌿 Спойл: моб помечен — при убийстве есть шанс на редкий материал")
+
     elif action.startswith("skill_"):
         skill_code = action.replace("skill_", "")
         s = get_skill(skill_code)
         if not s:
-            log.append("⚠️ Скил не найден"); return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            log.append("⚠️ Скил не найден")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
         mp_cost = s["mp_cost"]
         if user["mp"] < mp_cost:
             log.append(f"❌ Не хватило MP для «{s['name']}»")
@@ -258,9 +265,11 @@ async def _exec_player_action(user, combat, action, log):
 
     elif action == "potion_hp":
         if user["hp"] >= user["max_hp"]:
-            log.append("💚 HP полное"); return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            log.append("💚 HP полное")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
         if user["gold"] < POTION_PRICE:
-            log.append(f"❌ Нет {POTION_PRICE}💰"); return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            log.append(f"❌ Нет {POTION_PRICE}💰")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
         await g.db.spend_gold(user["user_id"], POTION_PRICE)
         new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
         await g.db.update_hp(user["user_id"], new_hp)
@@ -269,9 +278,11 @@ async def _exec_player_action(user, combat, action, log):
 
     elif action == "potion_mp":
         if user["mp"] >= user["max_mp"]:
-            log.append("🔮 MP полное"); return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            log.append("🔮 MP полное")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
         if user["gold"] < MP_POTION_PRICE:
-            log.append(f"❌ Нет {MP_POTION_PRICE}💰"); return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            log.append(f"❌ Нет {MP_POTION_PRICE}💰")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
         await g.db.spend_gold(user["user_id"], MP_POTION_PRICE)
         new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
         await g.db.update_mp(user["user_id"], new_mp)
@@ -287,31 +298,25 @@ async def _exec_enemy_turn(chat_id, user, combat, log):
     player_def = get_player_def_for_enemy(user, enemy_dmg_type)
     phase = get_boss_phase(combat)
     phase_mult = phase["dmg_mult"] if phase else 1.0
-
     total_raw = 0
     for _ in range(n_actions):
         raw = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
                                    is_boss=bool(combat["is_boss"]))
         total_raw += int(raw * dmg_mult * phase_mult)
-
     total_dmg = apply_player_defense(total_raw, player_def)
-
     block_chance = get_block_chance(user)
     if block_chance > 0 and random.randint(1, 100) <= block_chance:
         log.append(f"🛡 <b>Блок!</b> Все {n_actions} атак отражены")
         return False
-
     new_hp = max(0, user["hp"] - total_dmg)
     await g.db.update_hp(user["user_id"], new_hp)
     user["hp"] = new_hp
-
     if n_actions == 1:
         log.append(f"💔 Враг: {total_dmg} урона")
     else:
         log.append(f"💔 Враг ×{n_actions} — итого {total_dmg}")
     if phase:
         log.append(f"{phase['name']}: {phase['desc']}")
-
     if user["hp"] <= 0:
         await handle_death(chat_id, user, combat)
         return True
@@ -387,6 +392,56 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
     return True
 
 
+# ================= ДРОП С БОССОВ =================
+async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
+    """Проверить дроп книги/рецепта с босса. Возвращает список дропов."""
+    drops = []
+
+    # === КНИГИ ===
+    for code, b in SKILL_BOOKS.items():
+        if boss_name not in b.get("drop_boss", []):
+            continue
+        chance = b["chance"]
+        if is_world_boss:
+            chance *= 2
+        if random.random() <= chance:
+            await g.db.add_item(uid, b["name"])
+            drops.append(("📖 Книга", b["name"]))
+
+    # === РЕЦЕПТЫ ===
+    # Определяем грейд по уровню босса
+    if boss_level < 15:
+        pool = [r for r, d in RECIPES.items() if d.get("grade") == "D"]
+        chance = 0.05
+    elif boss_level < 30:
+        pool = [r for r, d in RECIPES.items() if d.get("grade") == "C"]
+        chance = 0.05
+    else:
+        pool = [r for r, d in RECIPES.items() if d.get("grade") == "B"]
+        chance = 0.03
+
+    if is_world_boss:
+        chance *= 2
+
+    if pool and random.random() <= chance:
+        recipe = random.choice(pool)
+        # Рецепт как предмет "📜 Рецепт: X"
+        recipe_item = f"📜 Рецепт: {recipe}"
+        await g.db.add_item(uid, recipe_item)
+        # Сразу добавляем в known_recipes
+        await g.db.learn_recipe(uid, recipe)
+        drops.append(("📜 Рецепт", recipe))
+
+    # === РЕДКИЕ МАТЕРИАЛЫ ===
+    for mat_code, mat_data in RARE_MATERIALS.items():
+        if boss_name in mat_data.get("mobs", []):
+            if random.random() <= mat_data.get("chance", 0.10):
+                await g.db.add_rare_material(uid, mat_code, 1)
+                drops.append(("💠 Материал", mat_data["name"]))
+
+    return drops
+
+
 # ================= ПОБЕДА =================
 async def handle_victory(chat_id, user, combat, prefix_text):
     from services.dungeon_service import dungeon_finish
@@ -437,6 +492,28 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     if user.get("pet_type"):
         await g.db.add_pet_xp(user["user_id"], combat["enemy_level"] * 5)
 
+    # === СПОЙЛ ===
+    spoil_reward = None
+    if combat.get("spoil_used") and user.get("class") in SPOIL_CLASSES:
+        for mat_code, mat_data in RARE_MATERIALS.items():
+            if enemy_name in mat_data.get("mobs", []):
+                if random.random() <= mat_data.get("chance", 0.15):
+                    await g.db.add_rare_material(user["user_id"], mat_code, 1)
+                    spoil_reward = mat_data["name"]
+                    break
+        # Даже если не попал в конкретного моба — небольшой шанс на "универсальный"
+        if not spoil_reward:
+            if random.random() <= 0.10:
+                # Выдадим any rare из подходящих
+                pass
+
+    # === ДРОП С БОССОВ ===
+    boss_drops = []
+    if combat["is_boss"]:
+        boss_drops = await _roll_boss_drop(
+            user["user_id"], enemy_name, combat["enemy_level"]
+        )
+
     if is_dungeon:
         d = DUNGEONS.get(user.get("dungeon_id", ""), {})
         mult = d.get("reward_mult", 1.0)
@@ -472,9 +549,9 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     diff = combat["enemy_level"] - user["level"]
     xp_note = ""
     if diff >= 3:
-        xp_note = " 🔥 отличный опыт!"
+        xp_note = " 🔥"
     elif diff <= -5:
-        xp_note = " 💤 слабый враг"
+        xp_note = " 💤"
 
     text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
             f"<b>{combat['enemy_name']}</b> повержен!\n"
@@ -482,6 +559,10 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
     if event:
         text += f"\n<i>{event['event_name']} усиливает награду</i>"
+
+    # Спул
+    if spoil_reward:
+        text += f"\n\n🌿 <b>Спойл:</b> +{spoil_reward}"
 
     if combat["is_boss"]:
         await g.db.incr_bosses(user["user_id"])
@@ -493,6 +574,9 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
         if await g.db.add_achievement(user["user_id"], "first_boss"):
             text += "\n🏆 Достижение: ⚔️ Убийца боссов"
+        # Боссовые дропы
+        for cat, name in boss_drops:
+            text += f"\n{cat}: <b>{name}</b>"
 
     if random.randint(1, 100) <= 30:
         item = random.choice(DROP_TABLE)
@@ -550,7 +634,6 @@ async def handle_death(chat_id, user, combat):
 
     was_dungeon = combat.get("is_dungeon", 0)
     await g.db.end_combat(user["user_id"])
-
     marker = f"\n[БОЙ ОКОНЧЕН: игрок пал в бою с {combat['enemy_name']}]\n"
     story_now = user.get("story") or ""
     await g.db.update_story(user["user_id"], (story_now + marker)[-4000:])
