@@ -44,10 +44,8 @@ async def craft_cmd(m: Message):
 
 @router.callback_query(F.data == "craft_close")
 async def craft_close(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
 
 
