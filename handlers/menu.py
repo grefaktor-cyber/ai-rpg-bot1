@@ -9,7 +9,6 @@ from core import globals as g
 from core.keyboards import (
     menu_game_kb, menu_social_kb, menu_progress_kb, menu_root_kb,
 )
-from core.game_data import RACES, CLASSES
 from services.ui import send_menu, fake_message
 
 router = Router()
@@ -90,7 +89,6 @@ async def cb_progress(c: CallbackQuery):
 
 # ================= ЗАПУСК РАЗДЕЛОВ =================
 async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
-    """Запустить xxx_cmd(fake_message) с правильным from_user."""
     from services.hints import register_lost_action, clear_lost, check_lost_hint
 
     msg_obj = c.message
@@ -304,7 +302,7 @@ async def trade_name_input(m: Message, state: FSMContext):
     except Exception as e:
         await m.answer(f"⚠️ /trade недоступен: {e}")
         return
-    fake = fake_message_from_message(m, text=f"/trade {name}")
+    fake = _FakeMsgFromMessage(m, text=f"/trade {name}")
     await func(fake)
 
 
@@ -386,7 +384,7 @@ async def duel_name_input(m: Message, state: FSMContext):
     except Exception as e:
         await m.answer(f"⚠️ /duel недоступен: {e}")
         return
-    fake = fake_message_from_message(m, text=f"/duel {name}")
+    fake = _FakeMsgFromMessage(m, text=f"/duel {name}")
     await func(fake)
 
 
@@ -408,7 +406,3 @@ class _FakeMsgFromMessage:
             return await self._real.delete()
         except Exception:
             return None
-
-
-def fake_message_from_message(m, text):
-    return _FakeMsgFromMessage(m, text)
