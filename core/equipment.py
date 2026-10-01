@@ -39,9 +39,9 @@ SET_BONUSES = {
 # ================= ГРЕЙДЫ (4) =================
 GRADES = {
     "common": {"name": "Обычный", "level_req": 1, "mult": 1.0},
-    "D":      {"name": "D", "level_req": 20, "mult": 1.5},
-    "C":      {"name": "C", "level_req": 40, "mult": 2.2},
-    "B":      {"name": "B", "level_req": 60, "mult": 3.2},
+    "D":      {"name": "D", "level_req": 15, "mult": 1.5},
+    "C":      {"name": "C", "level_req": 30, "mult": 2.2},
+    "B":      {"name": "B", "level_req": 45, "mult": 3.2},
 }
 
 
