@@ -73,6 +73,23 @@ async def edit_or_send(c, text, kb=None):
             return None
 
 
+
+
+async def close_menu(c: CallbackQuery):
+    """Удалить сообщение с inline-меню при нажатии «Закрыть».
+    Если удалить нельзя (например, уже удалено) — просто убираем кнопки.
+    """
+    try:
+        await c.message.delete()
+        return True
+    except Exception:
+        try:
+            await c.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return False
+
+
 def forget_menu(uid):
-    """Сбросить запомненное меню (например, при бое)."""
+    """Сбросить запомненное меню (при бое)."""
     _last_menu.pop(uid, None)
