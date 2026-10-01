@@ -32,6 +32,7 @@ from handlers import (
     use as use_handlers,
     trade as trade_handlers,
     journal as journal_handlers,
+    world_boss as world_boss_handlers,
     onboarding as onboarding_handlers,
     chat as chat_handlers,
     titles as titles_handlers,
@@ -102,6 +103,7 @@ dp.include_router(use_handlers.router)
 dp.include_router(trade_handlers.router)
 dp.include_router(chat_handlers.router)
 dp.include_router(journal_handlers.router)
+dp.include_router(world_boss_handlers.router)
 dp.include_router(titles_handlers.router)
 # 4) Catch-all — ОБЯЗАТЕЛЬНО ПОСЛЕДНИМ
 dp.include_router(ai_handler_handlers.router)
@@ -124,7 +126,9 @@ async def start_web_server():
 
 # ================= ЗАПУСК =================
 async def _cleanup_loop():
-    """Раз в 5 минут чистить брошенные предметы (старше 30 мин) и события."""
+    """Раз в 5 минут чистить мусор. Раз в час — спавн боссов."""
+    from services.world_boss_service import try_spawn_boss
+    tick = 0
     while True:
         try:
             await asyncio.sleep(300)
@@ -133,6 +137,31 @@ async def _cleanup_loop():
             await db.cleanup_chat(7)
             await db.cleanup_journal(days=30, keep_min=50)
             await db.cleanup_location_events(days=7)
+
+            tick += 1
+            # Раз в час пробуем спавнить босса (каждые 12 тиков)
+            if tick % 12 == 0:
+                await db.cleanup_world_bosses(days=3)
+                spawned = await try_spawn_boss()
+                if spawned:
+                    loc_name = spawned.get("location_name", "?")
+                    boss_name = spawned.get("boss_name", "?")
+                    # Broadcast всем игрокам
+                    async with db.pool.acquire() as conn:
+                        rows = await conn.fetch(
+                            "SELECT user_id FROM users WHERE char_name!=''"
+                        )
+                    for r in rows:
+                        try:
+                            await bot.send_message(
+                                r["user_id"],
+                                f"🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
+                                f"<b>{boss_name}</b> появился в «{loc_name}»!\n\n"
+                                f"<i>Иди в локацию и напиши /boss.</i>",
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception:
+                            pass
         except Exception as e:
             logging.error(f"cleanup error: {e}")
 
