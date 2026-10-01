@@ -287,3 +287,50 @@ def skills_upgrade_kb(available, learned):
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+
+# ================= ВОССТАНОВЛЕННЫЕ ФУНКЦИИ =================
+def dungeons_kb(dungeons_dict, player_level, player_gold):
+    """Кнопки подземелий — только доступные."""
+    rows = []
+    for code, d in dungeons_dict.items():
+        can = player_level >= d["level_req"] and player_gold >= d["entry"]
+        if can:
+            rows.append([InlineKeyboardButton(
+                text=f"{d['name']} — {d['entry']}💰",
+                callback_data=f"dungeon_enter_{code}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def pets_kb(pets_dict):
+    """Кнопки покупки питомцев."""
+    rows = []
+    for code, p in pets_dict.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{p['name']} — {p['price']}💰",
+            callback_data=f"pet_buy_{code}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def shop_kb(shop_dict, shop_mult):
+    """Устаревшая функция — оставлена для совместимости."""
+    rows = []
+    for name, data in shop_dict.items():
+        if data.get("type") == "potion":
+            continue
+        price = int(data["price"] * shop_mult)
+        rows.append([InlineKeyboardButton(
+            text=f"{name} — {price}💰",
+            callback_data=f"shop_buy_{name}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def craft_kb(recipes):
+    """Устаревшая функция — оставлена для совместимости."""
+    rows = []
+    for result in recipes.keys():
+        rows.append([InlineKeyboardButton(
+            text=f"Создать {result}",
+            callback_data=f"craft_{result}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
