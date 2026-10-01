@@ -72,10 +72,8 @@ async def premium_cmd(m: Message):
 
 @router.callback_query(F.data == "prem_close")
 async def prem_close(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
 
 
