@@ -204,10 +204,8 @@ async def quest_noop(c: CallbackQuery):
 
 @router.callback_query(F.data == "quest_close")
 async def quest_close_cb(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
 
 
