@@ -1,4 +1,4 @@
-"""Магазин: категории, покупка с проверками."""
+"""Магазин: категории, покупка с проверками. UI-2.6: короткие кнопки."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -12,6 +12,12 @@ from core.formulas import faction_mult, calc_max_hp, calc_max_mp, parse_item
 from core.keyboards import main_kb
 
 router = Router()
+
+
+def _short(name, n=18):
+    """Обрезает длинное имя для мобильной кнопки."""
+    s = str(name)
+    return s if len(s) <= n else s[:n - 1] + "…"
 
 
 def _grade_icon(grade):
@@ -155,7 +161,7 @@ async def shop_category(c: CallbackQuery):
                                       for k, v in data["bonus"].items())
                 text += f"{g_icon} {name} — {price}💰 ({bonus_str})\n"
             rows.append([InlineKeyboardButton(
-                text=f"Купить {name} — {price}💰",
+                text=f"🛒 {_short(name)} — {price}💰",
                 callback_data=f"shop_buy_{name}")])
         text += "\n"
     if not has_items:
@@ -230,7 +236,7 @@ async def equip(m: Message):
         await _do_equip(m.from_user.id, exact, m); return
     if sugg:
         rows = [[InlineKeyboardButton(
-            text=f"⚔️ Надеть {s}",
+            text=f"⚔️ Надеть {_short(s)}",
             callback_data=f"equip_item_{s}")] for s in sugg[:10]]
         rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="fuzzy_cancel")])
         await m.answer("🔍 Нашёл несколько:",
