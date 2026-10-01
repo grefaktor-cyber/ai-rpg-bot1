@@ -1,4 +1,4 @@
-"""Логика боя 2.0: P.Def/M.Def игрока, умный XP, фазы боссов."""
+"""Логика боя 3.0: очередь действий (3 за ход)."""
 import json
 import random
 
@@ -17,18 +17,19 @@ from core.formulas import (
     racial_gold_mult, racial_low_hp_mult,
     calc_xp_reward, calc_enemy_base_dmg,
     get_enemy_dmg_type, get_player_def_for_enemy, apply_player_defense,
-    get_boss_phase,
-    get_block_chance, get_crit_bonus, get_gold_mult,
+    get_boss_phase, get_block_chance, get_crit_bonus, get_gold_mult,
 )
-from core.keyboards import combat_kb, dungeon_continue_kb
+from core.keyboards import combat_kb, combat_pending_text, dungeon_continue_kb
 from core.game_data import PETS
 from core.skills import get_skill, skill_multiplier
 import world as W
 
 
-# ================= ВСПОМОГАТЕЛЬНАЯ =================
+MAX_ACTIONS = 3
+
+
+# ================= ВСПОМОГАТЕЛЬНЫЕ =================
 def calc_final_damage_safe(user, t_pdef, t_mdef):
-    """Урон игрока по врагу с учётом защиты врага."""
     base = calc_damage(user)
     dmg_type = get_dmg_type(user)
     if dmg_type == "magic":
@@ -38,8 +39,54 @@ def calc_final_damage_safe(user, t_pdef, t_mdef):
     return final, dmg_type
 
 
+# ================= ОЧЕРЕДЬ =================
+async def get_pending(user):
+    try:
+        return json.loads(user.get("pending_actions") or "[]")
+    except Exception:
+        return []
+
+
+async def queue_action(uid, action_code):
+    """Добавить действие в очередь. Возвращает (ok, reason)."""
+    combat = await g.db.get_combat(uid)
+    if not combat:
+        return False, "no_combat"
+    try:
+        pending = json.loads(combat.get("pending_actions") or "[]")
+    except Exception:
+        pending = []
+    if len(pending) >= MAX_ACTIONS:
+        return False, "full"
+    pending.append(action_code)
+    await g.db.set_pending_actions(uid, json.dumps(pending))
+    return True, "ok"
+
+
+async def undo_action(uid):
+    combat = await g.db.get_combat(uid)
+    if not combat:
+        return False
+    try:
+        pending = json.loads(combat.get("pending_actions") or "[]")
+    except Exception:
+        pending = []
+    if pending:
+        pending.pop()
+        await g.db.set_pending_actions(uid, json.dumps(pending))
+        return True
+    return False
+
+
 # ================= СОСТОЯНИЕ БОЯ =================
 async def send_combat_state(chat_id, user, combat, round_text="", event=None):
+    """Отправить состояние боя с очередью."""
+    # Перезагружаем user, чтобы pending был актуален
+    user = await g.db.get_user(user["user_id"])
+    combat = await g.db.get_combat(user["user_id"])
+    if not combat:
+        return
+
     enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
     player_bar = hp_bar(user["hp"], user["max_hp"])
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
@@ -47,15 +94,12 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None):
 
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     type_label = " 🔮" if enemy_dmg_type == "magic" else " ⚔️"
-
     phase = get_boss_phase(combat)
     phase_label = f" [{phase['name']}]" if phase else ""
 
     header = f"⚔️ <b>РАУНД {combat['round_num']}</b>"
     if event:
         header += f" · {event['event_name']}"
-    if phase:
-        header += f" · {phase['name']}"
 
     enemy_block = (f"{emoji} <b>{combat['enemy_name']}</b>"
                    f"{type_label} (Ур. {combat['enemy_level']}){boss_label}{phase_label}\n"
@@ -64,20 +108,28 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None):
     pet_line = ""
     if user.get("pet_type"):
         pet = PETS.get(user["pet_type"], {})
-        pet_line = f"\n🐾 {user.get('pet_name', pet.get('name', 'Питомец'))} (ур. {user.get('pet_level', 1)})"
+        pet_line = f"\n🐾 {user.get('pet_name', pet.get('name', 'Питомец'))}"
 
     mp = user.get("mp", 0)
     max_mp = user.get("max_mp", 0)
-    mp_line = f"\n💧 MP: {mp}/{max_mp}" if max_mp else ""
+    mp_line = f" · 💧 MP: {mp}/{max_mp}" if max_mp else ""
 
     player_block = (f"❤️ <b>{user['char_name']}</b> (Ур. {user['level']}){pet_line}\n"
-                    f"{player_bar} {user['hp']}/{user['max_hp']}{mp_line}\n"
-                    f"💰 {user['gold']}")
+                    f"{player_bar} {user['hp']}/{user['max_hp']}{mp_line}")
 
     text = f"{header}\n\n{enemy_block}\n\n{player_block}"
+
     if round_text:
         text += f"\n\n{round_text}"
 
+    # Очередь
+    try:
+        pending = json.loads(combat.get("pending_actions") or "[]")
+    except Exception:
+        pending = []
+    text += f"\n\n{combat_pending_text(pending)}"
+
+    # Активные скилы
     try:
         active = json.loads(user.get("active_skills") or "[]")
     except Exception:
@@ -85,13 +137,14 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None):
     active = [x for x in active if x][:3]
 
     await g.bot.send_message(chat_id, text,
-                             reply_markup=combat_kb(active, mp),
+                             reply_markup=combat_kb(active, mp, pending),
                              parse_mode=ParseMode.HTML)
 
 
 async def start_combat_from_ai(chat_id, user, enemy):
     await g.db.start_combat(user["user_id"], enemy["name"], enemy["level"],
                             enemy["hp"], 1 if enemy["is_boss"] else 0)
+    await g.db.set_pending_actions(user["user_id"], "[]")
     combat = await g.db.get_combat(user["user_id"])
     intro = "🐉 <b>БОСС!</b>" if enemy["is_boss"] else "Бой начался!"
     event = await g.db.get_active_event(user.get("location_code", "village"))
@@ -112,18 +165,15 @@ def pet_attack_damage(user, round_num):
     return 0, ""
 
 
-# ================= РАУНД =================
-async def process_combat_round(chat_id, user, combat, action_type, extra_text=""):
-    event = await g.db.get_active_event(user.get("location_code", "village"))
-    base_enemy_dmg_mult = event.get("enemy_dmg_mult", 1.0) if event else 1.0
-
+# ================= ВЫПОЛНЕНИЕ ОДНОГО ДЕЙСТВИЯ ИГРОКА =================
+async def _exec_player_action(user, combat, action, log):
+    """Выполнить одно действие. Возвращает (new_enemy_hp, def_reduce, enemy_debuff, enemy_skip)."""
     new_enemy_hp = combat["enemy_hp"]
-    enemy_skip = False
     def_reduce = 1.0
     enemy_debuff = 1.0
+    enemy_skip = False
 
-    # ---------- ДЕЙСТВИЕ ИГРОКА ----------
-    if action_type == "attack":
+    if action == "attack":
         eff = effective_stats(user)
         next_mult = combat.get("next_atk_mult", 1.0) or 1.0
         t_pdef = enemy_p_def(combat["enemy_level"])
@@ -134,9 +184,7 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             dmg_after_def = int(dmg_after_def * racial_magic_mult(user))
         dmg_after_def = int(dmg_after_def * racial_low_hp_mult(user))
 
-        crit_chance = (eff["dex"]
-                       + racial_crit_bonus(user)
-                       + get_crit_bonus(user))
+        crit_chance = eff["dex"] + racial_crit_bonus(user) + get_crit_bonus(user)
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
@@ -152,143 +200,206 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
         new_enemy_hp = combat["enemy_hp"] - total_dmg
         await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
 
-        parts = []
-        if is_crit:
-            parts.append(f"💥 <b>КРИТ!</b> {dmg}")
-        else:
-            parts.append(f"⚔️ {dmg} урона")
+        line = f"⚔️ {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
         if next_mult != 1.0:
-            parts[0] += f" (бафф ×{next_mult:.2f})"
+            line += f" (бафф ×{next_mult:.2f})"
         if pet_dmg > 0:
-            parts.append(f"{pet_text} — {pet_dmg}!")
-        extra_text = "\n".join(parts)
-        await g.db.set_combat_defending(user["user_id"], 0)
+            line += f"\n  {pet_text} — {pet_dmg}!"
+        log.append(line)
 
-    elif action_type == "defend":
-        await g.db.set_combat_defending(user["user_id"], 1)
-        heal = int(user["max_hp"] * 0.05)
-        new_hp = min(user["max_hp"], user["hp"] + heal)
-        await g.db.update_hp(user["user_id"], new_hp)
-        user["hp"] = new_hp
+    elif action == "defend":
         def_reduce = 0.5
-        extra_text = f"🛡 Защита: +{heal} HP, −50% получаемого урона"
+        log.append("🛡 Защита: −50% урона от следующей атаки")
 
-    elif action_type == "skill":
-        skill_code = extra_text.strip()
+    elif action.startswith("skill_"):
+        skill_code = action.replace("skill_", "")
         s = get_skill(skill_code)
         if not s:
-            extra_text = "⚠️ Скил не найден."
-        else:
-            mp_cost = s["mp_cost"]
-            if user["mp"] < mp_cost:
-                await send_combat_state(chat_id, user, combat,
-                    f"❌ Не хватает MP ({user['mp']}/{mp_cost})", event)
-                return True
+            log.append("⚠️ Скил не найден")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+        mp_cost = s["mp_cost"]
+        if user["mp"] < mp_cost:
+            log.append(f"❌ Не хватило MP для «{s['name']}»")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
 
-            await g.db.spend_mp(user["user_id"], mp_cost)
-            user["mp"] -= mp_cost
+        await g.db.spend_mp(user["user_id"], mp_cost)
+        user["mp"] -= mp_cost
 
-            mult = skill_multiplier(user, skill_code)
-            effect = s["effect"]
+        mult = skill_multiplier(user, skill_code)
+        effect = s["effect"]
 
-            if effect == "damage":
-                t_pdef = enemy_p_def(combat["enemy_level"])
-                t_mdef = enemy_m_def(combat["enemy_level"])
-                base_dmg, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
-                if dmg_type == "magic":
-                    base_dmg = int(base_dmg * racial_magic_mult(user))
-                base_dmg = int(base_dmg * racial_low_hp_mult(user))
-                dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult"))
-                new_enemy_hp = combat["enemy_hp"] - dmg
-                await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
-                extra_text = f"✨ <b>{s['name']}</b> — {dmg} урона (−{mp_cost} MP)"
+        if effect == "damage":
+            t_pdef = enemy_p_def(combat["enemy_level"])
+            t_mdef = enemy_m_def(combat["enemy_level"])
+            base_dmg, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
+            if dmg_type == "magic":
+                base_dmg = int(base_dmg * racial_magic_mult(user))
+            base_dmg = int(base_dmg * racial_low_hp_mult(user))
+            dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult"))
+            new_enemy_hp = combat["enemy_hp"] - dmg
+            await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
+            log.append(f"✨ {s['name']}: {dmg} урона")
 
-            elif effect == "heal":
-                heal = int(user["max_hp"] * mult * racial_heal_mult(user))
-                new_hp = min(user["max_hp"], user["hp"] + heal)
-                await g.db.update_hp(user["user_id"], new_hp)
-                user["hp"] = new_hp
-                extra_text = f"✨ <b>{s['name']}</b> — +{heal} HP (−{mp_cost} MP)"
-
-            elif effect == "buff_atk":
-                await g.db.set_next_atk_mult(user["user_id"], mult)
-                extra_text = (f"✨ <b>{s['name']}</b> — "
-                              f"+{int((mult-1)*100)}% к следующей атаке (−{mp_cost} MP)")
-
-            elif effect == "buff_def":
-                def_reduce = mult
-                extra_text = (f"✨ <b>{s['name']}</b> — "
-                              f"−{int((1-mult)*100)}% урона (−{mp_cost} MP)")
-
-            elif effect == "debuff":
-                enemy_debuff = mult
-                extra_text = (f"✨ <b>{s['name']}</b> — "
-                              f"атака врага −{int((1-mult)*100)}% (−{mp_cost} MP)")
-
-            elif effect == "stun":
-                enemy_skip = True
-                extra_text = f"✨ <b>{s['name']}</b> — враг оглушён! (−{mp_cost} MP)"
-
-    # ---------- ПОБЕДА? ----------
-    if new_enemy_hp <= 0:
-        await handle_victory(chat_id, user, combat, extra_text)
-        return False
-
-    # ---------- ХОД ВРАГА ----------
-    if not enemy_skip:
-        if user.get("pet_type") == "phoenix":
-            plvl = user.get("pet_level", 1)
-            heal = int(user["max_hp"] * 0.05) + plvl
+        elif effect == "heal":
+            heal = int(user["max_hp"] * mult * racial_heal_mult(user))
             new_hp = min(user["max_hp"], user["hp"] + heal)
-            if new_hp > user["hp"]:
-                await g.db.update_hp(user["user_id"], new_hp)
-                user["hp"] = new_hp
-                extra_text += f"\n🔥 Феникс лечит +{heal} HP"
-
-        phase = get_boss_phase(combat)
-        attacks = phase["attacks"] if phase else 1
-        phase_mult = phase["dmg_mult"] if phase else 1.0
-
-        total_enemy_dmg = 0
-
-        for _ in range(attacks):
-            raw_dmg = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
-                                          is_boss=bool(combat["is_boss"]))
-            enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
-            player_def = get_player_def_for_enemy(user, enemy_dmg_type)
-            mitigated = apply_player_defense(raw_dmg, player_def)
-            final = int(mitigated * base_enemy_dmg_mult * def_reduce
-                        * enemy_debuff * phase_mult)
-            final = max(1, final)
-            total_enemy_dmg += final
-
-        # Проверка блока (Эгида Богов)
-        block_chance = get_block_chance(user)
-        is_blocked = False
-        if block_chance > 0 and random.randint(1, 100) <= block_chance:
-            is_blocked = True
-
-        if is_blocked:
-            extra_text += (f"\n🛡 <b>Блок!</b> "
-                           f"{combat['enemy_name']} атака отражена "
-                           f"(шанс {block_chance}%)")
-        else:
-            new_hp = max(0, user["hp"] - total_enemy_dmg)
             await g.db.update_hp(user["user_id"], new_hp)
             user["hp"] = new_hp
+            log.append(f"✨ {s['name']}: +{heal} HP")
 
-            if attacks > 1:
-                extra_text += (f"\n💔 {combat['enemy_name']} атакует ×2 — "
-                               f"итого {total_enemy_dmg}")
-            else:
-                extra_text += f"\n💔 {combat['enemy_name']} наносит {total_enemy_dmg}"
+        elif effect == "buff_atk":
+            await g.db.set_next_atk_mult(user["user_id"], mult)
+            log.append(f"✨ {s['name']}: +{int((mult-1)*100)}% к атаке")
 
-        if phase:
-            extra_text += f"\n{phase['name']}: {phase['desc']}"
+        elif effect == "buff_def":
+            def_reduce = min(def_reduce, mult)
+            log.append(f"✨ {s['name']}: −{int((1-mult)*100)}% урона")
 
+        elif effect == "debuff":
+            enemy_debuff = min(enemy_debuff, mult)
+            log.append(f"✨ {s['name']}: атака врага −{int((1-mult)*100)}%")
+
+        elif effect == "stun":
+            enemy_skip = True
+            log.append(f"✨ {s['name']}: враг оглушён!")
+
+    elif action == "potion_hp":
+        if user["hp"] >= user["max_hp"]:
+            log.append("💚 HP полное, зелье не использовано")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+        is_admin = user["user_id"] in __import__("config").ADMIN_IDS
+        if not is_admin and user["gold"] < POTION_PRICE:
+            log.append(f"❌ Нет {POTION_PRICE}💰 на зелье")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+        if not is_admin:
+            await g.db.spend_gold(user["user_id"], POTION_PRICE)
+        new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
+        await g.db.update_hp(user["user_id"], new_hp)
+        user["hp"] = new_hp
+        log.append(f"💚 Зелье HP: +{POTION_HEAL}")
+
+    elif action == "potion_mp":
+        if user["mp"] >= user["max_mp"]:
+            log.append("🔮 MP полное, зелье не использовано")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+        is_admin = user["user_id"] in __import__("config").ADMIN_IDS
+        if not is_admin and user["gold"] < MP_POTION_PRICE:
+            log.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье")
+            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+        if not is_admin:
+            await g.db.spend_gold(user["user_id"], MP_POTION_PRICE)
+        new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
+        await g.db.update_mp(user["user_id"], new_mp)
+        user["mp"] = new_mp
+        log.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+
+    return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+
+
+# ================= ХОД ВРАГА =================
+async def _exec_enemy_turn(chat_id, user, combat, log):
+    """Враг делает 1-3 действия. Возвращает (player_dead)."""
+    is_boss = bool(combat["is_boss"])
+    if is_boss:
+        attacks = random.choice([2, 3, 3])  # босс агрессивнее
     else:
-        extra_text += f"\n💫 {combat['enemy_name']} пропускает ход"
+        attacks = random.choice([1, 2, 2])
 
+    enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
+    player_def = get_player_def_for_enemy(user, enemy_dmg_type)
+    phase = get_boss_phase(combat)
+    phase_mult = phase["dmg_mult"] if phase else 1.0
+
+    total_dmg = 0
+    for i in range(attacks):
+        raw = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
+                                   is_boss=is_boss)
+        mitigated = apply_player_defense(raw, player_def)
+        final = max(1, int(mitigated * phase_mult))
+        total_dmg += final
+
+    # Проверка блока (Эгида Богов)
+    block_chance = get_block_chance(user)
+    if block_chance > 0 and random.randint(1, 100) <= block_chance:
+        log.append(f"🛡 <b>Блок!</b> Атака врага отражена")
+        return False
+
+    new_hp = max(0, user["hp"] - total_dmg)
+    await g.db.update_hp(user["user_id"], new_hp)
+    user["hp"] = new_hp
+
+    if attacks > 1:
+        log.append(f"💔 Враг ×{attacks} — {total_dmg} урона")
+    else:
+        log.append(f"💔 Враг — {total_dmg} урона")
+
+    if phase:
+        log.append(f"{phase['name']}: {phase['desc']}")
+
+    if user["hp"] <= 0:
+        await handle_death(chat_id, user, combat)
+        return True
+    return False
+
+
+# ================= ВЫПОЛНЕНИЕ РАУНДА =================
+async def execute_queued_round(chat_id, user, combat):
+    """Выполнить все действия игрока + ход врага."""
+    event = await g.db.get_active_event(user.get("location_code", "village"))
+
+    try:
+        pending = json.loads(combat.get("pending_actions") or "[]")
+    except Exception:
+        pending = []
+
+    if not pending:
+        await send_combat_state(chat_id, user, combat,
+            "⚠️ Добавь хотя бы одно действие.", event)
+        return False
+
+    # --- Ход игрока ---
+    player_log = []
+    new_enemy_hp = combat["enemy_hp"]
+    enemy_skip = False
+
+    # Комбинированные эффекты за весь ход
+    total_def_reduce = 1.0
+    total_enemy_debuff = 1.0
+
+    for action in pending:
+        if new_enemy_hp <= 0:
+            break
+        cur_combat = dict(combat)
+        cur_combat["enemy_hp"] = new_enemy_hp
+        new_hp_enemy, def_red, en_deb, en_skip = await _exec_player_action(
+            user, cur_combat, action, player_log
+        )
+        new_enemy_hp = new_hp_enemy
+        total_def_reduce = min(total_def_reduce, def_red)
+        total_enemy_debuff = min(total_enemy_debuff, en_deb)
+        if en_skip:
+            enemy_skip = True
+        # Обновляем user из БД после каждого действия (hp/mp меняются)
+        user = await g.db.get_user(user["user_id"])
+
+    # Очистка очереди
+    await g.db.clear_pending_actions(user["user_id"])
+
+    # --- ПОБЕДА? ---
+    if new_enemy_hp <= 0:
+        await handle_victory(chat_id, user, combat, "\n".join(player_log))
+        return False
+
+    # --- Ход врага ---
+    enemy_log = []
+    if not enemy_skip:
+        dead = await _exec_enemy_turn(chat_id, user, combat, enemy_log)
+        if dead:
+            return False
+    else:
+        enemy_log.append("💫 Враг пропускает ход (оглушён)")
+
+    # --- MP-регенерация 5% ---
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
         new_mp = min(user["max_mp"], user["mp"] + regen)
@@ -296,14 +407,25 @@ async def process_combat_round(chat_id, user, combat, action_type, extra_text=""
             await g.db.update_mp(user["user_id"], new_mp)
             user["mp"] = new_mp
 
-    if user["hp"] <= 0:
-        await handle_death(chat_id, user, combat)
-        return False
+    # --- Сводка раунда ---
+    summary = ("<b>🗡 Твои действия:</b>\n" +
+               "\n".join(player_log) +
+               "\n\n<b>💀 Действия врага:</b>\n" +
+               "\n".join(enemy_log))
 
     await g.db.incr_combat_round(user["user_id"])
+    user = await g.db.get_user(user["user_id"])
     await send_combat_state(chat_id, user,
-                            await g.db.get_combat(user["user_id"]), extra_text, event)
+                            await g.db.get_combat(user["user_id"]),
+                            summary, event)
     return True
+
+
+# ================= СТАРЫЕ ФУНКЦИИ (для обратной совместимости) =================
+async def process_combat_round(chat_id, user, combat, action_type, extra_text=""):
+    """Устаревшая функция. Теперь используется execute_queued_round.
+    Оставлена для совместимости с PvP-логикой."""
+    pass
 
 
 # ================= ПОБЕДА =================
@@ -337,13 +459,11 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         except Exception:
             pass
 
-    # ---- XP ----
     base_exp = combat["enemy_level"] * 15
     if combat["is_boss"]:
         base_exp *= 3
     exp = calc_xp_reward(combat["enemy_level"], user["level"], base_exp)
 
-    # ---- Золото ----
     gold = combat["enemy_level"] * 10
     is_dungeon = combat.get("is_dungeon", 0)
     if combat["is_boss"]:
@@ -393,12 +513,11 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
 
     diff = combat["enemy_level"] - user["level"]
+    xp_note = ""
     if diff >= 3:
         xp_note = " 🔥 отличный опыт!"
     elif diff <= -5:
         xp_note = " 💤 слабый враг"
-    else:
-        xp_note = ""
 
     text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
             f"<b>{combat['enemy_name']}</b> повержен!\n"
@@ -415,13 +534,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             user["user_id"],
             f"Победил босса «{combat['enemy_name']}»",
             "boss"
-        )
-        loc_code = user.get("location_code", "village")
-        await g.db.add_location_event(
-            loc_code,
-            f"победил босса «{combat['enemy_name']}»",
-            "boss",
-            user["username"]
         )
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
@@ -452,11 +564,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
 
         if level in (5, 10, 15, 20, 30):
-            await g.db.add_journal_entry(
-                user["user_id"],
-                f"Достиг {level} уровня",
-                "level"
-            )
+            await g.db.add_journal_entry(user["user_id"],
+                                          f"Достиг {level} уровня", "level")
 
         if level in (5, 10, 15, 20):
             await g.db.add_world_event(user["user_id"], user["username"],
@@ -483,8 +592,7 @@ async def handle_death(chat_id, user, combat):
         await send_combat_state(
             chat_id, user,
             await g.db.get_combat(user["user_id"]),
-            "🦅 <b>ФЕНИКС ВЕЧНОСТИ ВОЗРОДИЛ ТЕБЯ!</b>\n"
-            "HP восстановлено на 50%. Второй раз не сработает."
+            "🦅 <b>ФЕНИКС ВЕЧНОСТИ ВОЗРОДИЛ ТЕБЯ!</b>\nHP: 50%. Второй раз не сработает."
         )
         return
 
@@ -507,17 +615,7 @@ async def handle_death(chat_id, user, combat):
     await g.db.add_world_event(user["user_id"], user["username"],
                                f"пал в бою с «{combat['enemy_name']}»")
     await g.db.add_journal_entry(
-        user["user_id"],
-        f"Пал в бою с «{combat['enemy_name']}»",
-        "death"
-    )
-    loc_code = user.get("location_code", "village")
-    await g.db.add_location_event(
-        loc_code,
-        f"пал в бою с «{combat['enemy_name']}»",
-        "death",
-        user["username"]
-    )
+        user["user_id"], f"Пал в бою с «{combat['enemy_name']}»", "death")
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
             f"Ты очнулся в Начальной деревне.\n"
