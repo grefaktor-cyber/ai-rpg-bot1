@@ -63,7 +63,57 @@ def _categorize(items):
 async def inventory_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     items = await g.db.get_inventory(m.from_user.id)
-    await _show_main(m.chat.id, u, items)
+    await _show_main(m.chat.id, u, items, reply_message=m)
+
+
+async def _show_main(chat_id, u, items, edit_message=None, reply_message=None):
+    groups = _categorize(items)
+    text = "🎒 <b>Инвентарь</b>\n\n"
+    text += f"💰 Золото: <b>{u['gold']}</b>\n"
+    text += f"📦 Предметов: <b>{len(items)}</b>\n\n"
+    text += "Выбери категорию:"
+    rows = []
+    rows.append([
+        InlineKeyboardButton(text=f"⚔️ Оружие ({len(groups['weapon'])})",
+                             callback_data="inv_cat_weapon_0"),
+        InlineKeyboardButton(text=f"🛡 Броня ({len(groups['armor'])})",
+                             callback_data="inv_cat_armor_0"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text=f"💍 Аксессуары ({len(groups['accessory'])})",
+                             callback_data="inv_cat_accessory_0"),
+        InlineKeyboardButton(text=f"🧪 Зелья ({len(groups['potion'])})",
+                             callback_data="inv_cat_potion_0"),
+    ])
+    if groups["other"]:
+        rows.append([InlineKeyboardButton(
+            text=f"📦 Прочее ({len(groups['other'])})",
+            callback_data="inv_cat_other_0")])
+    rows.append([
+        InlineKeyboardButton(text="👑 Экипировано", callback_data="inv_equipped"),
+        InlineKeyboardButton(text="📦 Материалы", callback_data="inv_materials"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text="🔍 Поиск", callback_data="inv_search_start"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="inv_close"),
+    ])
+    text += "\n\n⚪ Обычный · 🔷 D · 🔶 C · 💎 B"
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    if reply_message is not None:
+        from services.ui import send_menu
+        await send_menu(reply_message, text, kb)
+        return
+
+    if edit_message:
+        try:
+            await edit_message.edit_text(text, reply_markup=kb,
+                                          parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
+    await g.bot.send_message(chat_id, text, reply_markup=kb,
+                             parse_mode=ParseMode.HTML)
 
 
 async def _show_main(chat_id, u, items, edit_message=None):
