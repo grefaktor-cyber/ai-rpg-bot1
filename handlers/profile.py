@@ -112,8 +112,8 @@ async def stats_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["race"]:
         await m.answer("Сначала /start"); return
-    await m.answer(_stats_text(u), reply_markup=profile_tabs_kb("stats"),
-                   parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, _stats_text(u), profile_tabs_kb("stats"))
 
 
 @router.callback_query(F.data.startswith("prof_tab_"))
@@ -168,8 +168,8 @@ async def top_cmd(m: Message):
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
         lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
-    await m.answer("🏅 <b>Топ-10</b>\n\n" + "\n".join(lines),
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, "🏅 <b>Топ-10</b>\n\n" + "\n".join(lines), main_kb())
 
 
 @router.message(Command("pvptop"))
@@ -190,7 +190,8 @@ async def pvp_top_cmd(m: Message):
 @router.message(F.text == "🏆 Достижения")
 async def achievements_cmd(m: Message):
     text = await _ach_text(m.from_user.id)
-    await m.answer(text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, text, main_kb())
 
 
 class ProfileErrorMiddleware(BaseMiddleware):
