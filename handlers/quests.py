@@ -43,10 +43,11 @@ async def quests_cmd(m: Message):
         await m.answer("Сначала создай героя."); return
     await _ensure_daily_quests(m.from_user.id)
     await _ensure_weekly_quests(m.from_user.id)
-    await _show_quests(m.from_user.id, "all", chat_id=m.chat.id)
+    await _show_quests(m.from_user.id, "all", reply_message=m)
 
 
-async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
+async def _show_quests(uid, filter_type="all", chat_id=None,
+                       edit_message=None, reply_message=None):
     """Показать / обновить меню квестов с фильтром."""
     u = await g.db.get_user(uid)
     active_story = await g.db.get_active_story_quests(uid)
@@ -58,7 +59,6 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
     text += f"⭐ Очки заданий: <b>{qp['points']}</b>\n"
     text += f"🔀 Фильтр: <b>{_filter_name(filter_type)}</b>\n\n"
 
-    # Кнопки сдачи (собираем)
     complete_buttons = []
 
     # --- СЮЖЕТНЫЕ ---
@@ -76,7 +76,6 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
                 text += f"   <i>{quest['desc'][:60]}...</i>\n"
             text += "\n"
         else:
-            # Показать доступные для взятия
             text += "📜 <b>Сюжетные (можно взять):</b>\n"
             avail_story = []
             for code, q in STORY_QUESTS.items():
@@ -88,7 +87,6 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
             if avail_story:
                 for code, q in avail_story:
                     text += f"• <b>{q['title']}</b> [Ур. {q['req_level']}+]\n"
-                # Кнопки для взятия
                 for code, q in avail_story[:4]:
                     complete_buttons.append([InlineKeyboardButton(
                         text=f"📜 Взять: {q['title']}",
@@ -138,17 +136,15 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
                     text=f"✅ Сдать: {wq['quest_code'][:20]}",
                     callback_data=f"quest_turnw_{wq['id']}")])
 
-    # === Клавиатура: фильтр + кнопки сдачи + очки ===
+    # === Клавиатура ===
     rows = []
 
-    # Кнопки сдачи (сверху, чтобы удобно)
     if complete_buttons:
         rows.append([InlineKeyboardButton(text="— ГОТОВО К СДАЧЕ —",
                                           callback_data="quest_noop")])
         for row in complete_buttons:
             rows.append(row)
 
-    # Фильтр
     def f_btn(text, code):
         mark = "•" if filter_type == code else " "
         return InlineKeyboardButton(text=f"{mark} {text}",
@@ -163,6 +159,18 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
+    # === Отправка ===
+    # 1) Reply-сообщение → автоочистка через send_menu
+    if reply_message is not None:
+        try:
+            from services.ui import send_menu
+            await send_menu(reply_message, text, kb, uid=uid)
+            return
+        except Exception:
+            # Если services.ui ещё нет — fallback на обычный ответ
+            pass
+
+    # 2) Callback → edit_text
     if edit_message:
         try:
             await edit_message.edit_text(text, reply_markup=kb,
@@ -170,6 +178,8 @@ async def _show_quests(uid, filter_type="all", chat_id=None, edit_message=None):
             return
         except Exception:
             pass
+
+    # 3) Обычная отправка в чат
     if chat_id:
         await g.bot.send_message(chat_id, text, reply_markup=kb,
                                   parse_mode=ParseMode.HTML)
@@ -201,7 +211,7 @@ async def quest_close_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= СОЗДАНИЕ КВЕСТОВ (ежедневные / еженедельные) =================
+# ================= СОЗДАНИЕ КВЕСТОВ =================
 async def _ensure_daily_quests(uid):
     reset_date = get_daily_reset_date()
     existing = await g.db.get_timed_quests(uid, "daily", reset_date)
@@ -227,7 +237,7 @@ async def _ensure_weekly_quests(uid):
         )
 
 
-# ================= ПРОГРЕСС (вызывается из боя) =================
+# ================= ПРОГРЕСС (из боя) =================
 async def progress_quest(uid, quest_type, amount=1, target_name=None):
     """Обновить прогресс всех подходящих квестов игрока."""
     # Сюжетные
@@ -296,7 +306,6 @@ async def quest_take_cb(c: CallbackQuery):
         f"🎯 Цель: убить <b>{quest['count']}×</b> {quest['target']}\n"
         f"📍 Локация: «{loc_name}»",
         parse_mode=ParseMode.HTML)
-    # Обновляем меню
     await _ensure_daily_quests(c.from_user.id)
     await _ensure_weekly_quests(c.from_user.id)
     await _show_quests(c.from_user.id, "story", edit_message=c.message)
