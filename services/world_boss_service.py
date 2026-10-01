@@ -1,4 +1,4 @@
-"""Логика мировых боссов: спавн, атака с ответным уроном, награды."""
+"""Логика мировых боссов: спавн, атака с P.Def/M.Def, награды."""
 import random
 import time
 from datetime import datetime, timezone, timedelta
@@ -15,16 +15,15 @@ from core.world_bosses import (
 from core.formulas import (
     calc_max_hp, effective_stats, calc_damage,
     racial_crit_bonus, get_crit_bonus,
+    calc_boss_damage_to_player,
 )
 import world as W
 
 
-# Кулдаун игроков в памяти: uid -> timestamp
 _BOSS_COOLDOWN = {}
 
 
 def check_cooldown(uid):
-    """Возвращает (ok, seconds_left)."""
     now = time.time()
     last = _BOSS_COOLDOWN.get(uid, 0)
     elapsed = now - last
@@ -35,30 +34,26 @@ def check_cooldown(uid):
 
 
 def _now_msk():
-    """Текущее время по МСК (UTC+3)."""
     return datetime.now(timezone.utc) + timedelta(hours=3)
 
 
 def should_spawn_now():
-    """Проверить: сейчас время спавна?"""
     now_msk = _now_msk()
     return now_msk.hour in SPAWN_HOURS_MSK
 
 
 async def try_spawn_boss():
-    """Создать босса если сейчас время спавна и нет активных."""
     if not should_spawn_now():
         return None
 
     active = await g.db.get_all_active_world_bosses()
     if active:
-        return None  # уже есть живой
+        return None
 
-    # Проверить: не спавнили ли уже в этом слоте
     last = await g.db.get_last_boss_spawn_time()
     if last:
         delta = datetime.now(timezone.utc) - last
-        if delta.total_seconds() < 60 * 60 * 5:  # меньше 5 часов
+        if delta.total_seconds() < 60 * 60 * 5:
             return None
 
     boss_code = random.choice(list(WORLD_BOSSES.keys()))
@@ -70,7 +65,6 @@ async def try_spawn_boss():
     )
     loc_name = W.get_location(loc_code).get("name", "?")
 
-    # Broadcast всем
     async with g.db.pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT user_id FROM users WHERE char_name!=''"
@@ -80,11 +74,11 @@ async def try_spawn_boss():
             await g.bot.send_message(
                 r["user_id"],
                 f"🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
-                f"<b>{boss_data['name']}</b> появился в «{loc_name}»!\n"
+                f"<b>{boss_data['name']}</b> в «{loc_name}»!\n"
                 f"HP: <b>{boss_data['hp']}</b>\n"
-                f"Урон в ответ: ~{boss_data['attack_dmg']}\n\n"
+                f"⚔️ Урон: ~{boss_data['attack_dmg']} ({boss_data['dmg_type']})\n\n"
                 f"⚠️ <i>{boss_data['desc']}</i>\n\n"
-                f"<i>Босс живёт 2 часа. Иди в локацию и напиши /boss.</i>",
+                f"<i>Живёт 2 часа. /boss в локации.</i>",
                 parse_mode=ParseMode.HTML
             )
         except Exception:
@@ -95,18 +89,15 @@ async def try_spawn_boss():
             "boss_name": boss_data["name"]}
 
 
-async def attack_boss(uid, base_damage=None):
-    """Атаковать босса. Возвращает (ok, info)."""
+async def attack_boss(uid):
     u = await g.db.get_user(uid)
     if not u["char_name"]:
         return False, {"error": "no_char"}
 
-    # Кулдаун
     ok_cd, sec_left = check_cooldown(uid)
     if not ok_cd:
         return False, {"error": "cooldown", "seconds": sec_left}
 
-    # Проверка HP
     hp_pct = u["hp"] / max(1, u["max_hp"])
     if hp_pct < MIN_HP_PCT:
         return False, {"error": "low_hp",
@@ -121,34 +112,30 @@ async def attack_boss(uid, base_damage=None):
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
 
     # Урон игрока
-    if base_damage is None:
-        eff = effective_stats(u)
-        base_damage = calc_damage(u)
-        crit_chance = eff["dex"] + racial_crit_bonus(u) + get_crit_bonus(u)
-        if u.get("pet_type") == "owl":
-            crit_chance += 15
-        is_crit = random.randint(1, 100) <= crit_chance
-        if is_crit:
-            base_damage = int(base_damage * 2)
-    else:
-        is_crit = False
+    eff = effective_stats(u)
+    my_dmg = calc_damage(u)
+    crit_chance = eff["dex"] + racial_crit_bonus(u) + get_crit_bonus(u)
+    if u.get("pet_type") == "owl":
+        crit_chance += 15
+    is_crit = random.randint(1, 100) <= crit_chance
+    if is_crit:
+        my_dmg = int(my_dmg * 2)
 
-    # Ответный урон босса
-    boss_atk = boss_data.get("attack_dmg", 100)
-    boss_atk = int(boss_atk * random.uniform(0.9, 1.1))
+    # Ответный урон босса с учётом P.Def/M.Def игрока
+    boss_atk = calc_boss_damage_to_player(u, boss_data, phase_mult=1.0)
+
     new_hp = max(0, u["hp"] - boss_atk)
     await g.db.update_hp(uid, new_hp)
     u["hp"] = new_hp
 
-    # Наносим урон боссу
-    await g.db.add_boss_damage(boss["id"], uid, u["char_name"], base_damage)
+    await g.db.add_boss_damage(boss["id"], uid, u["char_name"], my_dmg)
     updated = await g.db.get_active_world_boss(loc_code)
 
-    # Игрок умер от босса
     player_died = (new_hp <= 0)
+    lost_gold = 0
     if player_died:
-        lost = int(u["gold"] * DEATH_GOLD_LOSS_PCT)
-        await g.db.spend_gold(uid, lost)
+        lost_gold = int(u["gold"] * DEATH_GOLD_LOSS_PCT)
+        await g.db.spend_gold(uid, lost_gold)
         nm = calc_max_hp(u)
         await g.db.update_hp_max(uid, nm, nm)
         await g.db.set_location_code(uid, "village")
@@ -159,7 +146,6 @@ async def attack_boss(uid, base_damage=None):
             "death"
         )
 
-    # Босс убит?
     killed = updated and updated["current_hp"] <= 0
     if killed:
         await _handle_boss_kill(updated, uid)
@@ -167,17 +153,17 @@ async def attack_boss(uid, base_damage=None):
     return True, {
         "killed": killed,
         "boss": updated,
-        "my_damage": base_damage,
+        "my_damage": my_dmg,
         "is_crit": is_crit,
         "boss_atk": boss_atk,
+        "boss_dmg_type": boss_data.get("dmg_type", "phys"),
         "my_hp": new_hp,
         "player_died": player_died,
-        "lost_gold": int(u["gold"] * DEATH_GOLD_LOSS_PCT) if player_died else 0,
+        "lost_gold": lost_gold,
     }
 
 
 async def _handle_boss_kill(boss, killer_id):
-    """Босс убит — выдаём награды."""
     await g.db.kill_world_boss(boss["id"], killer_id)
     damage_list = await g.db.get_boss_damage_list(boss["id"], limit=50)
     if not damage_list:
