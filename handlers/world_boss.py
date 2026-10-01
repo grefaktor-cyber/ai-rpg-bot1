@@ -22,6 +22,10 @@ def _hp_bar(hp, max_hp, length=15):
     filled = max(0, min(length, filled))
     return "█" * filled + "░" * (length - filled)
 
+@router.message(F.text == "🐉 Боссы")
+async def boss_kb_cmd(m: Message):
+    await boss_cmd(m)
+
 
 @router.message(Command("boss"))
 async def boss_cmd(m: Message):
