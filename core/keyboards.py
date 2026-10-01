@@ -178,25 +178,44 @@ def combat_kb(active_skills=None, mp=0, pending=None,
 
 
 def combat_pending_text(pending, max_actions=4):
-    """Очередь действий (текстом — визуал будет в UI-2)."""
-    if not pending:
-        return f"<i>Очередь пуста. Добавь 1-{max_actions} действий.</i>"
-    lines = [f"<b>📋 Твоя очередь ({len(pending)}/{max_actions}):</b>"]
-    icons = {
-        "attack": "⚔️ Атака", "defend": "🛡 Защита",
-        "potion_hp": "💚 Зелье HP", "potion_mp": "🔮 Зелье MP",
-        "spoil": "🌿 Спойл",
+    """Визуальные слоты очереди."""
+    from core.skills import get_skill
+
+    # Иконки действий
+    action_icons = {
+        "attack":    "⚔️",
+        "defend":    "🛡",
+        "potion_hp": "💚",
+        "potion_mp": "🔮",
+        "spoil":     "🌿",
     }
+    slot_emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+
+    # Заполненные слоты
+    lines = []
     for i, a in enumerate(pending):
+        num = slot_emoji[i] if i < len(slot_emoji) else f"{i+1}."
         if a.startswith("skill_"):
             code = a.replace("skill_", "")
-            from core.skills import get_skill
             s = get_skill(code)
             name = s["name"] if s else code
-            lines.append(f"{i+1}. ✨ {name}")
+            cost = s["mp_cost"] if s else 0
+            lines.append(f"{num} ✨ <b>{name}</b> ({cost} MP)")
         else:
-            lines.append(f"{i+1}. {icons.get(a, a)}")
-    return "\n".join(lines)
+            label = {
+                "attack": "Атака", "defend": "Защита",
+                "potion_hp": "Зелье HP", "potion_mp": "Зелье MP",
+                "spoil": "Спойл",
+            }.get(a, a)
+            lines.append(f"{num} {action_icons.get(a, '❔')} {label}")
+
+    # Пустые слоты
+    for i in range(len(pending), max_actions):
+        num = slot_emoji[i] if i < len(slot_emoji) else f"{i+1}."
+        lines.append(f"{num} ▫️ <i>пусто</i>")
+
+    header = f"<b>📋 Очередь ({len(pending)}/{max_actions})</b>"
+    return header + "\n" + "\n".join(lines)
 
 
 # ================= ПОДЗЕМЕЛЬЯ / ПИТОМЦЫ / МАГАЗИН =================
