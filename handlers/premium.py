@@ -1,4 +1,4 @@
-"""Премиум-магазин: подписки, расы, классы, эксклюзивы за Stars."""
+"""Премиум-магазин: подписки, расы, классы, эксклюзивы за Stars. UI-2.6."""
 import json
 
 from aiogram import Router, F
@@ -19,6 +19,12 @@ from core.premium import (
 router = Router()
 
 FOREVER_HOURS = 24 * 365 * 100
+
+
+def _short(name, n=16):
+    """Обрезка для мобильной кнопки."""
+    s = str(name)
+    return s if len(s) <= n else s[:n - 1] + "…"
 
 
 def _format_until(pu):
@@ -47,13 +53,13 @@ async def _show_main_menu(chat_id, u):
 
     rows = [
         [InlineKeyboardButton(text="⚡ Подписки", callback_data="prem_cat_subs")],
-        [InlineKeyboardButton(text="🎭 Эксклюзивные расы", callback_data="prem_cat_races")],
+        [InlineKeyboardButton(text="🎭 Расы", callback_data="prem_cat_races")],
         [InlineKeyboardButton(text="🛡 Класс Хранитель", callback_data="prem_cat_class")],
-        [InlineKeyboardButton(text="⚔️ Эксклюзивная экипировка", callback_data="prem_cat_items")],
-        [InlineKeyboardButton(text="🐉 Эксклюзивные питомцы", callback_data="prem_cat_pets")],
+        [InlineKeyboardButton(text="⚔️ Экипировка", callback_data="prem_cat_items")],
+        [InlineKeyboardButton(text="🐉 Питомцы", callback_data="prem_cat_pets")],
         [InlineKeyboardButton(text="🧪 Расходники", callback_data="prem_cat_consum")],
         [InlineKeyboardButton(text="✨ Косметика", callback_data="prem_cat_cosmetics")],
-        [InlineKeyboardButton(text="📦 Наборы (выгода)", callback_data="prem_cat_bundles")],
+        [InlineKeyboardButton(text="📦 Наборы", callback_data="prem_cat_bundles")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="prem_close")],
     ]
     await g.bot.send_message(chat_id, text,
@@ -124,7 +130,7 @@ async def prem_tier(c: CallbackQuery):
             f"Цена: <b>{tier['price']} ⭐</b>")
     rows = [
         [InlineKeyboardButton(
-            text=f"💎 Купить за {tier['price']} ⭐",
+            text=f"💎 Купить · {tier['price']}⭐",
             callback_data=f"prem_buy_{code}")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_cat_subs")],
     ]
@@ -175,7 +181,7 @@ async def prem_races(c: CallbackQuery):
         else:
             text += f"🔒 {race['name']} — {race['price']}⭐\n   {race['desc']}\n\n"
             rows.append([InlineKeyboardButton(
-                text=f"Купить {race['name']} — {race['price']}⭐",
+                text=f"💎 {_short(race['name'])} · {race['price']}⭐",
                 callback_data=f"prem_race_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -216,7 +222,7 @@ async def prem_class(c: CallbackQuery):
     for code, cl in EXCLUSIVE_CLASSES.items():
         text += f"🔒 {cl['name']} — {cl['price']}⭐\n   {cl['desc']}\n\n"
         rows.append([InlineKeyboardButton(
-            text=f"Купить {cl['name']} — {cl['price']}⭐",
+            text=f"💎 {_short(cl['name'])} · {cl['price']}⭐",
             callback_data=f"prem_class_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -262,7 +268,6 @@ async def prem_items(c: CallbackQuery):
 
     rows = []
     for code, item in EXCLUSIVE_ITEMS.items():
-        # Собираем информацию из SHOP
         shop_data = SHOP.get(code, {})
         item_type = shop_data.get("type", item.get("type"))
         item_slot = shop_data.get("slot", "?")
@@ -270,7 +275,6 @@ async def prem_items(c: CallbackQuery):
         weapon_subtype = shop_data.get("subtype", "")
         level_req = shop_data.get("level_req", 1)
 
-        # Определяем доступные классы
         allowed_classes = []
         if item_type == "weapon":
             for cls, types in CLASS_WEAPON_TYPES.items():
@@ -284,12 +288,10 @@ async def prem_items(c: CallbackQuery):
             from core.equipment import SHIELD_CLASSES
             allowed_classes = list(SHIELD_CLASSES)
 
-        # Проверка для текущего игрока
         from core.equipment import can_use_item
         can_use = can_use_item(my_class, code) if code in SHOP else True
         level_ok = u.get("level", 1) >= level_req
 
-        # Иконка статуса
         if can_use and level_ok:
             status = "✅"
             warn = ""
@@ -300,7 +302,6 @@ async def prem_items(c: CallbackQuery):
             status = "⏳"
             warn = f"\n   ⚠️ Нужен {level_req} уровень"
 
-        # Формат
         bonus_str = ", ".join(f"+{v} {k.upper()}" for k, v in item["bonus"].items())
         classes_str = ", ".join(allowed_classes) if allowed_classes else "Все"
 
@@ -311,7 +312,7 @@ async def prem_items(c: CallbackQuery):
                  f"   💫 Эффект: {item.get('extra', '—')}{warn}\n\n")
 
         rows.append([InlineKeyboardButton(
-            text=f"Купить {code} — {item['price']}⭐",
+            text=f"💎 {_short(code)} · {item['price']}⭐",
             callback_data=f"prem_item_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
 
@@ -339,7 +340,6 @@ async def prem_item_buy(c: CallbackQuery):
     shop_data = SHOP.get(code, {})
     level_req = shop_data.get("level_req", 1)
 
-    # Предупреждение, если не подходит
     warning = ""
     if code in SHOP:
         if not can_use_item(u.get("class", ""), code):
@@ -351,7 +351,6 @@ async def prem_item_buy(c: CallbackQuery):
                        f"Нужен <b>{level_req}</b> уровень, у тебя {u.get('level')}.\n"
                        f"Купить можно, но использовать только с {level_req} уровня.")
 
-    # Описание + предупреждение
     desc = item.get("extra", "") or "Эксклюзивный предмет"
     if warning:
         desc += warning
@@ -359,7 +358,7 @@ async def prem_item_buy(c: CallbackQuery):
     await g.bot.send_invoice(
         chat_id=c.message.chat.id,
         title=code,
-        description=desc[:255],  # лимит Telegram
+        description=desc[:255],
         payload=f"premium_item:{code}",
         provider_token="",
         currency="XTR",
@@ -377,7 +376,7 @@ async def prem_pets(c: CallbackQuery):
     for code, pet in EXCLUSIVE_PETS.items():
         text += f"🔒 {pet['name']} — {pet['price']}⭐\n   {pet['desc']}\n\n"
         rows.append([InlineKeyboardButton(
-            text=f"Купить {pet['name']} — {pet['price']}⭐",
+            text=f"💎 {_short(pet['name'])} · {pet['price']}⭐",
             callback_data=f"prem_pet_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -418,7 +417,7 @@ async def prem_consum(c: CallbackQuery):
     for code, con in CONSUMABLES.items():
         text += f"🔒 {con['name']} — {con['price']}⭐\n   {con['desc']}\n\n"
         rows.append([InlineKeyboardButton(
-            text=f"Купить {con['name']} — {con['price']}⭐",
+            text=f"💎 {_short(con['name'])} · {con['price']}⭐",
             callback_data=f"prem_consum_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -459,7 +458,7 @@ async def prem_cosmetics(c: CallbackQuery):
     for code, cos in COSMETICS.items():
         text += f"🔒 {cos['name']} — {cos['price']}⭐\n"
         rows.append([InlineKeyboardButton(
-            text=f"Купить {cos['name']} — {cos['price']}⭐",
+            text=f"💎 {_short(cos['name'])} · {cos['price']}⭐",
             callback_data=f"prem_cosm_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -500,7 +499,7 @@ async def prem_bundles(c: CallbackQuery):
     for code, b in BUNDLES.items():
         text += f"🔒 {b['name']} — {b['price']}⭐ (экономия {b['save']}⭐)\n"
         rows.append([InlineKeyboardButton(
-            text=f"Купить {b['name']} — {b['price']}⭐",
+            text=f"💎 {_short(b['name'])} · {b['price']}⭐",
             callback_data=f"prem_bundle_buy_{code}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="prem_back")])
     try:
@@ -585,7 +584,6 @@ async def on_payment(m: Message):
         if item:
             await g.db.add_item(m.from_user.id, code)
 
-            # Проверка совместимости после покупки
             from core.equipment import SHOP, can_use_item
             u = await g.db.get_user(m.from_user.id)
             extra_warn = ""
@@ -646,7 +644,6 @@ async def on_payment(m: Message):
         code = payload.split(":", 1)[1]
         b = BUNDLES.get(code)
         if b:
-            # Что входит в наборы
             BUNDLE_CONTENTS = {
                 "lord_bundle": {
                     "items": ["Венец Владыки"],
@@ -660,7 +657,7 @@ async def on_payment(m: Message):
                 },
                 "start_bundle": {
                     "items": [],
-                    "races": ["prit", "demon", "angel"],  # все 3 расы
+                    "races": ["prit", "demon", "angel"],
                     "pets": ["lion"],
                     "consumables": ["revive_potion"] * 5,
                 },
@@ -675,12 +672,10 @@ async def on_payment(m: Message):
             content = BUNDLE_CONTENTS.get(code, {})
             gained = []
 
-            # Предметы
             for item_code in content.get("items", []):
                 await g.db.add_item(m.from_user.id, item_code)
                 gained.append(f"⚔️ {item_code}")
 
-            # Питомцы
             for pet_code in content.get("pets", []):
                 from core.game_data import PETS
                 pet_data = PETS.get(pet_code, {})
@@ -688,14 +683,12 @@ async def on_payment(m: Message):
                                    pet_data.get("name", pet_code))
                 gained.append(f"🐾 {pet_data.get('name', pet_code)}")
 
-            # Расы
             for race_code in content.get("races", []):
                 await g.db.unlock_premium_race(m.from_user.id, race_code)
                 from core.premium import EXCLUSIVE_RACES
                 race_data = EXCLUSIVE_RACES.get(race_code, {})
                 gained.append(f"🎭 {race_data.get('name', race_code)}")
 
-            # Расходники
             for con_code in content.get("consumables", []):
                 from core.premium import CONSUMABLES
                 con = CONSUMABLES.get(con_code, {})
