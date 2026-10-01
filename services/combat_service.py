@@ -1,4 +1,4 @@
-"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, уведомления."""
+"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, сезоны."""
 import json
 import random
 
@@ -415,10 +415,8 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
 
 # ================= ДРОП С БОССОВ =================
 async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
-    """Проверить дроп книги/рецепта с босса. Возвращает список дропов."""
     drops = []
 
-    # === КНИГИ ===
     for code, b in SKILL_BOOKS.items():
         if boss_name not in b.get("drop_boss", []):
             continue
@@ -429,7 +427,6 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
             await g.db.add_item(uid, b["name"])
             drops.append(("📖 Книга", b["name"]))
 
-    # === РЕЦЕПТЫ ===
     if boss_level < 15:
         pool = [r for r, d in RECIPES.items() if d.get("grade") == "D"]
         chance = 0.05
@@ -450,7 +447,6 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
         await g.db.learn_recipe(uid, recipe)
         drops.append(("📜 Рецепт", recipe))
 
-    # === РЕДКИЕ МАТЕРИАЛЫ ===
     for mat_code, mat_data in RARE_MATERIALS.items():
         if boss_name in mat_data.get("mobs", []):
             if random.random() <= mat_data.get("chance", 0.10):
@@ -527,6 +523,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             user["user_id"], enemy_name, combat["enemy_level"]
         )
 
+    # ==================== ПОДЗЕМЕЛЬЕ ====================
     if is_dungeon:
         d = DUNGEONS.get(user.get("dungeon_id", ""), {})
         mult = d.get("reward_mult", 1.0)
@@ -538,6 +535,10 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if random.randint(1, 100) <= 40:
             items.append(random.choice(DROP_TABLE))
         await g.db.advance_dungeon(user["user_id"], gold, json.dumps(items))
+
+        # Сезонный XP за победу в подземелье
+        await g.db.add_season_xp(user["user_id"], combat["enemy_level"] * 2)
+
         text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
                 f"<b>{combat['enemy_name']}</b> повержен!\n"
                 f"💰 Добыча: +{gold}")
@@ -546,17 +547,17 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if combat["is_boss"]:
             text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b>"
         text += f"\n\n<b>Комната {u['dungeon_room']}/{d.get('rooms', '?')}</b>"
+
         if u["dungeon_room"] >= d.get("rooms", 1):
             await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
             await dungeon_finish(chat_id, user["user_id"], "Подземелье пройдено!")
-        await g.bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
-                                 parse_mode=ParseMode.HTML)
             return
         await g.bot.send_message(chat_id, text, reply_markup=dungeon_continue_kb(),
                                  parse_mode=ParseMode.HTML)
         if combat["is_boss"]:
             await g.db.incr_bosses(user["user_id"])
         return
+    # ==================== КОНЕЦ ПОДЗЕМЕЛЬЯ ====================
 
     await g.db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
