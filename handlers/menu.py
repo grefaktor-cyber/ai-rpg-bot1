@@ -1,25 +1,25 @@
-"""Inline-меню категорий главного меню."""
+"""Inline-меню категорий главного меню + автоочистка."""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.keyboards import (
-    main_kb, menu_game_kb, menu_social_kb, menu_progress_kb,
+    menu_game_kb, menu_social_kb, menu_progress_kb,
 )
+from services.ui import send_menu
 
 router = Router()
 
 
-# ================= КАТЕГОРИЯ «🎮 ИГРА» =================
+# ================= REPLY-КНОПКИ КАТЕГОРИЙ =================
 @router.message(F.text == "🎮 Игра")
 async def menu_game(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await m.answer(
-        "🎮 <b>Игра</b>\n\nВыбери раздел:",
-        reply_markup=menu_game_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, "🎮 <b>Игра</b>\n\nВыбери раздел:",
+                    menu_game_kb())
 
 
 @router.message(F.text == "👥 Социум")
@@ -27,9 +27,8 @@ async def menu_social(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await m.answer(
-        "👥 <b>Социум</b>\n\nВыбери раздел:",
-        reply_markup=menu_social_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, "👥 <b>Социум</b>\n\nВыбери раздел:",
+                    menu_social_kb())
 
 
 @router.message(F.text == "📊 Прогресс")
@@ -37,9 +36,8 @@ async def menu_progress(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await m.answer(
-        "📊 <b>Прогресс</b>\n\nВыбери раздел:",
-        reply_markup=menu_progress_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, "📊 <b>Прогресс</b>\n\nВыбери раздел:",
+                    menu_progress_kb())
 
 
 # ================= CALLBACK'И КАТЕГОРИЙ =================
@@ -54,9 +52,11 @@ async def menu_close(c: CallbackQuery):
 
 async def _edit_or_answer(c, text, kb):
     try:
-        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        await c.message.edit_text(text, reply_markup=kb,
+                                   parse_mode=ParseMode.HTML)
     except Exception:
-        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+        await c.message.answer(text, reply_markup=kb,
+                                parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data == "menu_game")
@@ -85,7 +85,6 @@ async def cb_inv(c: CallbackQuery):
         await c.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    # Отправляем игроку команду вручную
     from handlers.inventory import inventory_cmd
     await inventory_cmd(c.message)
 
