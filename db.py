@@ -1862,6 +1862,14 @@ class DB:
                 DELETE FROM world_bosses
                 WHERE spawned_at < NOW() - ($1 || ' days')::INTERVAL
             """, str(days))
+
+    async def get_last_boss_spawn_time(self):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT spawned_at FROM world_bosses
+                ORDER BY spawned_at DESC LIMIT 1
+            """)
+            return row["spawned_at"] if row else None
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
