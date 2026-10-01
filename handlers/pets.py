@@ -1,4 +1,4 @@
-"""Питомцы: покупка, переименование. Inline с закрытием."""
+"""Питомцы. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -20,16 +20,16 @@ class PetStates(StatesGroup):
     waiting_new_name = State()
 
 
-# ================= МЕНЮ ПИТОМЦА =================
 def _pet_menu_kb(has_pet=False):
     rows = []
     if has_pet:
         rows.append([InlineKeyboardButton(
             text="✏️ Переименовать",
             callback_data="pet_rename_start")])
-    rows.append([InlineKeyboardButton(
-        text="❌ Закрыть",
-        callback_data="pet_close")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -39,14 +39,14 @@ def _pets_shop_kb():
         rows.append([InlineKeyboardButton(
             text=f"{p['name']} — {p['price']}💰",
             callback_data=f"pet_buy_{code}")])
-    rows.append([InlineKeyboardButton(
-        text="❌ Закрыть",
-        callback_data="pet_close")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _render_pet(pet):
-    """Текст о текущем питомце."""
     pet_info = PETS.get(pet["pet_type"], {})
     xp_need = pet["level"] * 100
     bonus_str = ", ".join(f"+{v} {k.upper()}"
@@ -81,7 +81,6 @@ async def pet_cmd(m: Message):
         await send_menu(m, _render_shop(), _pets_shop_kb())
 
 
-# ================= ПОКУПКА =================
 @router.callback_query(F.data.startswith("pet_buy_"))
 async def pet_buy(c: CallbackQuery):
     code = c.data.replace("pet_buy_", "")
@@ -107,7 +106,6 @@ async def pet_buy(c: CallbackQuery):
         pass
 
 
-# ================= ПЕРЕИМЕНОВАНИЕ =================
 @router.callback_query(F.data == "pet_rename_start")
 async def pet_rename_start(c: CallbackQuery, state: FSMContext):
     pet = await g.db.get_pet(c.from_user.id)
@@ -132,7 +130,6 @@ async def pet_rename_input(m: Message, state: FSMContext):
         await m.answer("Имя 2–20 символов:"); return
     await g.db.set_pet_name(m.from_user.id, name)
     await state.clear()
-    pet = await g.db.get_pet(m.from_user.id)
     await m.answer(f"🐾 Питомец теперь зовётся <b>{name}</b>!",
                     reply_markup=main_kb(), parse_mode=ParseMode.HTML)
 
@@ -151,7 +148,6 @@ async def pet_name_cmd(m: Message):
                    parse_mode=ParseMode.HTML)
 
 
-# ================= ЗАКРЫТИЕ =================
 @router.callback_query(F.data == "pet_close")
 async def pet_close_cb(c: CallbackQuery):
     await close_menu(c)
