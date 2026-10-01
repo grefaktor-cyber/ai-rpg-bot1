@@ -74,21 +74,30 @@ async def cb_progress(c: CallbackQuery):
 
 # ================= ЗАПУСК РАЗДЕЛОВ (через fake_message) =================
 async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
-    """Запустить xxx_cmd(c.message) с правильным from_user."""
+    """Запустить xxx_cmd(fake_message) с правильным from_user.
+    Удаляем меню бота, чтобы не копилось."""
+    # Сохраняем ссылку на message ДО удаления
+    msg_obj = c.message
     try:
-        await c.message.edit_reply_markup(reply_markup=None)
+        await msg_obj.delete()
     except Exception:
-        pass
+        try:
+            await msg_obj.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
     await c.answer()
+
+    # Создаём FakeMessage — from_user = игрок
+    msg = fake_message(c)
     try:
         module = __import__(f"handlers.{module_name}", fromlist=[func_name])
         func = getattr(module, func_name)
-        await func(fake_message(c))
+        await func(msg)
     except Exception as e:
         import logging
         logging.error(f"_run_cmd {module_name}.{func_name}: {e}")
         try:
-            await c.message.answer("⚠️ Ошибка открытия раздела.")
+            await msg_obj.answer("⚠️ Ошибка открытия раздела.")
         except Exception:
             pass
 
