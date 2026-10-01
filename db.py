@@ -382,6 +382,7 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_cosmetics TEXT DEFAULT '[]'",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS phoenix_used INTEGER DEFAULT 0",
                 "ALTER TABLE player_journal ADD COLUMN IF NOT EXISTS entry_type TEXT DEFAULT 'event'",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS pending_actions TEXT DEFAULT '[]'",
             ]
             for sql in migrations:
                 try:
@@ -1870,6 +1871,21 @@ class DB:
                 ORDER BY spawned_at DESC LIMIT 1
             """)
             return row["spawned_at"] if row else None
+
+    # ============ ОЧЕРЕДЬ ДЕЙСТВИЙ ============
+    async def set_pending_actions(self, uid, json_str):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET pending_actions=$1 WHERE user_id=$2",
+                json_str, uid
+            )
+
+    async def clear_pending_actions(self, uid):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET pending_actions='[]' WHERE user_id=$1",
+                uid
+            )
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
