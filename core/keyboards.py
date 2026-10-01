@@ -455,3 +455,17 @@ def world_menu_kb(has_events=False):
     rows.append([InlineKeyboardButton(text="❌ Закрыть",
                                        callback_data="world_close")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ================= УНИВЕРСАЛЬНАЯ ПАРА "НАЗАД + ЗАКРЫТЬ" =================
+def back_close_row(back_cb="menu_root"):
+    """Возвращает список из 2 кнопок: Назад + Закрыть."""
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
+def back_close_kb(back_cb="menu_root"):
+    """Готовая клавиатура из одной строки: Назад + Закрыть."""
+    return InlineKeyboardMarkup(inline_keyboard=[back_close_row(back_cb)])
