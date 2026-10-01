@@ -18,6 +18,9 @@ from core.titles import ACHIEVEMENT_REWARDS, TITLES, get_available_titles
 from config import ADMIN_IDS, AI_MARKER
 from handlers.onboarding import offer_tutorial
 from services.combat_service import start_combat_from_ai
+from services.hints import (
+    check_hp_hint, check_new_player_hint, clear_lost,
+)
 import world as W
 import ai
 
@@ -317,3 +320,8 @@ async def handle(m: Message):
         f"{response}\n\n<i>{AI_MARKER} · XP: {xp}/{need} · 💰 {updated['gold']} · "
         f"❤️ {updated['hp']}/{updated['max_hp']} · ⚡ {energy_line}</i>",
         parse_mode=ParseMode.HTML)
+
+    # === Контекстные подсказки ===
+    clear_lost(uid)
+    await check_hp_hint(uid, m.chat.id, updated)
+    await check_new_player_hint(uid, m.chat.id, updated)
