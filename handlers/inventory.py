@@ -1,4 +1,4 @@
-"""Инвентарь 4.0: 5 категорий, 8 слотов, поиск, reply_message."""
+"""Инвентарь 4.0: 5 категорий, 8 слотов, поиск, back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -62,6 +62,13 @@ def _categorize(items):
     return groups
 
 
+def _back_close_row(back_cb="menu_game"):
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
 @router.message(Command("inv"))
 @router.message(Command("inventory"))
 @router.message(F.text == "🎒 Инвентарь")
@@ -100,8 +107,8 @@ async def _show_main(chat_id, u, items, edit_message=None, reply_message=None):
     ])
     rows.append([
         InlineKeyboardButton(text="🔍 Поиск", callback_data="inv_search_start"),
-        InlineKeyboardButton(text="❌ Закрыть", callback_data="inv_close"),
     ])
+    rows.append(_back_close_row("menu_game"))
     text += "\n\n⚪ Обычный · 🔷 D · 🔶 C · 💎 B"
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -144,9 +151,7 @@ async def inv_cat_cb(c: CallbackQuery):
     text = f"{icon} <b>{label}</b>\n\n"
     if not cat_items:
         text += "<i>Пусто.</i>"
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu")],
-        ])
+        kb = InlineKeyboardMarkup(inline_keyboard=[_back_close_row("inv_menu")])
         try:
             await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
         except Exception:
@@ -184,7 +189,7 @@ async def inv_cat_cb(c: CallbackQuery):
             text="Стр. ➡️", callback_data=f"inv_cat_{cat}_{page+1}"))
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu")])
+    rows.append(_back_close_row("inv_menu"))
     text += f"\n<i>Страница {page+1} из {(total + PAGE_SIZE - 1) // PAGE_SIZE}</i>"
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
@@ -264,7 +269,7 @@ async def inv_item_cb(c: CallbackQuery):
     if not data.get("premium"):
         rows.append([InlineKeyboardButton(
             text="🗑 Выбросить", callback_data=f"drop_item_{item_name}")])
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="inv_menu")])
+    rows.append(_back_close_row("inv_menu"))
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -295,7 +300,7 @@ async def inv_equipped_cb(c: CallbackQuery):
             rows.append([InlineKeyboardButton(
                 text=f"➖ Снять {SLOT_NAMES[slot]}",
                 callback_data=f"inv_unequip_{slot}")])
-    rows.append([InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu")])
+    rows.append(_back_close_row("inv_menu"))
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
@@ -341,10 +346,11 @@ async def inv_materials_cb(c: CallbackQuery):
     else:
         text += "<i>Пока нет</i>\n"
     text += "\n<i>Используются в /craft</i>"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    rows = [
         [InlineKeyboardButton(text="⚒️ Кузница", callback_data="craft_recipes")],
-        [InlineKeyboardButton(text="⬅️ В инвентарь", callback_data="inv_menu")],
-    ])
+        _back_close_row("inv_menu"),
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
@@ -359,7 +365,7 @@ async def inv_close_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ПОИСК В ИНВЕНТАРЕ =================
+# ================= ПОИСК =================
 @router.callback_query(F.data == "inv_search_start")
 async def inv_search_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(InvSearchState.waiting_query)
@@ -404,7 +410,6 @@ async def inv_search_process(m: Message, state: FSMContext):
         rows.append([InlineKeyboardButton(
             text=f"📦 {_short(it['item_name'], 24)}",
             callback_data=f"inv_item_{it['item_name']}")])
-    rows.append([InlineKeyboardButton(text="⬅️ В инвентарь",
-                                       callback_data="inv_menu")])
+    rows.append(_back_close_row("inv_menu"))
     await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                    parse_mode=ParseMode.HTML)
