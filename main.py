@@ -28,6 +28,7 @@ from handlers import (
     pets as pets_handlers,
     world_events as world_events_handlers,
     misc as misc_handlers,
+    menu as menu_handlers,
     skills as skills_handlers,
     use as use_handlers,
     trade as trade_handlers,
@@ -83,6 +84,7 @@ dp.include_router(admin_handlers.router)
 dp.include_router(daily_premium_handlers.router)   # ← ТОЛЬКО /daily
 dp.include_router(premium_handlers.router)          # ← новый /premium
 dp.include_router(misc_handlers.router)
+dp.include_router(menu_handlers.router)
 # 2) Старт и создание героя
 dp.include_router(start_handlers.router)
 dp.include_router(onboarding_handlers.router)
