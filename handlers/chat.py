@@ -1,4 +1,4 @@
-"""Чат: общий, гильдии, личные сообщения."""
+"""Чат: общий, гильдии, личные сообщения. back+close."""
 import time
 
 from aiogram import Router, F
@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from core import globals as g
 from core.keyboards import main_kb
+from services.ui import send_menu, close_menu
 
 router = Router()
 
@@ -18,9 +19,8 @@ class ChatStates(StatesGroup):
     waiting_pm = State()
 
 
-# ================= АНТИСПАМ =================
-_last_sent = {}  # uid -> timestamp
-SPAM_INTERVAL = 3  # секунд
+_last_sent = {}
+SPAM_INTERVAL = 3
 
 
 def _check_spam(uid):
@@ -32,7 +32,13 @@ def _check_spam(uid):
     return True
 
 
-# ================= ГЛАВНОЕ МЕНЮ ЧАТА =================
+def _back_close_row():
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="chat_menu_back"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
 @router.message(Command("chat"))
 async def chat_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -40,7 +46,6 @@ async def chat_cmd(m: Message):
         await m.answer("Сначала создай героя."); return
     guild = await g.db.get_user_guild(m.from_user.id)
 
-    # Последние сообщения общего чата
     msgs = await g.db.get_chat_messages("global", limit=10)
     text = "💬 <b>Чат</b>\n\n"
     text += "<b>🌍 Общий чат</b> (последние 10):\n"
@@ -63,20 +68,20 @@ async def chat_cmd(m: Message):
         [InlineKeyboardButton(text="🌍 Общий", callback_data="chat_global"),
          InlineKeyboardButton(text="🏛 Гильдия", callback_data="chat_guild")],
         [InlineKeyboardButton(text="✉️ Личное", callback_data="chat_pm_prompt")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="chat_close")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_social"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ],
     ]
-    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                   parse_mode=ParseMode.HTML)
+    await send_menu(m, text, InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 @router.callback_query(F.data == "chat_close")
 async def chat_close(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
 
 
-# ================= ОБЩИЙ ЧАТ =================
 @router.message(Command("c"))
 async def global_chat_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -90,9 +95,6 @@ async def global_chat_cmd(m: Message):
         await m.answer("⏳ Слишком часто. Подожди 3 секунды."); return
     text = parts[1].strip()[:300]
     await g.db.add_chat_message("global", m.from_user.id, u["char_name"], text)
-
-    # Отправить всем, у кого есть персонаж (опционально можно ограничить)
-    # Пока — просто подтверждение себе + тем, кто рядом
     await m.answer(f"✅ Отправлено в общий чат:\n<b>{u['char_name']}</b>: {text}",
                    parse_mode=ParseMode.HTML)
 
@@ -107,10 +109,10 @@ async def chat_global_cb(c: CallbackQuery):
         for msg in reversed(msgs):
             text += f"• <b>{msg['from_name']}</b>: {msg['text']}\n"
     text += "\n\nПиши: <code>/c текст</code>"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🔄 Обновить", callback_data="chat_global"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="chat_menu_back"),
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="chat_global")],
+        _back_close_row(),
+    ])
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
@@ -118,7 +120,6 @@ async def chat_global_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ГИЛЬДИЯ =================
 @router.message(Command("g"))
 async def guild_chat_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -137,7 +138,6 @@ async def guild_chat_cmd(m: Message):
     await g.db.add_chat_message("guild", m.from_user.id, u["char_name"], text,
                                  guild_id=guild["id"])
 
-    # Рассылаем всем членам гильдии
     members = await g.db.get_all_guild_members_ids(guild["id"])
     for uid in members:
         if uid == m.from_user.id:
@@ -166,10 +166,10 @@ async def chat_guild_cb(c: CallbackQuery):
         for msg in reversed(msgs):
             text += f"• <b>{msg['from_name']}</b>: {msg['text']}\n"
     text += "\n\nПиши: <code>/g текст</code>"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🔄 Обновить", callback_data="chat_guild"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="chat_menu_back"),
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="chat_guild")],
+        _back_close_row(),
+    ])
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
@@ -177,7 +177,6 @@ async def chat_guild_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ЛИЧНЫЕ СООБЩЕНИЯ =================
 @router.message(Command("w"))
 async def pm_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -224,7 +223,6 @@ async def chat_pm_prompt(c: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "chat_menu_back")
 async def chat_menu_back(c: CallbackQuery):
-    u = await g.db.get_user(c.from_user.id)
     guild = await g.db.get_user_guild(c.from_user.id)
     msgs = await g.db.get_chat_messages("global", limit=10)
     text = "💬 <b>Чат</b>\n\n"
@@ -244,7 +242,10 @@ async def chat_menu_back(c: CallbackQuery):
         [InlineKeyboardButton(text="🌍 Общий", callback_data="chat_global"),
          InlineKeyboardButton(text="🏛 Гильдия", callback_data="chat_guild")],
         [InlineKeyboardButton(text="✉️ Личное", callback_data="chat_pm_prompt")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="chat_close")],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_social"),
+            InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+        ],
     ]
     try:
         await c.message.edit_text(text,
