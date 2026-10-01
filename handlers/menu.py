@@ -121,6 +121,16 @@ async def cb_quests(c: CallbackQuery):
 @router.callback_query(F.data == "menu_dungeon")
 async def cb_dungeon(c: CallbackQuery):
     await _run_cmd(c, "combat", "dungeon_cmd")
+    
+
+@router.callback_query(F.data == "menu_map")
+async def cb_map(c: CallbackQuery):
+    await _run_cmd(c, "travel", "map_cmd")
+
+
+@router.callback_query(F.data == "menu_travel")
+async def cb_travel(c: CallbackQuery):
+    await _run_cmd(c, "travel", "travel_cmd")
 
 
 @router.callback_query(F.data == "menu_who")
