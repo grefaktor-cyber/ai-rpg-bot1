@@ -1,4 +1,4 @@
-"""Гильдии: создание, приглашение, захват. Inline с закрытием."""
+"""Гильдии. back+close."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -19,7 +19,13 @@ class GuildStates(StatesGroup):
     waiting_name_tag = State()
 
 
-# ================= КЛАВИАТУРЫ =================
+def _back_close_row():
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_social"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
 def _guild_menu_kb(has_guild):
     rows = []
     if has_guild:
@@ -32,18 +38,17 @@ def _guild_menu_kb(has_guild):
                                            callback_data="guild_create_start")])
         rows.append([InlineKeyboardButton(text="🏆 Топ гильдий",
                                            callback_data="guild_top")])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="guild_close")])
+    rows.append(_back_close_row())
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _back_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="guild_menu")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="guild_close")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
-# ================= МЕНЮ =================
 @router.message(Command("guild"))
 @router.message(F.text == "🏛 Гильдия")
 async def guild_cmd(m: Message):
@@ -89,7 +94,6 @@ async def guild_close_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= ТОП =================
 @router.callback_query(F.data == "guild_top")
 async def guild_top_cb(c: CallbackQuery):
     guilds = await g.db.get_guilds_top(10)
@@ -110,7 +114,6 @@ async def guild_top_cb(c: CallbackQuery):
     await c.answer()
 
 
-# ================= СОЗДАНИЕ (FSM) =================
 @router.callback_query(F.data == "guild_create_start")
 async def guild_create_start(c: CallbackQuery, state: FSMContext):
     u = await g.db.get_user(c.from_user.id)
@@ -160,7 +163,6 @@ async def guild_create_input(m: Message, state: FSMContext):
         parse_mode=ParseMode.HTML)
 
 
-# ================= ПРИГЛАШЕНИЕ =================
 @router.message(Command("guild_invite"))
 async def guild_invite(m: Message):
     u = await g.db.get_user(m.from_user.id)
@@ -191,7 +193,6 @@ async def guild_invite(m: Message):
     await m.answer(f"✅ {target['char_name']} принят в гильдию.")
 
 
-# ================= ИНФО / УЧАСТНИКИ / ВЫХОД =================
 @router.callback_query(F.data == "guild_info")
 async def guild_info_cb(c: CallbackQuery):
     guild = await g.db.get_user_guild(c.from_user.id)
@@ -244,11 +245,9 @@ async def guild_leave_cb(c: CallbackQuery):
         c.from_user.id,
         f"Вышел из гильдии «[{guild_tag}] {guild_name}»", "guild")
     await c.answer("Ты вышел из гильдии")
-    # Перерисовываем меню
     await guild_menu_cb(c)
 
 
-# ================= ЗАХВАТ =================
 @router.callback_query(F.data == "guild_capture")
 async def guild_capture_cb(c: CallbackQuery):
     guild = await g.db.get_user_guild(c.from_user.id)
