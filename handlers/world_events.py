@@ -37,7 +37,8 @@ async def world_cmd(m: Message):
         text += "<b>📰 Последние события:</b>\n"
         for e in recent:
             text += f"• <b>{e['username'] or '?'}</b>: {e['event_text']}\n"
-    await m.answer(text, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, text, main_kb())
 
 
 # ================= NPC =================
