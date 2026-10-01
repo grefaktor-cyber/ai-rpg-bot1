@@ -1,13 +1,15 @@
 """Путешествия, карта, кто в локации."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, CallbackQuery,
+                           InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.enums import ParseMode
 
 from core import globals as g
 from core.game_data import RACES, CLASSES
 from core.keyboards import main_kb, travel_kb as build_travel_kb
 from services.broadcast import broadcast_to_location
+from services.ui import send_menu, close_menu
 import world as W
 
 router = Router()
@@ -24,32 +26,19 @@ async def map_cmd(m: Message):
     captured = await g.db.get_all_captured_locations()
     captured_map = {c["location_code"]: c for c in captured}
 
-    # === ГРАФИЧЕСКАЯ КАРТА ===
-    # Ручная схема расположения локаций (по смыслу мира)
-    #   [tavern]──[village]──[road]────[port]──[sea]──[island]
-    #                  │        │
-    #              [forest]──[ruins]──[mountains]──[cave]
-    #                  │
-    #              [glade] [swamp]
-
     def loc_icon(code):
         info = W.get_location(code) or {}
         name = info.get("name", "?")
 
-        # Маркер местоположения
         if code == loc_code:
             marker = "📍"
-        elif info["name"] in visited_set:
+        elif name in visited_set:
             marker = "✅"
         else:
             marker = "❓"
 
-        # Гильдия
-        guild_marker = ""
-        if code in captured_map:
-            guild_marker = f" 🏴"
+        guild_marker = " 🏴" if code in captured_map else ""
 
-        # Сложность
         lvl = info.get("level_req", 1)
         if lvl <= 3:
             diff = "🟢"
@@ -60,57 +49,26 @@ async def map_cmd(m: Message):
         else:
             diff = "🔴"
 
-        if code == loc_code or info["name"] in visited_set:
-            short = name[:14]
-            return f"{marker} {diff} {short}{guild_marker}"
+        if code == loc_code or name in visited_set:
+            return f"{marker} {diff} {name[:14]}{guild_marker}"
         return f"{marker} {diff} ???{guild_marker}"
 
-    # Формируем текстовую схему
-    # Верхний ряд
-    row1 = "  ".join([
-        loc_icon("tavern"),
-        "──",
-        loc_icon("village"),
-        "──",
-        loc_icon("road"),
-    ])
+    row1 = "  ".join([loc_icon("tavern"), "──", loc_icon("village"),
+                       "──", loc_icon("road")])
     row2 = "       │                 │"
-    row2b = "  ".join([
-        " " * 22,
-        "──",
-        loc_icon("port"),
-    ])
-    row3 = "  ".join([
-        loc_icon("forest"),
-        "──",
-        loc_icon("ruins"),
-        "──",
-        loc_icon("mountains"),
-    ])
-    row4 = "  │"
-    row5 = "  ".join([loc_icon("glade"), "  ", loc_icon("swamp")])
-    row6 = "  ".join([
-        " " * 22,
-        "──",
-        loc_icon("cave"),
-    ])
-    row7 = "  ".join([
-        " " * 40,
-        "──",
-        loc_icon("sea"),
-        "──",
-        loc_icon("island"),
-    ])
+    row3 = "  ".join([loc_icon("forest"), "──", loc_icon("ruins"),
+                       "──", loc_icon("mountains")])
+    row4 = "  │                 │"
+    row5 = "  ".join([loc_icon("glade"), "  ", loc_icon("swamp"),
+                       "  ", loc_icon("cave")])
+    row6 = "                     │"
+    row7 = "  ".join([" " * 22, "──", loc_icon("port")])
+    row8 = "                            │"
+    row9 = "  ".join([" " * 22, "──", loc_icon("sea"), "──", loc_icon("island")])
 
     text = "🗺 <b>Карта мира</b>\n\n"
     text += "<pre>"
-    text += f"{row1}\n"
-    text += f"{row2}\n"
-    text += f"{row3}\n"
-    text += f"{row4}\n"
-    text += f"{row5}\n"
-    text += f"{row6}\n"
-    text += f"{row7}\n"
+    text += f"{row1}\n{row2}\n{row3}\n{row4}\n{row5}\n{row6}\n{row7}\n{row8}\n{row9}\n"
     text += "</pre>\n"
 
     text += "<b>Легенда:</b>\n"
@@ -118,7 +76,6 @@ async def map_cmd(m: Message):
     text += "🏴 Захвачено гильдией\n"
     text += "🟢 Ур. 1-3 · 🟡 4-8 · 🟠 9-15 · 🔴 16+\n"
 
-    # Текущая локация
     loc = W.get_location(loc_code) or {}
     text += f"\n📍 <b>Ты в:</b> {loc.get('name', '?')}\n"
     text += f"<i>{loc.get('desc', '')}</i>\n"
@@ -127,32 +84,35 @@ async def map_cmd(m: Message):
         c = captured_map[loc_code]
         text += f"\n🏴 Владелец: <b>[{c['tag']}]</b> {c['name']}\n"
 
-    # Активное событие в текущей локации
     event = await g.db.get_active_event(loc_code)
     if event:
         text += f"\n{event['event_name']}: <i>{event['event_desc']}</i>\n"
 
-    # Прогресс исследования
     total = len(W.LOCATIONS)
-    visited_count = len([l for l in W.LOCATIONS if W.get_location(l)["name"] in visited_set])
+    visited_count = len([l for l in W.LOCATIONS
+                          if W.get_location(l)["name"] in visited_set])
     text += f"\n🌍 <b>Открыто: {visited_count}/{total}</b>"
 
-    # Если не всё открыто — кнопка «Куда идти?»
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     rows = []
     neighbors = W.get_neighbors(loc_code)
-    if neighbors:
-        for code, info in neighbors:
-            can, reason = W.can_enter(code, u["level"])
-            marker = "" if can else "🔒 "
-            rows.append([InlineKeyboardButton(
-                text=f"{marker}→ {info['name']}",
-                callback_data=f"travel_to_{code}" if can else "travel_locked"
-            )])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="travel_cancel")])
+    for code, info in neighbors:
+        can, reason = W.can_enter(code, u["level"])
+        marker = "" if can else "🔒 "
+        rows.append([InlineKeyboardButton(
+            text=f"{marker}→ {info['name']}",
+            callback_data=f"travel_to_{code}" if can else "travel_locked"
+        )])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть",
+                                       callback_data="map_close")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    await m.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    await send_menu(m, text, kb)
+
+
+@router.callback_query(F.data == "map_close")
+async def map_close_cb(c: CallbackQuery):
+    await close_menu(c)
+    await c.answer()
 
 
 # ================= ПУТЕШЕСТВИЕ =================
@@ -173,17 +133,17 @@ async def travel_cmd(m: Message):
         await m.answer(f"📍 Ты в <b>{loc['name']}</b>. Отсюда нет пути.",
                        reply_markup=main_kb(), parse_mode=ParseMode.HTML)
         return
-    await m.answer(
+    await send_menu(
+        m,
         f"🚶 <b>Куда идёшь?</b>\n\n"
         f"📍 Сейчас ты в: <b>{loc['name']}</b>\n"
         f"<i>{loc['desc']}</i>",
-        reply_markup=build_travel_kb(loc_code, u["level"], W),
-        parse_mode=ParseMode.HTML
+        build_travel_kb(loc_code, u["level"], W)
     )
 
 
 @router.callback_query(F.data.startswith("travel_to_"))
-async def travel_do(c):
+async def travel_do(c: CallbackQuery):
     code = c.data.replace("travel_to_", "")
     if code not in W.LOCATIONS:
         await c.answer("Не найдено")
@@ -204,7 +164,6 @@ async def travel_do(c):
     old_name = W.get_location(cur_code).get("name", "?")
     new_loc = W.get_location(code)
 
-    # Проверка: первое посещение?
     visited = await g.db.get_all_location_codes_visited(c.from_user.id)
     first_visit = new_loc["name"] not in visited
 
@@ -223,10 +182,8 @@ async def travel_do(c):
     event = await g.db.get_active_event(code)
     owner = await g.db.get_location_owner(code)
 
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    # Удаляем сообщение с выбором
+    await close_menu(c)
 
     text = f"🚶 <i>{old_name} → {loc['name']}</i>\n\n"
     text += f"📍 <b>{loc['name']}</b>\n<i>{loc['desc']}</i>\n"
@@ -254,16 +211,13 @@ async def travel_do(c):
 
 
 @router.callback_query(F.data == "travel_locked")
-async def travel_locked(c):
+async def travel_locked(c: CallbackQuery):
     await c.answer("Уровень слишком низкий для этой локации", show_alert=True)
 
 
 @router.callback_query(F.data == "travel_cancel")
-async def travel_cancel(c):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+async def travel_cancel(c: CallbackQuery):
+    await close_menu(c)
     await c.answer("Остаёшься здесь")
 
 
@@ -279,11 +233,15 @@ async def who_cmd(m: Message):
     players = await g.db.get_players_at_location(code, u["user_id"])
     loc_name = W.get_location(code).get("name", "?")
     if not players:
-        await m.answer(
+        await send_menu(
+            m,
             f"👥 В «{loc_name}» больше никого нет.\n\n"
             f"<i>Когда другие игроки зайдут сюда, ты их увидишь.</i>",
-            reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+            main_kb()
+        )
         return
+
+    from core.titles import TITLES
     lines = []
     for p in players:
         race = RACES.get(p["race"], {}).get("name", "?")
@@ -293,14 +251,14 @@ async def who_cmd(m: Message):
             guild = await g.db.get_guild(p["guild_id"])
             if guild:
                 gtag = f" [{guild['tag']}]"
-        # Титул
-        from core.titles import TITLES
         p_user = await g.db.get_user(p["user_id"])
         t_code = p_user.get("active_title", "") if p_user else ""
-        t_str = ""
-        if t_code and t_code in TITLES:
-            t_str = f" {TITLES[t_code]['icon']}"
+        t_str = f" {TITLES[t_code]['icon']}" if (t_code and t_code in TITLES) else ""
         lines.append(f"• <b>{p['char_name']}</b>{t_str}{gtag} (Ур.{p['level']}, {race} {cls})")
-    await m.answer(f"👥 <b>В «{loc_name}»:</b>\n\n" + "\n".join(lines) +
-                   f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+
+    await send_menu(
+        m,
+        f"👥 <b>В «{loc_name}»:</b>\n\n" + "\n".join(lines) +
+        f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
+        main_kb()
+    )
