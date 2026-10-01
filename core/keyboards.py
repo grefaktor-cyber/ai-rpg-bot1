@@ -1,33 +1,108 @@
-"""Все inline- и reply-клавиатуры бота."""
+"""Все клавиатуры бота. UI-1: категории в главном меню."""
 from aiogram.types import (InlineKeyboardMarkup, InlineKeyboardButton,
                            ReplyKeyboardMarkup, KeyboardButton)
 
 from core.game_data import POTION_PRICE
 
 
+# ================= ГЛАВНОЕ МЕНЮ (ReplyKeyboard) =================
 def main_kb():
+    """Главное меню — 6 кнопок в 3 ряда."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎒 Инвентарь"), KeyboardButton(text="🛒 Магазин")],
-            [KeyboardButton(text="⭐ Профиль"),   KeyboardButton(text="🏆 Достижения")],
-            [KeyboardButton(text="📋 Квесты"),    KeyboardButton(text="🗺 Карта")],
-            [KeyboardButton(text="🚶 Идти"),      KeyboardButton(text="🌍 Мир")],
-            [KeyboardButton(text="👥 Кто здесь"), KeyboardButton(text="🐾 Питомец")],
-            [KeyboardButton(text="🏰 Подземелья"),KeyboardButton(text="⚒️ Кузница")],
-            [KeyboardButton(text="🏛 Гильдия"),   KeyboardButton(text="✨ Скилы")],
-            [KeyboardButton(text="🎁 Награда"),   KeyboardButton(text="🏅 Рейтинг")],
-            [KeyboardButton(text="💎 Премиум"),   KeyboardButton(text="🐉 Боссы")],
-            [KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="🎮 Игра"),      KeyboardButton(text="👥 Социум")],
+            [KeyboardButton(text="📊 Прогресс"),  KeyboardButton(text="🌍 Мир")],
+            [KeyboardButton(text="🐉 Боссы"),     KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
         input_field_placeholder="Что делает герой?"
     )
 
 
+# ================= INLINE КАТЕГОРИИ ГЛАВНОГО МЕНЮ =================
+def menu_game_kb():
+    """Категория «🎮 Игра»."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎒 Инвентарь", callback_data="menu_inv"),
+         InlineKeyboardButton(text="🛒 Магазин", callback_data="menu_shop")],
+        [InlineKeyboardButton(text="✨ Скилы", callback_data="menu_skills"),
+         InlineKeyboardButton(text="⚒️ Кузница", callback_data="menu_craft")],
+        [InlineKeyboardButton(text="📋 Квесты", callback_data="menu_quests"),
+         InlineKeyboardButton(text="🏰 Подземелья", callback_data="menu_dungeon")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+    ])
+
+
+def menu_social_kb():
+    """Категория «👥 Социум»."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Кто здесь", callback_data="menu_who"),
+         InlineKeyboardButton(text="🏛 Гильдия", callback_data="menu_guild")],
+        [InlineKeyboardButton(text="💬 Чат", callback_data="menu_chat"),
+         InlineKeyboardButton(text="🤝 Обмен", callback_data="menu_trade")],
+        [InlineKeyboardButton(text="⚔️ Дуэль", callback_data="menu_duel_info")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+    ])
+
+
+def menu_progress_kb():
+    """Категория «📊 Прогресс»."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⭐ Профиль", callback_data="menu_profile"),
+         InlineKeyboardButton(text="🏆 Достижения", callback_data="menu_ach")],
+        [InlineKeyboardButton(text="🏅 Рейтинг", callback_data="menu_top"),
+         InlineKeyboardButton(text="🎁 Награда", callback_data="menu_daily")],
+        [InlineKeyboardButton(text="📜 Дневник", callback_data="menu_journal"),
+         InlineKeyboardButton(text="💎 Премиум", callback_data="menu_premium")],
+        [InlineKeyboardButton(text="🐾 Питомец", callback_data="menu_pet"),
+         InlineKeyboardButton(text="🏆 Титулы", callback_data="menu_titles")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+    ])
+
+
+# ================= ПРОФИЛЬ (вкладки) =================
+def profile_tabs_kb(active_tab="stats"):
+    """Вкладки профиля."""
+    def btn(text, tab):
+        mark = "•" if active_tab == tab else " "
+        return InlineKeyboardButton(
+            text=f"{mark} {text}", callback_data=f"prof_tab_{tab}")
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("📊 Статы", "stats"), btn("👑 Экип.", "equip")],
+        [btn("🏆 Достижения", "ach"), btn("📦 Материалы", "mats")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="prof_close")],
+    ])
+
+
+# ================= ПОИСК В ИНВЕНТАРЕ =================
+def inv_search_cancel_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="inv_search_cancel")],
+    ])
+
+
+# ================= ФИЛЬТР КВЕСТОВ =================
+def quests_filter_kb(active="all"):
+    """Кнопки фильтра в /quests."""
+    def btn(text, code):
+        mark = "•" if active == code else " "
+        return InlineKeyboardButton(
+            text=f"{mark} {text}", callback_data=f"qfilter_{code}")
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("📋 Все", "all"), btn("📜 Сюжет", "story")],
+        [btn("⚔️ Ежедневные", "daily"), btn("🏆 Еженедельные", "weekly")],
+        [InlineKeyboardButton(text="⭐ Очки заданий",
+                              callback_data="quest_points")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="quest_close")],
+    ])
+
+
+# ================= БОЕВАЯ (оставляем старую) =================
 def combat_kb(active_skills=None, mp=0, pending=None,
               prefix="combat", max_actions=4, is_pvp=False,
               can_spoil=False, spoil_used=False):
-    """Боевая клавиатура с очередью действий."""
     from core.skills import get_skill
     from core.game_data import POTION_PRICE, MP_POTION_PRICE
 
@@ -48,9 +123,9 @@ def combat_kb(active_skills=None, mp=0, pending=None,
             if not s:
                 continue
             icon = {
-                "damage":   "🔥", "heal":     "💚",
+                "damage": "🔥", "heal": "💚",
                 "buff_atk": "⚡", "buff_def": "🛡",
-                "debuff":   "🌀", "stun":     "💫",
+                "debuff": "🌀", "stun": "💫",
             }.get(s["effect"], "✨")
             short = s["name"][:10]
             text = f"{icon} {short} ({s['mp_cost']}mp)"
@@ -72,7 +147,6 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                              callback_data=f"{prefix}_add_potion_mp"),
     ])
 
-    # Спул — отдельная кнопка если доступно
     if can_spoil and not is_pvp:
         if spoil_used:
             rows.append([InlineKeyboardButton(
@@ -104,6 +178,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
 
 
 def combat_pending_text(pending, max_actions=4):
+    """Очередь действий (текстом — визуал будет в UI-2)."""
     if not pending:
         return f"<i>Очередь пуста. Добавь 1-{max_actions} действий.</i>"
     lines = [f"<b>📋 Твоя очередь ({len(pending)}/{max_actions}):</b>"]
@@ -124,6 +199,7 @@ def combat_pending_text(pending, max_actions=4):
     return "\n".join(lines)
 
 
+# ================= ПОДЗЕМЕЛЬЯ / ПИТОМЦЫ / МАГАЗИН =================
 def dungeon_continue_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➡️ Идти дальше", callback_data="dungeon_next")],
@@ -131,29 +207,48 @@ def dungeon_continue_kb():
     ])
 
 
-def pvp_kb(my_turn):
-    if my_turn:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚔️ Атака", callback_data="pvp_attack")],
-            [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
-        ])
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
-    ])
+def dungeons_kb(dungeons_dict, player_level, player_gold):
+    rows = []
+    for code, d in dungeons_dict.items():
+        can = player_level >= d["level_req"] and player_gold >= d["entry"]
+        if can:
+            rows.append([InlineKeyboardButton(
+                text=f"{d['name']} — {d['entry']}💰",
+                callback_data=f"dungeon_enter_{code}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def duel_offer_kb(offer_id, is_caller=False):
-    if is_caller:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отменить", callback_data=f"duel_cancel_{offer_id}")],
-        ])
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Принять", callback_data=f"duel_accept_{offer_id}"),
-         InlineKeyboardButton(text="💰 Своя ставка", callback_data=f"duel_counter_{offer_id}")],
-        [InlineKeyboardButton(text="❌ Отказаться", callback_data=f"duel_decline_{offer_id}")],
-    ])
+def pets_kb(pets_dict):
+    rows = []
+    for code, p in pets_dict.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{p['name']} — {p['price']}💰",
+            callback_data=f"pet_buy_{code}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def shop_kb(shop_dict, shop_mult):
+    rows = []
+    for name, data in shop_dict.items():
+        if data.get("type") == "potion":
+            continue
+        price = int(data["price"] * shop_mult)
+        rows.append([InlineKeyboardButton(
+            text=f"{name} — {price}💰",
+            callback_data=f"shop_buy_{name}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def craft_kb(recipes):
+    rows = []
+    for result in recipes.keys():
+        rows.append([InlineKeyboardButton(
+            text=f"Создать {result}",
+            callback_data=f"craft_{result}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ================= ПУТЕШЕСТВИЯ / NPC / ГИЛЬДИИ =================
 def travel_kb(location_code, player_level, world_module):
     rows = []
     for code, info in world_module.get_neighbors(location_code):
@@ -210,6 +305,31 @@ def guild_menu_kb(has_guild):
     ])
 
 
+# ================= PVP / ДУЭЛИ =================
+def pvp_kb(my_turn):
+    if my_turn:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚔️ Атака", callback_data="pvp_attack")],
+            [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
+    ])
+
+
+def duel_offer_kb(offer_id, is_caller=False):
+    if is_caller:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data=f"duel_cancel_{offer_id}")],
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять", callback_data=f"duel_accept_{offer_id}"),
+         InlineKeyboardButton(text="💰 Своя ставка", callback_data=f"duel_counter_{offer_id}")],
+        [InlineKeyboardButton(text="❌ Отказаться", callback_data=f"duel_decline_{offer_id}")],
+    ])
+
+
+# ================= ПРОЧЕЕ =================
 def yes_no_kb(yes_cb, no_cb, yes_text="✅ Да", no_text="❌ Нет"):
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=yes_text, callback_data=yes_cb),
@@ -241,6 +361,7 @@ def faction_selection_kb(factions_dict):
     ])
 
 
+# ================= СКИЛЫ =================
 def skills_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📚 Все скилы", callback_data="skills_list")],
@@ -286,51 +407,4 @@ def skills_upgrade_kb(available, learned):
             callback_data=cb
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-
-# ================= ВОССТАНОВЛЕННЫЕ ФУНКЦИИ =================
-def dungeons_kb(dungeons_dict, player_level, player_gold):
-    """Кнопки подземелий — только доступные."""
-    rows = []
-    for code, d in dungeons_dict.items():
-        can = player_level >= d["level_req"] and player_gold >= d["entry"]
-        if can:
-            rows.append([InlineKeyboardButton(
-                text=f"{d['name']} — {d['entry']}💰",
-                callback_data=f"dungeon_enter_{code}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def pets_kb(pets_dict):
-    """Кнопки покупки питомцев."""
-    rows = []
-    for code, p in pets_dict.items():
-        rows.append([InlineKeyboardButton(
-            text=f"{p['name']} — {p['price']}💰",
-            callback_data=f"pet_buy_{code}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def shop_kb(shop_dict, shop_mult):
-    """Устаревшая функция — оставлена для совместимости."""
-    rows = []
-    for name, data in shop_dict.items():
-        if data.get("type") == "potion":
-            continue
-        price = int(data["price"] * shop_mult)
-        rows.append([InlineKeyboardButton(
-            text=f"{name} — {price}💰",
-            callback_data=f"shop_buy_{name}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def craft_kb(recipes):
-    """Устаревшая функция — оставлена для совместимости."""
-    rows = []
-    for result in recipes.keys():
-        rows.append([InlineKeyboardButton(
-            text=f"Создать {result}",
-            callback_data=f"craft_{result}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
