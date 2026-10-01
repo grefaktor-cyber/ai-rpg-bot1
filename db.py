@@ -2015,6 +2015,12 @@ class DB:
             await c.execute(
                 "UPDATE active_combat SET spoil_used=1 WHERE user_id=$1", uid
             )
+
+    async def set_combat_spoil_used(self, uid):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET spoil_used=1 WHERE user_id=$1", uid
+            )
     
     async def cleanup_chat(self, days=7):
         """Удалить сообщения старше N дней."""
