@@ -1,7 +1,7 @@
 """Путешествия, карта, кто в локации."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -21,25 +21,138 @@ async def map_cmd(m: Message):
     loc_code = u.get("location_code", "village")
     visited = await g.db.get_all_location_codes_visited(m.from_user.id)
     visited_set = set(visited)
-
-    lines = ["🗺 <b>Карта мира</b>\n"]
-    for code, info in W.LOCATIONS.items():
-        marker = "📍" if code == loc_code else ("✅" if info["name"] in visited_set else "❓")
-        if code == loc_code or info["name"] in visited_set:
-            lines.append(f"{marker} {info['name']}")
-        else:
-            lines.append("❓ Неизвестная локация")
-
     captured = await g.db.get_all_captured_locations()
-    if captured:
-        lines.append("\n<b>Захвачено гильдиями:</b>")
-        for c in captured:
-            loc_name = W.get_location(c["location_code"]).get("name", c["location_code"])
-            lines.append(f"🏴 {loc_name} — [{c['tag']}] {c['name']}")
+    captured_map = {c["location_code"]: c for c in captured}
 
-    lines.append(f"\n📍 Ты в: <b>{W.get_location(loc_code).get('name', '?')}</b>")
-    lines.append(f"\nВсего открыто: {len(visited_set)}/{len(W.LOCATIONS)}")
-    await m.answer("\n".join(lines), reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    # === ГРАФИЧЕСКАЯ КАРТА ===
+    # Ручная схема расположения локаций (по смыслу мира)
+    #   [tavern]──[village]──[road]────[port]──[sea]──[island]
+    #                  │        │
+    #              [forest]──[ruins]──[mountains]──[cave]
+    #                  │
+    #              [glade] [swamp]
+
+    def loc_icon(code):
+        info = W.get_location(code) or {}
+        name = info.get("name", "?")
+
+        # Маркер местоположения
+        if code == loc_code:
+            marker = "📍"
+        elif info["name"] in visited_set:
+            marker = "✅"
+        else:
+            marker = "❓"
+
+        # Гильдия
+        guild_marker = ""
+        if code in captured_map:
+            guild_marker = f" 🏴"
+
+        # Сложность
+        lvl = info.get("level_req", 1)
+        if lvl <= 3:
+            diff = "🟢"
+        elif lvl <= 8:
+            diff = "🟡"
+        elif lvl <= 15:
+            diff = "🟠"
+        else:
+            diff = "🔴"
+
+        if code == loc_code or info["name"] in visited_set:
+            short = name[:14]
+            return f"{marker} {diff} {short}{guild_marker}"
+        return f"{marker} {diff} ???{guild_marker}"
+
+    # Формируем текстовую схему
+    # Верхний ряд
+    row1 = "  ".join([
+        loc_icon("tavern"),
+        "──",
+        loc_icon("village"),
+        "──",
+        loc_icon("road"),
+    ])
+    row2 = "       │                 │"
+    row2b = "  ".join([
+        " " * 22,
+        "──",
+        loc_icon("port"),
+    ])
+    row3 = "  ".join([
+        loc_icon("forest"),
+        "──",
+        loc_icon("ruins"),
+        "──",
+        loc_icon("mountains"),
+    ])
+    row4 = "  │"
+    row5 = "  ".join([loc_icon("glade"), "  ", loc_icon("swamp")])
+    row6 = "  ".join([
+        " " * 22,
+        "──",
+        loc_icon("cave"),
+    ])
+    row7 = "  ".join([
+        " " * 40,
+        "──",
+        loc_icon("sea"),
+        "──",
+        loc_icon("island"),
+    ])
+
+    text = "🗺 <b>Карта мира</b>\n\n"
+    text += "<pre>"
+    text += f"{row1}\n"
+    text += f"{row2}\n"
+    text += f"{row3}\n"
+    text += f"{row4}\n"
+    text += f"{row5}\n"
+    text += f"{row6}\n"
+    text += f"{row7}\n"
+    text += "</pre>\n"
+
+    text += "<b>Легенда:</b>\n"
+    text += "📍 Ты здесь · ✅ Посещено · ❓ Неизвестно\n"
+    text += "🏴 Захвачено гильдией\n"
+    text += "🟢 Ур. 1-3 · 🟡 4-8 · 🟠 9-15 · 🔴 16+\n"
+
+    # Текущая локация
+    loc = W.get_location(loc_code) or {}
+    text += f"\n📍 <b>Ты в:</b> {loc.get('name', '?')}\n"
+    text += f"<i>{loc.get('desc', '')}</i>\n"
+
+    if loc_code in captured_map:
+        c = captured_map[loc_code]
+        text += f"\n🏴 Владелец: <b>[{c['tag']}]</b> {c['name']}\n"
+
+    # Активное событие в текущей локации
+    event = await g.db.get_active_event(loc_code)
+    if event:
+        text += f"\n{event['event_name']}: <i>{event['event_desc']}</i>\n"
+
+    # Прогресс исследования
+    total = len(W.LOCATIONS)
+    visited_count = len([l for l in W.LOCATIONS if W.get_location(l)["name"] in visited_set])
+    text += f"\n🌍 <b>Открыто: {visited_count}/{total}</b>"
+
+    # Если не всё открыто — кнопка «Куда идти?»
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = []
+    neighbors = W.get_neighbors(loc_code)
+    if neighbors:
+        for code, info in neighbors:
+            can, reason = W.can_enter(code, u["level"])
+            marker = "" if can else "🔒 "
+            rows.append([InlineKeyboardButton(
+                text=f"{marker}→ {info['name']}",
+                callback_data=f"travel_to_{code}" if can else "travel_locked"
+            )])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="travel_cancel")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await m.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
 
 
 # ================= ПУТЕШЕСТВИЕ =================
