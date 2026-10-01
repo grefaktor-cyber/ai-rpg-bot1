@@ -245,6 +245,30 @@ class DB:
                 )
             """)
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS world_bosses (
+                    id SERIAL PRIMARY KEY,
+                    boss_code TEXT,
+                    location_code TEXT,
+                    current_hp INTEGER,
+                    max_hp INTEGER,
+                    total_damage INTEGER DEFAULT 0,
+                    spawned_at TIMESTAMP DEFAULT NOW(),
+                    expires_at TIMESTAMP,
+                    killed INTEGER DEFAULT 0,
+                    killed_by BIGINT DEFAULT 0
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS world_boss_damage (
+                    id SERIAL PRIMARY KEY,
+                    boss_id INTEGER,
+                    user_id BIGINT,
+                    username TEXT,
+                    damage INTEGER DEFAULT 0,
+                    UNIQUE(boss_id, user_id)
+                )
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS world_events_log (
                     id SERIAL PRIMARY KEY,
                     location_code TEXT,
@@ -1752,6 +1776,91 @@ class DB:
             await c.execute("""
                 DELETE FROM world_events_log
                 WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+            """, str(days))
+
+    # ============ МИРОВЫЕ БОССЫ ============
+    async def spawn_world_boss(self, boss_code, location_code, hp):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                INSERT INTO world_bosses
+                (boss_code, location_code, current_hp, max_hp,
+                 expires_at)
+                VALUES ($1, $2, $3, $3,
+                        NOW() + ($4 || ' minutes')::INTERVAL)
+                RETURNING id
+            """, boss_code, location_code, hp, "60")
+            return row["id"]
+
+    async def get_active_world_boss(self, location_code=None):
+        async with self.pool.acquire() as c:
+            if location_code:
+                row = await c.fetchrow("""
+                    SELECT * FROM world_bosses
+                    WHERE location_code=$1 AND killed=0
+                    AND expires_at > NOW()
+                    ORDER BY spawned_at DESC LIMIT 1
+                """, location_code)
+            else:
+                row = await c.fetchrow("""
+                    SELECT * FROM world_bosses
+                    WHERE killed=0 AND expires_at > NOW()
+                    ORDER BY spawned_at DESC LIMIT 1
+                """)
+            return dict(row) if row else None
+
+    async def get_all_active_world_bosses(self):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT * FROM world_bosses
+                WHERE killed=0 AND expires_at > NOW()
+                ORDER BY spawned_at DESC
+            """)
+            return [dict(r) for r in rows]
+
+    async def add_boss_damage(self, boss_id, uid, username, damage):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO world_boss_damage
+                (boss_id, user_id, username, damage)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (boss_id, user_id)
+                DO UPDATE SET damage = world_boss_damage.damage + $4
+            """, boss_id, uid, username, damage)
+            await c.execute("""
+                UPDATE world_bosses
+                SET current_hp = GREATEST(0, current_hp - $1),
+                    total_damage = total_damage + $1
+                WHERE id = $2
+            """, damage, boss_id)
+
+    async def get_boss_damage_list(self, boss_id, limit=10):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT user_id, username, damage
+                FROM world_boss_damage WHERE boss_id=$1
+                ORDER BY damage DESC LIMIT $2
+            """, boss_id, limit)
+            return [dict(r) for r in rows]
+
+    async def kill_world_boss(self, boss_id, killer_id):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE world_bosses
+                SET killed=1, killed_by=$1 WHERE id=$2
+            """, killer_id, boss_id)
+
+    async def cleanup_world_bosses(self, days=3):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                DELETE FROM world_boss_damage
+                WHERE boss_id IN (
+                    SELECT id FROM world_bosses
+                    WHERE spawned_at < NOW() - ($1 || ' days')::INTERVAL
+                )
+            """, str(days))
+            await c.execute("""
+                DELETE FROM world_bosses
+                WHERE spawned_at < NOW() - ($1 || ' days')::INTERVAL
             """, str(days))
     
     async def cleanup_chat(self, days=7):
