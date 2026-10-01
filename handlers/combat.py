@@ -1,4 +1,4 @@
-"""Хендлеры боя: очередь действий, подземелья."""
+"""Хендлеры боя: очередь действий, edit вместо send."""
 import random
 
 from aiogram import Router, F
@@ -15,7 +15,6 @@ from services.combat_service import (
     send_combat_state, handle_death,
 )
 from services.dungeon_service import spawn_dungeon_enemy, dungeon_finish
-from config import ADMIN_IDS
 
 router = Router()
 
@@ -27,7 +26,7 @@ async def _get_active_combat(uid):
     return combat
 
 
-# ================= ДОБАВЛЕНИЕ ДЕЙСТВИЙ =================
+# ================= ДОБАВЛЕНИЕ ДЕЙСТВИЙ (edit) =================
 @router.callback_query(F.data == "combat_add_attack")
 async def add_attack(c: CallbackQuery):
     combat = await _get_active_combat(c.from_user.id)
@@ -39,7 +38,8 @@ async def add_attack(c: CallbackQuery):
     await c.answer("⚔️ +Атака")
     user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data == "combat_add_defend")
@@ -53,7 +53,8 @@ async def add_defend(c: CallbackQuery):
     await c.answer("🛡 +Защита")
     user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data.startswith("combat_add_skill_"))
@@ -73,7 +74,8 @@ async def add_skill(c: CallbackQuery):
         await c.answer("Очередь полна", show_alert=True); return
     await c.answer(f"✨ +{s['name']}")
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data == "combat_add_potion_hp")
@@ -89,7 +91,8 @@ async def add_potion_hp(c: CallbackQuery):
         await c.answer("Очередь полна", show_alert=True); return
     await c.answer("💚 +Зелье HP")
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data == "combat_add_potion_mp")
@@ -105,7 +108,8 @@ async def add_potion_mp(c: CallbackQuery):
         await c.answer("Очередь полна", show_alert=True); return
     await c.answer("🔮 +Зелье MP")
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data == "combat_undo")
@@ -119,7 +123,8 @@ async def undo(c: CallbackQuery):
     await c.answer("↩️ Убрано")
     user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
-                            await g.db.get_combat(c.from_user.id))
+                            await g.db.get_combat(c.from_user.id),
+                            edit_message=c.message)
 
 
 @router.callback_query(F.data == "combat_execute")
@@ -129,11 +134,8 @@ async def execute(c: CallbackQuery):
         await c.answer("Бой завершён", show_alert=True); return
     user = await g.db.get_user(c.from_user.id)
     await c.answer("⚡ Выполняю...")
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    await execute_queued_round(c.message.chat.id, user, combat)
+    await execute_queued_round(c.message.chat.id, user, combat,
+                                edit_message=c.message)
 
 
 # ================= ПОБЕГ =================
@@ -146,14 +148,13 @@ async def flee(c: CallbackQuery):
         await c.answer("🐉 От босса не убежать!", show_alert=True); return
     if combat.get("is_dungeon"):
         await c.answer("🏰 Из подземелья не сбежать!", show_alert=True); return
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
     if random.randint(1, 100) <= 50:
         await g.db.end_combat(c.from_user.id)
         await c.answer("🏃 Побег!")
-        await c.message.answer("🏃 Ты сбежал.")
+        try:
+            await c.message.edit_text("🏃 Ты сбежал.", reply_markup=None)
+        except Exception:
+            await c.message.answer("🏃 Ты сбежал.")
     else:
         await c.answer("❌ Не удалось!")
         user = await g.db.get_user(c.from_user.id)
@@ -168,10 +169,11 @@ async def flee(c: CallbackQuery):
         await g.db.incr_combat_round(c.from_user.id)
         await send_combat_state(c.message.chat.id, user,
                                 await g.db.get_combat(c.from_user.id),
-                                f"❌ Побег не удался! -{enemy_dmg}.", event)
+                                f"❌ Побег не удался! -{enemy_dmg}.", event,
+                                edit_message=c.message)
 
 
-# ================= ПОДЗЕМЕЛЬЯ =================
+# ================= ПОДЗЕМЕЛЬЯ (без изменений) =================
 @router.message(Command("dungeon"))
 @router.message(F.text == "🏰 Подземелья")
 async def dungeon_cmd(m: Message):
@@ -212,6 +214,10 @@ async def dungeon_enter(c: CallbackQuery):
     if not await g.db.spend_gold(c.from_user.id, d["entry"]):
         await c.answer(f"Нужно {d['entry']}💰", show_alert=True); return
     await g.db.start_dungeon(c.from_user.id, code)
+    try:
+        await c.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await c.answer("Вход!")
     await c.message.answer(f"🏰 Входишь в <b>{d['name']}</b>...", parse_mode=ParseMode.HTML)
     await spawn_dungeon_enemy(c.message.chat.id, c.from_user.id, code, 1)
