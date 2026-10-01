@@ -1,10 +1,10 @@
-"""Профиль с вкладками: Статы / Экип / Достижения / Материалы."""
+"""Профиль с вкладками. back+close везде."""
 import logging
 import traceback
 
 from aiogram import Router, F, BaseMiddleware
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -12,12 +12,20 @@ from core.game_data import RACES, CLASSES, FACTIONS, ACHIEVEMENTS
 from core.equipment import SLOTS, SLOT_NAMES, get_set_bonus
 from core.formulas import calc_p_def, calc_m_def, get_role, get_dmg_type
 from core.keyboards import main_kb, profile_tabs_kb
+from services.ui import send_menu, close_menu
 
 router = Router()
 
 ROLE_NAMES = {"tank": "🛡 Танк", "fighter": "⚔️ Боец", "agile": "🏃 Ловкий",
               "mage": "🔮 Маг", "universal": "⚖️ Универсал"}
 DMG_NAMES = {"phys": "Физический", "agile": "Ловкий", "magic": "Магический"}
+
+
+def _back_close_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]])
 
 
 def _stats_text(u):
@@ -112,7 +120,6 @@ async def stats_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["race"]:
         await m.answer("Сначала /start"); return
-    from services.ui import send_menu
     await send_menu(m, _stats_text(u), profile_tabs_kb("stats"))
 
 
@@ -147,7 +154,6 @@ async def prof_tab_cb(c: CallbackQuery):
 
 @router.callback_query(F.data == "prof_close")
 async def prof_close_cb(c: CallbackQuery):
-    from services.ui import close_menu
     await close_menu(c)
     await c.answer()
 
@@ -157,7 +163,7 @@ async def prof_close_cb(c: CallbackQuery):
 async def top_cmd(m: Message):
     top = await g.db.get_top_players(10)
     if not top:
-        await m.answer("🏅 Пока нет игроков.", reply_markup=main_kb()); return
+        await send_menu(m, "🏅 Пока нет игроков.", _back_close_kb()); return
     medals = ["🥇", "🥈", "🥉"]
     lines = []
     for i, p in enumerate(top):
@@ -166,30 +172,27 @@ async def top_cmd(m: Message):
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
         lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
-    from services.ui import send_menu
-    await send_menu(m, "🏅 <b>Топ-10</b>\n\n" + "\n".join(lines), main_kb())
+    await send_menu(m, "🏅 <b>Топ-10</b>\n\n" + "\n".join(lines), _back_close_kb())
 
 
 @router.message(Command("pvptop"))
 async def pvp_top_cmd(m: Message):
     top = await g.db.get_pvp_top(10)
     if not top:
-        await m.answer("🏅 Нет победителей дуэлей.", reply_markup=main_kb()); return
+        await send_menu(m, "🏅 Нет победителей дуэлей.", _back_close_kb()); return
     medals = ["🥇", "🥈", "🥉"]
     lines = []
     for i, p in enumerate(top):
         medal = medals[i] if i < 3 else f"{i+1}."
         lines.append(f"{medal} <b>{p['char_name']}</b> — {p['pvp_wins']}🏆 / {p['pvp_losses']}💀")
-    await m.answer("⚔️ <b>Топ дуэлянтов</b>\n\n" + "\n".join(lines),
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    await send_menu(m, "⚔️ <b>Топ дуэлянтов</b>\n\n" + "\n".join(lines), _back_close_kb())
 
 
 @router.message(Command("achievements"))
 @router.message(F.text == "🏆 Достижения")
 async def achievements_cmd(m: Message):
     text = await _ach_text(m.from_user.id)
-    from services.ui import send_menu
-    await send_menu(m, text, main_kb())
+    await send_menu(m, text, _back_close_kb())
 
 
 class ProfileErrorMiddleware(BaseMiddleware):
