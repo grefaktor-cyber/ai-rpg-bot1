@@ -1,4 +1,4 @@
-"""Путешествия, карта, кто в локации."""
+"""Путешествия, карта, кто в локации. back+close везде."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -15,6 +15,13 @@ import world as W
 router = Router()
 
 
+def _back_close_row(back_cb):
+    return [
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ]
+
+
 # ================= КАРТА =================
 @router.message(Command("map"))
 @router.message(F.text == "🗺 Карта")
@@ -29,16 +36,13 @@ async def map_cmd(m: Message):
     def loc_icon(code):
         info = W.get_location(code) or {}
         name = info.get("name", "?")
-
         if code == loc_code:
             marker = "📍"
         elif name in visited_set:
             marker = "✅"
         else:
             marker = "❓"
-
         guild_marker = " 🏴" if code in captured_map else ""
-
         lvl = info.get("level_req", 1)
         if lvl <= 3:
             diff = "🟢"
@@ -48,7 +52,6 @@ async def map_cmd(m: Message):
             diff = "🟠"
         else:
             diff = "🔴"
-
         if code == loc_code or name in visited_set:
             return f"{marker} {diff} {name[:14]}{guild_marker}"
         return f"{marker} {diff} ???{guild_marker}"
@@ -102,8 +105,7 @@ async def map_cmd(m: Message):
             text=f"{marker}→ {info['name']}",
             callback_data=f"travel_to_{code}" if can else "travel_locked"
         )])
-    rows.append([InlineKeyboardButton(text="❌ Закрыть",
-                                       callback_data="map_close")])
+    rows.append(_back_close_row("menu_game"))
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await send_menu(m, text, kb)
@@ -133,12 +135,26 @@ async def travel_cmd(m: Message):
         await m.answer(f"📍 Ты в <b>{loc['name']}</b>. Отсюда нет пути.",
                        reply_markup=main_kb(), parse_mode=ParseMode.HTML)
         return
+    rows = []
+    for code, info in neighbors:
+        can, reason = W.can_enter(code, u["level"])
+        if can:
+            rows.append([InlineKeyboardButton(
+                text=f"→ {info['name']}",
+                callback_data=f"travel_to_{code}")])
+        else:
+            rows.append([InlineKeyboardButton(
+                text=f"🔒 {info['name']} (ур.{info['level_req']}+)",
+                callback_data="travel_locked")])
+    rows.append(_back_close_row("menu_game"))
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
     await send_menu(
         m,
         f"🚶 <b>Куда идёшь?</b>\n\n"
         f"📍 Сейчас ты в: <b>{loc['name']}</b>\n"
         f"<i>{loc['desc']}</i>",
-        build_travel_kb(loc_code, u["level"], W)
+        kb
     )
 
 
@@ -182,7 +198,6 @@ async def travel_do(c: CallbackQuery):
     event = await g.db.get_active_event(code)
     owner = await g.db.get_location_owner(code)
 
-    # Удаляем сообщение с выбором
     await close_menu(c)
 
     text = f"🚶 <i>{old_name} → {loc['name']}</i>\n\n"
@@ -232,33 +247,30 @@ async def who_cmd(m: Message):
     code = u.get("location_code", "village")
     players = await g.db.get_players_at_location(code, u["user_id"])
     loc_name = W.get_location(code).get("name", "?")
+
+    rows = []
     if not players:
-        await send_menu(
-            m,
-            f"👥 В «{loc_name}» больше никого нет.\n\n"
-            f"<i>Когда другие игроки зайдут сюда, ты их увидишь.</i>",
-            main_kb()
-        )
-        return
+        text = (f"👥 В «{loc_name}» больше никого нет.\n\n"
+                f"<i>Когда другие игроки зайдут сюда, ты их увидишь.</i>")
+    else:
+        from core.titles import TITLES
+        lines = [f"👥 <b>В «{loc_name}»:</b>\n"]
+        for p in players:
+            race = RACES.get(p["race"], {}).get("name", "?")
+            cls = CLASSES.get(p["class"], {}).get("name", "?")
+            gtag = ""
+            if p.get("guild_id"):
+                guild = await g.db.get_guild(p["guild_id"])
+                if guild:
+                    gtag = f" [{guild['tag']}]"
+            p_user = await g.db.get_user(p["user_id"])
+            t_code = p_user.get("active_title", "") if p_user else ""
+            t_str = f" {TITLES[t_code]['icon']}" if (t_code and t_code in TITLES) else ""
+            lines.append(f"• <b>{p['char_name']}</b>{t_str}{gtag} (Ур.{p['level']}, {race} {cls})")
+        lines.append("")
+        lines.append("<i>/duel Имя — вызвать на дуэль</i>")
+        text = "\n".join(lines)
 
-    from core.titles import TITLES
-    lines = []
-    for p in players:
-        race = RACES.get(p["race"], {}).get("name", "?")
-        cls = CLASSES.get(p["class"], {}).get("name", "?")
-        gtag = ""
-        if p.get("guild_id"):
-            guild = await g.db.get_guild(p["guild_id"])
-            if guild:
-                gtag = f" [{guild['tag']}]"
-        p_user = await g.db.get_user(p["user_id"])
-        t_code = p_user.get("active_title", "") if p_user else ""
-        t_str = f" {TITLES[t_code]['icon']}" if (t_code and t_code in TITLES) else ""
-        lines.append(f"• <b>{p['char_name']}</b>{t_str}{gtag} (Ур.{p['level']}, {race} {cls})")
-
-    await send_menu(
-        m,
-        f"👥 <b>В «{loc_name}»:</b>\n\n" + "\n".join(lines) +
-        f"\n\n<i>/duel Имя — вызвать на дуэль</i>",
-        main_kb()
-    )
+    rows.append(_back_close_row("menu_social"))
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await send_menu(m, text, kb)
