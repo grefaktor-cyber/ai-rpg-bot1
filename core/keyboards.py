@@ -24,68 +24,99 @@ def main_kb():
     )
 
 
-def combat_kb(active_skills=None, mp=0):
-    """Боевая клавиатура с активными скилами.
-    active_skills — список кодов скилов (0-3 шт).
-    mp — текущий MP игрока.
+def combat_kb(active_skills=None, mp=0, pending=None):
+    """Боевая клавиатура с очередью действий.
+    active_skills — коды активных скилов (0-3).
+    mp — текущий MP.
+    pending — список уже добавленных действий (для отображения).
     """
     from core.skills import get_skill
     from core.game_data import POTION_PRICE, MP_POTION_PRICE
 
+    pending = pending or []
     rows = []
 
-    # Ряд 1: атака + защита
+    # === Ряд 1: базовые действия ===
     rows.append([
-        InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_attack"),
-        InlineKeyboardButton(text="🛡 Защита", callback_data="combat_defend"),
+        InlineKeyboardButton(text="⚔️ Атака", callback_data="combat_add_attack"),
+        InlineKeyboardButton(text="🛡 Защита", callback_data="combat_add_defend"),
     ])
 
-    # Ряд 2: скилы (только заполненные слоты)
+    # === Ряд 2-3: скилы (только если есть активные) ===
     if active_skills:
         skill_buttons = []
-        for i, code in enumerate(active_skills[:3]):
+        for code in active_skills[:3]:
             if not code:
                 continue
             s = get_skill(code)
             if not s:
                 continue
             icon = {
-                "damage":   "🔥",
-                "heal":     "💚",
-                "buff_atk": "⚡",
-                "buff_def": "🛡",
-                "debuff":   "🌀",
-                "stun":     "💫",
+                "damage":   "🔥", "heal":     "💚",
+                "buff_atk": "⚡", "buff_def": "🛡",
+                "debuff":   "🌀", "stun":     "💫",
             }.get(s["effect"], "✨")
-            # Обрезаем имя до 12 символов
-            short_name = s["name"][:12]
-            text = f"{icon} {short_name} ({s['mp_cost']}mp)"
+            short = s["name"][:10]
+            text = f"{icon} {short} ({s['mp_cost']}mp)"
             if mp < s["mp_cost"]:
-                text = f"{icon} {short_name} ❌"
+                text = f"{icon} {short} ❌"
             skill_buttons.append(InlineKeyboardButton(
-                text=text, callback_data=f"combat_skill_{code}"
+                text=text, callback_data=f"combat_add_skill_{code}"
             ))
-        # 1-3 кнопки в ряд, максимум 2 в ряд для читаемости
         if len(skill_buttons) <= 2:
             rows.append(skill_buttons)
         else:
             rows.append(skill_buttons[:2])
             rows.append(skill_buttons[2:])
 
-    # Ряд 3: зелья
+    # === Зелья ===
     rows.append([
         InlineKeyboardButton(text=f"💚 HP ({POTION_PRICE}💰)",
-                             callback_data="combat_potion"),
+                             callback_data="combat_add_potion_hp"),
         InlineKeyboardButton(text=f"🔮 MP ({MP_POTION_PRICE}💰)",
-                             callback_data="combat_mp_potion"),
+                             callback_data="combat_add_potion_mp"),
     ])
 
-    # Ряд 4: побег
+    # === Очередь: убрать + выполнить ===
+    count = len(pending)
+    row_actions = []
+    if count > 0:
+        row_actions.append(InlineKeyboardButton(
+            text="↩️ Убрать", callback_data="combat_undo"))
+    row_actions.append(InlineKeyboardButton(
+        text=f"⚡ Выполнить ({count}/3)",
+        callback_data="combat_execute"))
+    rows.append(row_actions)
+
+    # === Побег ===
     rows.append([
         InlineKeyboardButton(text="🏃 Бежать", callback_data="combat_flee"),
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def combat_pending_text(pending):
+    """Отформатировать очередь действий."""
+    if not pending:
+        return "<i>Очередь пуста. Добавь 1-3 действия.</i>"
+    lines = ["<b>📋 Твоя очередь:</b>"]
+    icons = {
+        "attack":     "⚔️ Атака",
+        "defend":     "🛡 Защита",
+        "potion_hp":  "💚 Зелье HP",
+        "potion_mp":  "🔮 Зелье MP",
+    }
+    for i, a in enumerate(pending):
+        if a.startswith("skill_"):
+            code = a.replace("skill_", "")
+            from core.skills import get_skill
+            s = get_skill(code)
+            name = s["name"] if s else code
+            lines.append(f"{i+1}. ✨ {name}")
+        else:
+            lines.append(f"{i+1}. {icons.get(a, a)}")
+    return "\n".join(lines)
 
 
 def dungeon_continue_kb():
