@@ -1,4 +1,4 @@
-"""Утилиты UI: автоочистка меню + FakeMessage для вызова cmd из callback."""
+"""Утилиты UI: автоочистка меню + FakeMessage."""
 import logging
 
 from aiogram.enums import ParseMode
@@ -18,17 +18,13 @@ MAIN_MENU_BUTTONS = {
 
 
 class FakeMessage:
-    """Обёртка для вызова `xxx_cmd(m: Message)` из callback.
-
-    from_user — настоящий игрок (c.from_user), а не бот (c.message.from_user).
-    Все остальные атрибуты берутся из оригинального сообщения бота.
-    """
-    def __init__(self, original_message, from_user):
+    """Обёртка для вызова xxx_cmd(m: Message) из callback."""
+    def __init__(self, original_message, from_user, text=""):
         self.chat = original_message.chat
         self.from_user = from_user
         self.message_id = original_message.message_id
         self.bot = original_message.bot
-        self.text = ""
+        self.text = text
         self._real = original_message
 
     async def answer(self, text, **kwargs):
@@ -41,13 +37,11 @@ class FakeMessage:
             return None
 
 
-def fake_message(c: CallbackQuery):
-    """Создать FakeMessage из callback."""
-    return FakeMessage(c.message, c.from_user)
+def fake_message(c: CallbackQuery, text=""):
+    return FakeMessage(c.message, c.from_user, text=text)
 
 
 async def send_menu(m, text, kb=None, uid=None):
-    """Отправить меню с автоудалением предыдущего."""
     uid = uid or m.from_user.id
     chat_id = m.chat.id
 
@@ -77,7 +71,6 @@ async def send_menu(m, text, kb=None, uid=None):
 
 
 async def close_menu(c: CallbackQuery):
-    """Удалить сообщение с inline-меню при «Закрыть»."""
     try:
         await c.message.delete()
         return True
@@ -90,5 +83,4 @@ async def close_menu(c: CallbackQuery):
 
 
 def forget_menu(uid):
-    """Сбросить запомненное меню."""
     _last_menu.pop(uid, None)
