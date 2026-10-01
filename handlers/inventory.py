@@ -1,4 +1,4 @@
-"""Инвентарь 4.0: 5 категорий, 8 слотов, редкие материалы, поиск."""
+"""Инвентарь 4.0: 5 категорий, 8 слотов, поиск, reply_message."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -11,7 +11,7 @@ from core import globals as g
 from core.equipment import (
     SHOP, SLOTS, SLOT_NAMES, can_use_item, get_set_bonus,
 )
-from core.formulas import parse_item
+from core.formulas import parse_item, calc_max_hp, calc_max_mp
 from core.keyboards import main_kb, inv_search_cancel_kb
 
 router = Router()
@@ -33,6 +33,11 @@ class InvSearchState(StatesGroup):
 
 def _grade_icon(grade):
     return {"common": "⚪", "D": "🔷", "C": "🔶", "B": "💎"}.get(grade, "⚪")
+
+
+def _short(name, n=18):
+    s = str(name)
+    return s if len(s) <= n else s[:n - 1] + "…"
 
 
 def _categorize(items):
@@ -101,54 +106,13 @@ async def _show_main(chat_id, u, items, edit_message=None, reply_message=None):
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
     if reply_message is not None:
-        from services.ui import send_menu
-        await send_menu(reply_message, text, kb)
-        return
-
-    if edit_message:
         try:
-            await edit_message.edit_text(text, reply_markup=kb,
-                                          parse_mode=ParseMode.HTML)
+            from services.ui import send_menu
+            await send_menu(reply_message, text, kb)
             return
         except Exception:
             pass
-    await g.bot.send_message(chat_id, text, reply_markup=kb,
-                             parse_mode=ParseMode.HTML)
 
-
-async def _show_main(chat_id, u, items, edit_message=None):
-    groups = _categorize(items)
-    text = "🎒 <b>Инвентарь</b>\n\n"
-    text += f"💰 Золото: <b>{u['gold']}</b>\n"
-    text += f"📦 Предметов: <b>{len(items)}</b>\n\n"
-    text += "Выбери категорию:"
-    rows = []
-    rows.append([
-        InlineKeyboardButton(text=f"⚔️ Оружие ({len(groups['weapon'])})",
-                             callback_data="inv_cat_weapon_0"),
-        InlineKeyboardButton(text=f"🛡 Броня ({len(groups['armor'])})",
-                             callback_data="inv_cat_armor_0"),
-    ])
-    rows.append([
-        InlineKeyboardButton(text=f"💍 Аксессуары ({len(groups['accessory'])})",
-                             callback_data="inv_cat_accessory_0"),
-        InlineKeyboardButton(text=f"🧪 Зелья ({len(groups['potion'])})",
-                             callback_data="inv_cat_potion_0"),
-    ])
-    if groups["other"]:
-        rows.append([InlineKeyboardButton(
-            text=f"📦 Прочее ({len(groups['other'])})",
-            callback_data="inv_cat_other_0")])
-    rows.append([
-        InlineKeyboardButton(text="👑 Экипировано", callback_data="inv_equipped"),
-        InlineKeyboardButton(text="📦 Материалы", callback_data="inv_materials"),
-    ])
-    rows.append([
-        InlineKeyboardButton(text="🔍 Поиск", callback_data="inv_search_start"),
-        InlineKeyboardButton(text="❌ Закрыть", callback_data="inv_close"),
-    ])
-    text += "\n\n⚪ Обычный · 🔷 D · 🔶 C · 💎 B"
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     if edit_message:
         try:
             await edit_message.edit_text(text, reply_markup=kb,
@@ -208,7 +172,7 @@ async def inv_cat_cb(c: CallbackQuery):
             action = "❌"
         text += f"{g_icon} {action} {it['item_name']}{suffix}\n"
         rows.append([InlineKeyboardButton(
-            text=f"{g_icon} {action} {it['item_name']}{suffix}",
+            text=f"{g_icon} {action} {_short(it['item_name'], 20)}{suffix}",
             callback_data=f"inv_item_{it['item_name']}"
         )])
     nav = []
@@ -349,7 +313,6 @@ async def inv_unequip_cb(c: CallbackQuery):
     if not item:
         await c.answer("Слот пуст"); return
     await g.db.add_item(c.from_user.id, item)
-    from core.formulas import calc_max_hp, calc_max_mp
     u = await g.db.get_user(c.from_user.id)
     new_max_hp = calc_max_hp(u)
     new_max_mp = calc_max_mp(u)
@@ -371,8 +334,8 @@ async def inv_materials_cb(c: CallbackQuery):
     text += f"💎 Кристалл: <b>{u.get('mat_crystal', 0)}</b>\n\n"
     text += "<b>Редкие (спойл):</b>\n"
     if rare:
+        from core.materials import RARE_MATERIALS
         for code, amt in rare.items():
-            from core.materials import RARE_MATERIALS
             mat_name = RARE_MATERIALS.get(code, {}).get("name", code)
             text += f"{mat_name}: <b>{amt}</b>\n"
     else:
@@ -439,7 +402,7 @@ async def inv_search_process(m: Message, state: FSMContext):
     for it in matches[:20]:
         text += f"• {it['item_name']}\n"
         rows.append([InlineKeyboardButton(
-            text=f"📦 {it['item_name']}",
+            text=f"📦 {_short(it['item_name'], 24)}",
             callback_data=f"inv_item_{it['item_name']}")])
     rows.append([InlineKeyboardButton(text="⬅️ В инвентарь",
                                        callback_data="inv_menu")])
