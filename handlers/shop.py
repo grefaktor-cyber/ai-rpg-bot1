@@ -85,8 +85,8 @@ async def shop(m: Message):
             callback_data=f"shop_cat_{cat}"
         )])
     rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="shop_close")])
-    await m.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                   parse_mode=ParseMode.HTML)
+    from services.ui import send_menu
+    await send_menu(m, text, InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 @router.callback_query(F.data == "shop_menu")
