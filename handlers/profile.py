@@ -39,7 +39,6 @@ async def stats_cmd(m: Message):
     dmg_t = DMG_NAMES.get(get_dmg_type(u), "—")
     pdef = calc_p_def(u)
     mdef = calc_m_def(u)
-
     guild = await g.db.get_user_guild(m.from_user.id)
     guild_line = f"\n🏛 Гильдия: <b>{guild['name']}</b> [{guild['tag']}]" if guild else ""
     pet_line = ""
@@ -47,16 +46,10 @@ async def stats_cmd(m: Message):
         pet_line = f"\n🐾 Питомец: {u.get('pet_name', '?')} (ур. {u.get('pet_level', 1)})"
     materials = (f"🔩 {u['mat_iron']} · 🧵 {u['mat_leather']} · "
                  f"✨ {u['mat_dust']} · 💎 {u['mat_crystal']}")
+    rare = await g.db.get_rare_materials(m.from_user.id)
+    rare_str = (" · ".join(f"{k}: {v}" for k, v in rare.items())
+                if rare else "<i>нет</i>")
     energy_line = "∞" if u.get("is_premium") else f"{u.get('energy', 0)}/{u.get('energy_max', 20)}"
-
-    # Экипировка
-    eq_lines = []
-    for slot in SLOTS:
-        val = u.get(f"equipped_{slot}") or "—"
-        eq_lines.append(f"{SLOT_NAMES[slot]}: {val}")
-
-    set_b = get_set_bonus(u)
-    set_line = f"\n🎁 <b>Сет:</b> {set_b['desc']}" if set_b else ""
 
     from core.titles import format_active_title
     title_str = format_active_title(u)
@@ -78,8 +71,8 @@ async def stats_cmd(m: Message):
         f"STR {eff['str']} · DEX {eff['dex']} · CON {eff['con']}\n"
         f"INT {eff['int']} · WIT {eff['wit']} · MEN {eff['men']}\n\n"
         f"<b>Защита:</b> 🛡 P.Def {pdef} · 🔮 M.Def {mdef}\n\n"
-        f"<b>Экипировка:</b>\n" + "\n".join(eq_lines) + set_line + "\n\n"
-        f"<b>Материалы:</b> {materials}\n\n"
+        f"<b>Материалы:</b> {materials}\n"
+        f"<b>Редкие:</b> {rare_str}\n\n"
         f"⚔️ Боссов: {u['bosses_defeated']} · 💀 Смертей: {u['deaths']}\n"
         f"🗡 PvP: {u['pvp_wins']}/{u['pvp_losses']}",
         reply_markup=main_kb(), parse_mode=ParseMode.HTML,
@@ -96,55 +89,4 @@ async def top_cmd(m: Message):
     lines = []
     for i, p in enumerate(top):
         medal = medals[i] if i < 3 else f"{i+1}."
-        name = p["char_name"] or "Аноним"
-        race = RACES.get(p["race"], {}).get("name", "?")
-        cls = CLASSES.get(p["class"], {}).get("name", "?")
-        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
-    await m.answer("🏅 <b>Топ-10</b>\n\n" + "\n".join(lines),
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-
-@router.message(Command("pvptop"))
-async def pvp_top_cmd(m: Message):
-    top = await g.db.get_pvp_top(10)
-    if not top:
-        await m.answer("🏅 Нет победителей дуэлей.", reply_markup=main_kb()); return
-    medals = ["🥇", "🥈", "🥉"]
-    lines = []
-    for i, p in enumerate(top):
-        medal = medals[i] if i < 3 else f"{i+1}."
-        lines.append(f"{medal} <b>{p['char_name']}</b> — {p['pvp_wins']}🏆 / {p['pvp_losses']}💀")
-    await m.answer("⚔️ <b>Топ дуэлянтов</b>\n\n" + "\n".join(lines),
-                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
-
-
-@router.message(Command("achievements"))
-@router.message(F.text == "🏆 Достижения")
-async def achievements_cmd(m: Message):
-    earned = await g.db.get_achievements(m.from_user.id)
-    codes = {a["code"] for a in earned}
-    lines = [f"{'✅' if c in codes else '🔒'} {t}" for c, t in ACHIEVEMENTS.items()]
-    await m.answer(
-        f"🏆 <b>Достижения ({len(codes)}/{len(ACHIEVEMENTS)})</b>\n\n" + "\n".join(lines),
-        reply_markup=main_kb(), parse_mode=ParseMode.HTML,
-    )
-
-
-class ProfileErrorMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        try:
-            return await handler(event, data)
-        except Exception as e:
-            tb = traceback.format_exc()
-            logging.error(f"Profile handler error: {e}\n{tb}")
-            try:
-                if hasattr(event, "message") and event.message:
-                    await event.message.answer("⚠️ Произошла ошибка. Уже чиним!")
-                elif hasattr(event, "answer"):
-                    await event.answer("⚠️ Ошибка. Уже чиним!", show_alert=True)
-            except Exception:
-                pass
-
-
-router.message.middleware(ProfileErrorMiddleware())
-router.callback_query.middleware(ProfileErrorMiddleware())
+        name = p["char_name"] or
