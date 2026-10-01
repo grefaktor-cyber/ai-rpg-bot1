@@ -1,15 +1,23 @@
-"""Inline-меню категорий + запуск разделов через fake_message."""
+"""Inline-меню категорий + Назад + Социум: Обмен/Дуэль."""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from core import globals as g
 from core.keyboards import (
-    menu_game_kb, menu_social_kb, menu_progress_kb,
+    menu_game_kb, menu_social_kb, menu_progress_kb, menu_root_kb,
 )
+from core.game_data import RACES, CLASSES
 from services.ui import send_menu, fake_message
 
 router = Router()
+
+
+class SocialStates(StatesGroup):
+    trade_waiting_name = State()
+    duel_waiting_name = State()
 
 
 # ================= REPLY-КНОПКИ КАТЕГОРИЙ =================
@@ -54,6 +62,14 @@ async def _edit_or_answer(c, text, kb):
                                 parse_mode=ParseMode.HTML)
 
 
+@router.callback_query(F.data == "menu_root")
+async def cb_root(c: CallbackQuery):
+    await _edit_or_answer(c,
+        "📂 <b>Категории</b>\n\nВыбери раздел:",
+        menu_root_kb())
+    await c.answer()
+
+
 @router.callback_query(F.data == "menu_game")
 async def cb_game(c: CallbackQuery):
     await _edit_or_answer(c, "🎮 <b>Игра</b>\n\nВыбери раздел:", menu_game_kb())
@@ -74,8 +90,7 @@ async def cb_progress(c: CallbackQuery):
 
 # ================= ЗАПУСК РАЗДЕЛОВ =================
 async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
-    """Запустить xxx_cmd(fake_message) с правильным from_user.
-    Отслеживаем 'затуп' игрока — если 3 раза подряд ошибка, предложить /help."""
+    """Запустить xxx_cmd(fake_message) с правильным from_user."""
     from services.hints import register_lost_action, clear_lost, check_lost_hint
 
     msg_obj = c.message
@@ -88,7 +103,6 @@ async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
             pass
     await c.answer()
 
-    # Создаём FakeMessage — from_user = игрок
     msg = fake_message(c)
     try:
         module = __import__(f"handlers.{module_name}", fromlist=[func_name])
@@ -97,12 +111,12 @@ async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
         clear_lost(c.from_user.id)
     except Exception as e:
         import logging
-        logging.error(f"_run_cmd {module_name}.{func_name}: {e}")
+        logging.error(f"_run_cmd {module_name}.{func_name}: {e}", exc_info=True)
         try:
-            await msg_obj.answer("⚠️ Ошибка открытия раздела.")
+            await msg_obj.answer(f"⚠️ Ошибка раздела: <code>{e}</code>",
+                                  parse_mode=ParseMode.HTML)
         except Exception:
             pass
-        # Регистрируем "затуп"
         if register_lost_action(c.from_user.id):
             await check_lost_hint(c.from_user.id, c.message.chat.id)
 
@@ -162,16 +176,6 @@ async def cb_chat(c: CallbackQuery):
     await _run_cmd(c, "chat", "chat_cmd")
 
 
-@router.callback_query(F.data == "menu_trade")
-async def cb_trade(c: CallbackQuery):
-    await c.answer("Использование: /trade Имя", show_alert=True)
-
-
-@router.callback_query(F.data == "menu_duel_info")
-async def cb_duel_info(c: CallbackQuery):
-    await c.answer("Использование: /duel Имя", show_alert=True)
-
-
 @router.callback_query(F.data == "menu_profile")
 async def cb_profile(c: CallbackQuery):
     await _run_cmd(c, "profile", "stats_cmd")
@@ -215,3 +219,196 @@ async def cb_titles(c: CallbackQuery):
 @router.callback_query(F.data == "menu_season")
 async def cb_season(c: CallbackQuery):
     await _run_cmd(c, "seasons", "season_cmd")
+
+
+# ================= СОЦИУМ: ОБМЕН =================
+def _short(name, n=18):
+    s = str(name)
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+@router.callback_query(F.data == "menu_trade")
+async def cb_trade(c: CallbackQuery):
+    await c.answer()
+    u = await g.db.get_user(c.from_user.id)
+    code = u.get("location_code", "village")
+    players = await g.db.get_players_at_location(code, c.from_user.id)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    text = "🤝 <b>Обмен</b>\n\n"
+    rows = []
+    if players:
+        text += "<b>Игроки рядом:</b>"
+        for p in players[:8]:
+            rows.append([InlineKeyboardButton(
+                text=f"🤝 {_short(p['char_name'])} · Ур.{p['level']}",
+                callback_data=f"trade_to_{p['char_name']}")])
+    else:
+        text += "<i>Рядом никого.</i>\n\n"
+    text += "\n✍️ Или введи имя вручную."
+    rows.append([InlineKeyboardButton(
+        text="✍️ Ввести имя", callback_data="trade_manual")])
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Назад", callback_data="menu_social"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data.startswith("trade_to_"))
+async def cb_trade_to(c: CallbackQuery):
+    target = c.data.replace("trade_to_", "")
+    try:
+        module = __import__("handlers.trade", fromlist=["trade_cmd"])
+        func = getattr(module, "trade_cmd")
+    except Exception as e:
+        await c.answer(f"⚠️ /trade недоступен: {e}", show_alert=True)
+        return
+    await c.answer(f"🤝 Обмен с {target}")
+    try:
+        await c.message.delete()
+    except Exception:
+        pass
+    fake = fake_message(c, text=f"/trade {target}")
+    await func(fake)
+
+
+@router.callback_query(F.data == "trade_manual")
+async def cb_trade_manual(c: CallbackQuery, state: FSMContext):
+    await state.set_state(SocialStates.trade_waiting_name)
+    await c.answer()
+    await c.message.answer(
+        "✍️ <b>Обмен</b>\n\n"
+        "Введи имя игрока:\n"
+        "<i>Отмена: /cancel</i>",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(SocialStates.trade_waiting_name)
+async def trade_name_input(m: Message, state: FSMContext):
+    if m.text and m.text.strip() == "/cancel":
+        await state.clear()
+        await m.answer("Отменено.")
+        return
+    name = (m.text or "").strip()[:30]
+    if len(name) < 2:
+        await m.answer("Имя слишком короткое."); return
+    await state.clear()
+    try:
+        module = __import__("handlers.trade", fromlist=["trade_cmd"])
+        func = getattr(module, "trade_cmd")
+    except Exception as e:
+        await m.answer(f"⚠️ /trade недоступен: {e}")
+        return
+    fake = fake_message_from_message(m, text=f"/trade {name}")
+    await func(fake)
+
+
+# ================= СОЦИУМ: ДУЭЛЬ =================
+@router.callback_query(F.data == "menu_duel_info")
+async def cb_duel(c: CallbackQuery):
+    await c.answer()
+    u = await g.db.get_user(c.from_user.id)
+    code = u.get("location_code", "village")
+    players = await g.db.get_players_at_location(code, c.from_user.id)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    text = "⚔️ <b>Дуэль</b>\n\n"
+    rows = []
+    if players:
+        text += "<b>Игроки рядом:</b>"
+        for p in players[:8]:
+            rows.append([InlineKeyboardButton(
+                text=f"⚔️ {_short(p['char_name'])} · Ур.{p['level']}",
+                callback_data=f"duel_to_{p['char_name']}")])
+    else:
+        text += "<i>Рядом никого.</i>\n\n"
+    text += "\n✍️ Или введи имя вручную."
+    rows.append([InlineKeyboardButton(
+        text="✍️ Ввести имя", callback_data="duel_manual")])
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Назад", callback_data="menu_social"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data.startswith("duel_to_"))
+async def cb_duel_to(c: CallbackQuery):
+    target = c.data.replace("duel_to_", "")
+    try:
+        module = __import__("handlers.pvp", fromlist=["duel_cmd"])
+        func = getattr(module, "duel_cmd")
+    except Exception as e:
+        await c.answer(f"⚠️ /duel недоступен: {e}", show_alert=True)
+        return
+    await c.answer(f"⚔️ Дуэль с {target}")
+    try:
+        await c.message.delete()
+    except Exception:
+        pass
+    fake = fake_message(c, text=f"/duel {target}")
+    await func(fake)
+
+
+@router.callback_query(F.data == "duel_manual")
+async def cb_duel_manual(c: CallbackQuery, state: FSMContext):
+    await state.set_state(SocialStates.duel_waiting_name)
+    await c.answer()
+    await c.message.answer(
+        "✍️ <b>Дуэль</b>\n\n"
+        "Введи имя игрока:\n"
+        "<i>Отмена: /cancel</i>",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(SocialStates.duel_waiting_name)
+async def duel_name_input(m: Message, state: FSMContext):
+    if m.text and m.text.strip() == "/cancel":
+        await state.clear()
+        await m.answer("Отменено.")
+        return
+    name = (m.text or "").strip()[:30]
+    if len(name) < 2:
+        await m.answer("Имя слишком короткое."); return
+    await state.clear()
+    try:
+        module = __import__("handlers.pvp", fromlist=["duel_cmd"])
+        func = getattr(module, "duel_cmd")
+    except Exception as e:
+        await m.answer(f"⚠️ /duel недоступен: {e}")
+        return
+    fake = fake_message_from_message(m, text=f"/duel {name}")
+    await func(fake)
+
+
+# ================= ХЕЛПЕР =================
+class _FakeMsgFromMessage:
+    def __init__(self, original, text):
+        self.chat = original.chat
+        self.from_user = original.from_user
+        self.message_id = original.message_id
+        self.bot = original.bot
+        self.text = text
+        self._real = original
+
+    async def answer(self, text, **kwargs):
+        return await self._real.answer(text, **kwargs)
+
+    async def delete(self):
+        try:
+            return await self._real.delete()
+        except Exception:
+            return None
+
+
+def fake_message_from_message(m, text):
+    return _FakeMsgFromMessage(m, text)
