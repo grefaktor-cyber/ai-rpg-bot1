@@ -278,7 +278,6 @@ class DB:
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
-            # Таблица для прогресса сюжетных квестов
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS story_quest_progress (
                     id SERIAL PRIMARY KEY,
@@ -290,12 +289,11 @@ class DB:
                     UNIQUE(user_id, quest_code)
                 )
             """)
-            # Таблица для ежедневных и еженедельных квестов
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS timed_quest_progress (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT,
-                    quest_type TEXT, -- 'daily' или 'weekly'
+                    quest_type TEXT,
                     quest_code TEXT,
                     progress INTEGER DEFAULT 0,
                     target INTEGER,
@@ -306,12 +304,21 @@ class DB:
                     UNIQUE(user_id, quest_type, quest_code, reset_date)
                 )
             """)
-            # Таблица для очков заданий
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS quest_points (
                     user_id BIGINT PRIMARY KEY,
                     points INTEGER DEFAULT 0,
                     total_points INTEGER DEFAULT 0
+                )
+            """)
+            # === СЕЗОНЫ ===
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS seasons (
+                    id SERIAL PRIMARY KEY,
+                    number INTEGER,
+                    started_at TIMESTAMP DEFAULT NOW(),
+                    ended_at TIMESTAMP,
+                    is_active INTEGER DEFAULT 1
                 )
             """)
 
@@ -387,6 +394,10 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS known_recipes TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS rare_materials TEXT DEFAULT '{}'",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS spoil_used INTEGER DEFAULT 0",
+                # === Сезоны ===
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_xp INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_titles TEXT DEFAULT '[]'",
             ]
             for sql in migrations:
                 try:
@@ -433,7 +444,6 @@ class DB:
             """, uid)
 
     async def spend_energy(self, uid, amount=1):
-        """Списать энергию. Премиум и админ — безлимит."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT energy, is_premium FROM users WHERE user_id=$1", uid
@@ -451,7 +461,6 @@ class DB:
             return False
 
     async def get_energy_wait(self, uid):
-        """Сколько минут до следующей единицы энергии."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
                 SELECT GREATEST(0,
@@ -512,6 +521,7 @@ class DB:
             "learned_books": "[]",
             "known_recipes": "[]",
             "rare_materials": "{}",
+            "season_xp": 0, "season_number": 0, "season_titles": "[]",
         }
 
     async def give_consent(self, uid):
@@ -526,7 +536,6 @@ class DB:
             await c.execute("UPDATE users SET consent_given=0, story='' WHERE user_id=$1", uid)
 
     async def set_referrer(self, uid, ref):
-        """+10 к максимуму энергии за каждого приглашённого (навсегда)."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow("SELECT referred_by FROM users WHERE user_id=$1", uid)
             if row and row["referred_by"] == 0 and ref != uid:
@@ -685,7 +694,6 @@ class DB:
         await self._refresh_energy(uid)
 
     async def update_stats(self, uid, stats, hp=None, mp=None):
-        """Обновить статы персонажа (при смене класса)."""
         async with self.pool.acquire() as c:
             await c.execute("""UPDATE users SET
                 stat_str=$1, stat_dex=$2, stat_con=$3,
@@ -701,9 +709,8 @@ class DB:
                 await c.execute(
                     "UPDATE users SET mp=$1, max_mp=$1 WHERE user_id=$2", mp, uid
                 )
-                
+
     async def reset_character(self, uid):
-        """Сбросить героя, сохранив энергию, премиум, рефералов, username."""
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM inventory WHERE user_id=$1", uid)
             await c.execute("DELETE FROM locations WHERE user_id=$1", uid)
@@ -1374,10 +1381,9 @@ class DB:
             await c.execute("""
                 UPDATE users SET mp=LEAST(max_mp, mp+$1) WHERE user_id=$2
             """, amount, uid)
-            
+
     # ============ ТОРГОВЛЯ / ОБМЕН ============
     async def sell_item(self, uid, item_name, price):
-        """Продать предмет: убрать из инвентаря, +золото."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT id FROM inventory WHERE user_id=$1 AND item_name=$2 LIMIT 1",
@@ -1392,7 +1398,6 @@ class DB:
             return True
 
     async def drop_item(self, uid, char_name, loc_code, item_name, item_lvl=0):
-        """Выбросить предмет в локации."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT id FROM inventory WHERE user_id=$1 AND item_name=$2 LIMIT 1",
@@ -1409,7 +1414,6 @@ class DB:
             return True
 
     async def get_dropped_items(self, loc_code, limit=20):
-        """Предметы, лежащие в локации."""
         async with self.pool.acquire() as c:
             rows = await c.fetch("""
                 SELECT id, char_name, item_name, item_level,
@@ -1421,7 +1425,6 @@ class DB:
             return [dict(r) for r in rows]
 
     async def pickup_item(self, drop_id, uid):
-        """Подобрать предмет: удалить из dropped, добавить в инвентарь."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT item_name, item_level FROM dropped_items WHERE id=$1",
@@ -1437,12 +1440,12 @@ class DB:
             return row["item_name"]
 
     async def clean_dropped_items(self, max_age_min=30):
-        """Удалить предметы старше N минут."""
         async with self.pool.acquire() as c:
             await c.execute("""
                 DELETE FROM dropped_items
                 WHERE dropped_at < NOW() - ($1 || ' minutes')::INTERVAL
             """, str(max_age_min))
+
     # ============ TRADE (обмен) ============
     async def create_trade_offer(self, from_id, from_name, to_id, to_name):
         async with self.pool.acquire() as c:
@@ -1458,7 +1461,6 @@ class DB:
             return dict(row) if row else None
 
     async def update_trade_field(self, oid, field, value):
-        # Белый список полей
         allowed = {"from_items", "to_items", "from_gold", "to_gold",
                    "from_confirmed", "to_confirmed"}
         if field not in allowed:
@@ -1485,7 +1487,6 @@ class DB:
             """, channel, guild_id, from_id, from_name, to_id, text)
 
     async def get_chat_messages(self, channel, limit=20, guild_id=0, to_id=0):
-        """channel: global | guild | pm"""
         async with self.pool.acquire() as c:
             if channel == "global":
                 rows = await c.fetch("""
@@ -1510,19 +1511,23 @@ class DB:
                 return []
             return [dict(r) for r in rows]
 
-    async def get_chat_last_time(self, from_id, channel="global"):
-        """Когда игрок последний раз писал в канал (антиспам)."""
+    async def cleanup_chat(self, days=7):
         async with self.pool.acquire() as c:
-            row = await c.fetchrow("""
-                SELECT created_at FROM chat_messages
-                WHERE from_id=$1 AND channel=$2
-                ORDER BY created_at DESC LIMIT 1
-            """, from_id, channel)
-            return row["created_at"] if row else None
+            await c.execute("""
+                DELETE FROM chat_messages
+                WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+            """, str(days))
+
+    async def get_all_guild_members_ids(self, guild_id):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch(
+                "SELECT user_id FROM guild_members WHERE guild_id=$1",
+                guild_id
+            )
+            return [r["user_id"] for r in rows]
 
     # ============ СЮЖЕТНЫЕ КВЕСТЫ ============
     async def accept_story_quest(self, uid, quest_code):
-        """Принять сюжетный квест."""
         async with self.pool.acquire() as c:
             try:
                 await c.execute(
@@ -1534,7 +1539,6 @@ class DB:
                 return False
 
     async def get_story_quest(self, uid, quest_code):
-        """Получить прогресс по сюжетному квесту."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT * FROM story_quest_progress WHERE user_id=$1 AND quest_code=$2",
@@ -1543,7 +1547,6 @@ class DB:
             return dict(row) if row else None
 
     async def get_active_story_quests(self, uid):
-        """Все активные (незавершённые) сюжетные квесты."""
         async with self.pool.acquire() as c:
             rows = await c.fetch(
                 "SELECT * FROM story_quest_progress WHERE user_id=$1 AND completed=0",
@@ -1552,7 +1555,6 @@ class DB:
             return [dict(r) for r in rows]
 
     async def incr_story_quest(self, uid, quest_code, amount=1):
-        """Увеличить прогресс сюжетного квеста."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT id, progress, completed FROM story_quest_progress "
@@ -1569,7 +1571,6 @@ class DB:
             return new_progress
 
     async def complete_story_quest(self, uid, quest_code):
-        """Отметить сюжетный квест как выполненный."""
         async with self.pool.acquire() as c:
             await c.execute(
                 "UPDATE story_quest_progress SET completed=1 WHERE user_id=$1 AND quest_code=$2",
@@ -1578,7 +1579,6 @@ class DB:
 
     # ============ ЕЖЕДНЕВНЫЕ / ЕЖЕНЕДЕЛЬНЫЕ КВЕСТЫ ============
     async def get_timed_quests(self, uid, quest_type, reset_date):
-        """Получить ежедневные или еженедельные квесты на текущий период."""
         async with self.pool.acquire() as c:
             rows = await c.fetch(
                 "SELECT * FROM timed_quest_progress WHERE user_id=$1 AND quest_type=$2 AND reset_date=$3",
@@ -1587,7 +1587,6 @@ class DB:
             return [dict(r) for r in rows]
 
     async def create_timed_quest(self, uid, quest_type, quest_code, target, reward_gold, reward_xp, reset_date):
-        """Создать запись о квесте."""
         async with self.pool.acquire() as c:
             try:
                 await c.execute(
@@ -1601,7 +1600,6 @@ class DB:
                 return False
 
     async def incr_timed_quest(self, uid, quest_type, quest_code, reset_date, amount=1):
-        """Увеличить прогресс квеста."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT id, progress, target, completed FROM timed_quest_progress "
@@ -1625,7 +1623,6 @@ class DB:
 
     # ============ ОЧКИ ЗАДАНИЙ ============
     async def add_quest_points(self, uid, amount):
-        """Добавить очки заданий."""
         async with self.pool.acquire() as c:
             await c.execute("""
                 INSERT INTO quest_points (user_id, points, total_points) 
@@ -1636,7 +1633,6 @@ class DB:
             """, uid, amount)
 
     async def get_quest_points(self, uid):
-        """Получить очки заданий."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT points, total_points FROM quest_points WHERE user_id=$1", uid
@@ -1646,7 +1642,6 @@ class DB:
             return dict(row)
 
     async def spend_quest_points(self, uid, amount):
-        """Потратить очки заданий."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT points FROM quest_points WHERE user_id=$1", uid
@@ -1718,15 +1713,13 @@ class DB:
 
     # ============ ФЕНИКС ВЕЧНОСТИ ============
     async def set_combat_phoenix_used(self, uid):
-        """Отметить, что Феникс вечности уже возродил игрока в этом бою."""
         async with self.pool.acquire() as c:
             await c.execute(
                 "UPDATE active_combat SET phoenix_used=1 WHERE user_id=$1", uid
             )
 
-        # ============ ДНЕВНИК ИГРОКА ============
+    # ============ ДНЕВНИК ИГРОКА ============
     async def add_journal_entry(self, uid, text, entry_type="event"):
-        """Записать ключевое событие в дневник."""
         async with self.pool.acquire() as c:
             await c.execute("""
                 INSERT INTO player_journal (user_id, entry_text, entry_type)
@@ -1734,7 +1727,6 @@ class DB:
             """, uid, text[:300], entry_type)
 
     async def get_journal(self, uid, limit=20):
-        """Последние N записей дневника."""
         async with self.pool.acquire() as c:
             rows = await c.fetch("""
                 SELECT entry_text, entry_type, created_at
@@ -1744,7 +1736,6 @@ class DB:
             return [dict(r) for r in rows]
 
     async def cleanup_journal(self, days=30, keep_min=50):
-        """Удалить старые записи, оставить минимум keep_min последних."""
         async with self.pool.acquire() as c:
             await c.execute("""
                 DELETE FROM player_journal
@@ -2016,28 +2007,6 @@ class DB:
                 "UPDATE active_combat SET spoil_used=1 WHERE user_id=$1", uid
             )
 
-    async def set_combat_spoil_used(self, uid):
-        async with self.pool.acquire() as c:
-            await c.execute(
-                "UPDATE active_combat SET spoil_used=1 WHERE user_id=$1", uid
-            )
-    
-    async def cleanup_chat(self, days=7):
-        """Удалить сообщения старше N дней."""
-        async with self.pool.acquire() as c:
-            await c.execute("""
-                DELETE FROM chat_messages
-                WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
-            """, str(days))
-
-    async def get_all_guild_members_ids(self, guild_id):
-        async with self.pool.acquire() as c:
-            rows = await c.fetch(
-                "SELECT user_id FROM guild_members WHERE guild_id=$1",
-                guild_id
-            )
-            return [r["user_id"] for r in rows]
-    
     async def clean_expired_events(self):
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM world_events_dyn WHERE expires_at < NOW()")
@@ -2069,3 +2038,81 @@ class DB:
                 json.dumps(arr), uid
             )
             return True
+
+    # ============ СЕЗОНЫ ============
+    async def get_current_season(self):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT * FROM seasons WHERE is_active=1
+                ORDER BY started_at DESC LIMIT 1
+            """)
+            return dict(row) if row else None
+
+    async def create_season(self, number):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                INSERT INTO seasons (number, is_active)
+                VALUES ($1, 1) RETURNING id, started_at
+            """, number)
+            return dict(row)
+
+    async def close_season(self, season_id):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE seasons SET is_active=0, ended_at=NOW()
+                WHERE id=$1
+            """, season_id)
+
+    async def get_season_top(self, limit=10):
+        async with self.pool.acquire() as c:
+            rows = await c.fetch("""
+                SELECT user_id, char_name, username, level, race, class, season_xp
+                FROM users
+                WHERE char_name!='' AND season_xp > 0
+                ORDER BY season_xp DESC LIMIT $1
+            """, limit)
+            return [dict(r) for r in rows]
+
+    async def add_season_xp(self, uid, amount):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE users SET season_xp = season_xp + $1 WHERE user_id=$2",
+                amount, uid
+            )
+
+    async def reset_all_season_xp(self, new_season_number):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE users SET season_xp = 0, season_number = $1
+            """, new_season_number)
+
+    async def get_user_season_rank(self, uid):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow("""
+                SELECT COUNT(*) + 1 AS rank
+                FROM users
+                WHERE char_name!='' AND season_xp > (
+                    SELECT COALESCE(season_xp, 0) FROM users WHERE user_id=$1
+                )
+            """, uid)
+            return row["rank"] if row else 0
+
+    async def add_season_title(self, uid, title_code):
+        import json
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT season_titles FROM users WHERE user_id=$1", uid
+            )
+            if not row:
+                return
+            try:
+                arr = json.loads(row["season_titles"] or "[]")
+            except Exception:
+                arr = []
+            if title_code in arr:
+                return
+            arr.append(title_code)
+            await c.execute(
+                "UPDATE users SET season_titles=$1 WHERE user_id=$2",
+                json.dumps(arr), uid
+            )
