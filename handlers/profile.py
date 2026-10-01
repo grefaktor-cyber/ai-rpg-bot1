@@ -89,4 +89,55 @@ async def top_cmd(m: Message):
     lines = []
     for i, p in enumerate(top):
         medal = medals[i] if i < 3 else f"{i+1}."
-        name = p["char_name"] or
+        name = p["char_name"] or "Аноним"
+        race = RACES.get(p["race"], {}).get("name", "?")
+        cls = CLASSES.get(p["class"], {}).get("name", "?")
+        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
+    await m.answer("🏅 <b>Топ-10</b>\n\n" + "\n".join(lines),
+                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("pvptop"))
+async def pvp_top_cmd(m: Message):
+    top = await g.db.get_pvp_top(10)
+    if not top:
+        await m.answer("🏅 Нет победителей дуэлей.", reply_markup=main_kb()); return
+    medals = ["🥇", "🥈", "🥉"]
+    lines = []
+    for i, p in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} <b>{p['char_name']}</b> — {p['pvp_wins']}🏆 / {p['pvp_losses']}💀")
+    await m.answer("⚔️ <b>Топ дуэлянтов</b>\n\n" + "\n".join(lines),
+                   reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("achievements"))
+@router.message(F.text == "🏆 Достижения")
+async def achievements_cmd(m: Message):
+    earned = await g.db.get_achievements(m.from_user.id)
+    codes = {a["code"] for a in earned}
+    lines = [f"{'✅' if c in codes else '🔒'} {t}" for c, t in ACHIEVEMENTS.items()]
+    await m.answer(
+        f"🏆 <b>Достижения ({len(codes)}/{len(ACHIEVEMENTS)})</b>\n\n" + "\n".join(lines),
+        reply_markup=main_kb(), parse_mode=ParseMode.HTML,
+    )
+
+
+class ProfileErrorMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except Exception as e:
+            tb = traceback.format_exc()
+            logging.error(f"Profile handler error: {e}\n{tb}")
+            try:
+                if hasattr(event, "message") and event.message:
+                    await event.message.answer("⚠️ Произошла ошибка. Уже чиним!")
+                elif hasattr(event, "answer"):
+                    await event.answer("⚠️ Ошибка. Уже чиним!", show_alert=True)
+            except Exception:
+                pass
+
+
+router.message.middleware(ProfileErrorMiddleware())
+router.callback_query.middleware(ProfileErrorMiddleware())
