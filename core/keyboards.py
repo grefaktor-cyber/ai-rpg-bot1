@@ -31,7 +31,8 @@ def menu_game_kb():
          InlineKeyboardButton(text="🏰 Подземелья", callback_data="menu_dungeon")],
         [InlineKeyboardButton(text="🗺 Карта", callback_data="menu_map"),
          InlineKeyboardButton(text="🚶 Идти", callback_data="menu_travel")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
@@ -43,7 +44,8 @@ def menu_social_kb():
         [InlineKeyboardButton(text="💬 Чат", callback_data="menu_chat"),
          InlineKeyboardButton(text="🤝 Обмен", callback_data="menu_trade")],
         [InlineKeyboardButton(text="⚔️ Дуэль", callback_data="menu_duel_info")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
@@ -58,8 +60,20 @@ def menu_progress_kb():
          InlineKeyboardButton(text="📜 Дневник", callback_data="menu_journal")],
         [InlineKeyboardButton(text="💎 Премиум", callback_data="menu_premium"),
          InlineKeyboardButton(text="🐾 Питомец", callback_data="menu_pet")],
-        [InlineKeyboardButton(text="🏆 Титулы", callback_data="menu_titles"),
+        [InlineKeyboardButton(text="🏆 Титулы", callback_data="menu_titles")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
          InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
+    ])
+
+
+# ================= КОРНЕВОЕ МЕНЮ (Назад) =================
+def menu_root_kb():
+    """Экран «Категории» — куда возвращает ⬅️ Назад."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎮 Игра", callback_data="menu_game"),
+         InlineKeyboardButton(text="👥 Социум", callback_data="menu_social")],
+        [InlineKeyboardButton(text="📊 Прогресс", callback_data="menu_progress")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close")],
     ])
 
 
@@ -102,7 +116,7 @@ def quests_filter_kb(active="all"):
     ])
 
 
-# ================= БОЕВАЯ (оставляем старую) =================
+# ================= БОЕВАЯ =================
 def combat_kb(active_skills=None, mp=0, pending=None,
               prefix="combat", max_actions=4, is_pvp=False,
               can_spoil=False, spoil_used=False):
@@ -184,7 +198,6 @@ def combat_pending_text(pending, max_actions=4):
     """Визуальные слоты очереди."""
     from core.skills import get_skill
 
-    # Иконки действий
     action_icons = {
         "attack":    "⚔️",
         "defend":    "🛡",
@@ -194,7 +207,6 @@ def combat_pending_text(pending, max_actions=4):
     }
     slot_emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
 
-    # Заполненные слоты
     lines = []
     for i, a in enumerate(pending):
         num = slot_emoji[i] if i < len(slot_emoji) else f"{i+1}."
@@ -212,7 +224,6 @@ def combat_pending_text(pending, max_actions=4):
             }.get(a, a)
             lines.append(f"{num} {action_icons.get(a, '❔')} {label}")
 
-    # Пустые слоты
     for i in range(len(pending), max_actions):
         num = slot_emoji[i] if i < len(slot_emoji) else f"{i+1}."
         lines.append(f"{num} ▫️ <i>пусто</i>")
@@ -430,7 +441,6 @@ def skills_upgrade_kb(available, learned):
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
 
 
 # ================= МИР =================
