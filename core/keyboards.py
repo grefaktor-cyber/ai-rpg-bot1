@@ -25,25 +25,20 @@ def main_kb():
 
 
 def combat_kb(active_skills=None, mp=0, pending=None,
-              prefix="combat", max_actions=4, is_pvp=False):
-    """Боевая клавиатура с очередью действий.
-    prefix — 'combat' для PvE, 'pvp' для дуэли.
-    """
+              prefix="combat", max_actions=4, is_pvp=False,
+              can_spoil=False, spoil_used=False):
+    """Боевая клавиатура с очередью действий."""
     from core.skills import get_skill
     from core.game_data import POTION_PRICE, MP_POTION_PRICE
 
     pending = pending or []
     rows = []
 
-    # === Ряд 1: базовые действия ===
     rows.append([
-        InlineKeyboardButton(text="⚔️ Атака",
-                             callback_data=f"{prefix}_add_attack"),
-        InlineKeyboardButton(text="🛡 Защита",
-                             callback_data=f"{prefix}_add_defend"),
+        InlineKeyboardButton(text="⚔️ Атака", callback_data=f"{prefix}_add_attack"),
+        InlineKeyboardButton(text="🛡 Защита", callback_data=f"{prefix}_add_defend"),
     ])
 
-    # === Ряд 2-3: скилы ===
     if active_skills:
         skill_buttons = []
         for code in active_skills[:3]:
@@ -70,7 +65,6 @@ def combat_kb(active_skills=None, mp=0, pending=None,
             rows.append(skill_buttons[:2])
             rows.append(skill_buttons[2:])
 
-    # === Зелья ===
     rows.append([
         InlineKeyboardButton(text=f"💚 HP ({POTION_PRICE}💰)",
                              callback_data=f"{prefix}_add_potion_hp"),
@@ -78,7 +72,17 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                              callback_data=f"{prefix}_add_potion_mp"),
     ])
 
-    # === Очередь: убрать + выполнить ===
+    # Спул — отдельная кнопка если доступно
+    if can_spoil and not is_pvp:
+        if spoil_used:
+            rows.append([InlineKeyboardButton(
+                text="🌿 Спойл уже использован",
+                callback_data="combat_spoil_noop")])
+        else:
+            rows.append([InlineKeyboardButton(
+                text="🌿 Спойл (обчистить моба)",
+                callback_data="combat_add_spoil")])
+
     count = len(pending)
     row_actions = []
     if count > 0:
@@ -89,7 +93,6 @@ def combat_kb(active_skills=None, mp=0, pending=None,
         callback_data=f"{prefix}_execute"))
     rows.append(row_actions)
 
-    # === Сдаться/бежать ===
     if is_pvp:
         rows.append([InlineKeyboardButton(
             text="🏳️ Сдаться", callback_data="pvp_surrender")])
@@ -101,38 +104,13 @@ def combat_kb(active_skills=None, mp=0, pending=None,
 
 
 def combat_pending_text(pending, max_actions=4):
-    """Отформатировать очередь действий."""
     if not pending:
         return f"<i>Очередь пуста. Добавь 1-{max_actions} действий.</i>"
     lines = [f"<b>📋 Твоя очередь ({len(pending)}/{max_actions}):</b>"]
     icons = {
-        "attack":     "⚔️ Атака",
-        "defend":     "🛡 Защита",
-        "potion_hp":  "💚 Зелье HP",
-        "potion_mp":  "🔮 Зелье MP",
-    }
-    for i, a in enumerate(pending):
-        if a.startswith("skill_"):
-            code = a.replace("skill_", "")
-            from core.skills import get_skill
-            s = get_skill(code)
-            name = s["name"] if s else code
-            lines.append(f"{i+1}. ✨ {name}")
-        else:
-            lines.append(f"{i+1}. {icons.get(a, a)}")
-    return "\n".join(lines)
-
-
-def combat_pending_text(pending):
-    """Отформатировать очередь действий."""
-    if not pending:
-        return "<i>Очередь пуста. Добавь 1-3 действия.</i>"
-    lines = ["<b>📋 Твоя очередь:</b>"]
-    icons = {
-        "attack":     "⚔️ Атака",
-        "defend":     "🛡 Защита",
-        "potion_hp":  "💚 Зелье HP",
-        "potion_mp":  "🔮 Зелье MP",
+        "attack": "⚔️ Атака", "defend": "🛡 Защита",
+        "potion_hp": "💚 Зелье HP", "potion_mp": "🔮 Зелье MP",
+        "spoil": "🌿 Спойл",
     }
     for i, a in enumerate(pending):
         if a.startswith("skill_"):
@@ -232,44 +210,6 @@ def guild_menu_kb(has_guild):
     ])
 
 
-def shop_kb(shop_dict, shop_mult):
-    rows = []
-    for name, data in shop_dict.items():
-        if data["type"] == "potion":
-            continue  # зелья будут в отдельной категории (2.3)
-        price = int(data["price"] * shop_mult)
-        rows.append([InlineKeyboardButton(text=f"{name} — {price}💰",
-                                          callback_data=f"shop_buy_{name}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def craft_kb(recipes):
-    rows = []
-    for result in recipes.keys():
-        rows.append([InlineKeyboardButton(text=f"Создать {result}",
-                                          callback_data=f"craft_{result}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def pets_kb(pets_dict):
-    rows = []
-    for code, p in pets_dict.items():
-        rows.append([InlineKeyboardButton(text=f"{p['name']} — {p['price']}💰",
-                                          callback_data=f"pet_buy_{code}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def dungeons_kb(dungeons_dict, player_level, player_gold):
-    rows = []
-    for code, d in dungeons_dict.items():
-        can = player_level >= d["level_req"] and player_gold >= d["entry"]
-        if can:
-            rows.append([InlineKeyboardButton(
-                text=f"{d['name']} — {d['entry']}💰",
-                callback_data=f"dungeon_enter_{code}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def yes_no_kb(yes_cb, no_cb, yes_text="✅ Да", no_text="❌ Нет"):
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=yes_text, callback_data=yes_cb),
@@ -301,11 +241,10 @@ def faction_selection_kb(factions_dict):
     ])
 
 
-# ================= МЕНЮ СКИЛОВ =================
 def skills_main_kb():
-    """Главное меню скилов."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📚 Все скилы", callback_data="skills_list")],
+        [InlineKeyboardButton(text="📖 Изучить книгу", callback_data="skills_learn_menu")],
         [InlineKeyboardButton(text="🎯 Настроить слоты", callback_data="skills_slots")],
         [InlineKeyboardButton(text="⬆️ Прокачать скилы", callback_data="skills_upgrade")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="skills_close")],
@@ -319,11 +258,11 @@ def skills_back_kb():
 
 
 def skills_slot_choice_kb(available, slot_num):
-    """Выбор скила в слот. available — список скилов."""
     rows = []
     for s in available:
+        src = " 📖" if s.get("source") == "book" else ""
         rows.append([InlineKeyboardButton(
-            text=f"{s['name']} · {s['mp_cost']} MP · {s['desc']}",
+            text=f"{s['name']}{src} · {s['mp_cost']} MP",
             callback_data=f"skills_set_{slot_num}_{s['code']}"
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
@@ -331,7 +270,6 @@ def skills_slot_choice_kb(available, slot_num):
 
 
 def skills_upgrade_kb(available, learned):
-    """Кнопки прокачки. learned — dict code: level."""
     rows = []
     for s in available:
         if s["effect"] == "passive":
