@@ -43,10 +43,8 @@ async def menu_progress(m: Message):
 # ================= CALLBACK'И КАТЕГОРИЙ =================
 @router.callback_query(F.data == "menu_close")
 async def menu_close(c: CallbackQuery):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
 
 
