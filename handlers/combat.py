@@ -223,8 +223,23 @@ async def dungeon_cmd(m: Message):
         text += (f"{mark} <b>{d['name']}</b>\n"
                  f"  Ур.{d['level_req']}+ · вход {d['entry']}💰 · комнат {d['rooms']}\n")
     text += "\n<i>Цепочка боёв, в конце босс. Смерть = потеря добычи.</i>"
-    await m.answer(text, reply_markup=dungeons_kb(DUNGEONS, u["level"], u["gold"]),
-                   parse_mode=ParseMode.HTML)
+
+    # Собираем клавиатуру + back+close
+    kb_rows = []
+    for code, d in DUNGEONS.items():
+        can = u["level"] >= d["level_req"] and u["gold"] >= d["entry"]
+        if can:
+            kb_rows.append([InlineKeyboardButton(
+                text=f"{d['name']} — {d['entry']}💰",
+                callback_data=f"dungeon_enter_{code}")])
+    kb_rows.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_game"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    from services.ui import send_menu
+    await send_menu(m, text, kb)
 
 
 @router.callback_query(F.data.startswith("dungeon_enter_"))
