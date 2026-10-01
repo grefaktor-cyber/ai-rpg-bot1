@@ -1,7 +1,7 @@
 """Команды: /help, /ref, /revoke, /reset, /tutorial + кнопка Помощь."""
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -45,13 +45,10 @@ async def help_cmd(m: Message):
 
 
 @router.callback_query(F.data == "help_close")
-async def help_close_cb(c):
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+async def help_close_cb(c: CallbackQuery):
+    from services.ui import close_menu
+    await close_menu(c)
     await c.answer()
-
 
 @router.callback_query(F.data == "help_back")
 async def help_back(c):
@@ -176,7 +173,9 @@ async def help_topic(c):
     if not text:
         await c.answer("Раздел не найден"); return
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="help_back")]])
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="help_back")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="help_close")],
+    ])
     try:
         await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
