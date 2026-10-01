@@ -3,7 +3,8 @@ import random
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import (Message, CallbackQuery,
+                           InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.enums import ParseMode
 
 from core import globals as g
