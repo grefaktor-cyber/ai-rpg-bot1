@@ -8,7 +8,7 @@ from aiogram.types import (Message, CallbackQuery,
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.game_data import DUNGEONS
+from core.game_data import DUNGEONS, POTION_PRICE, MP_POTION_PRICE
 from core.keyboards import dungeons_kb
 from core.skills import get_skill
 from core.materials import SPOIL_CLASSES
@@ -61,6 +61,11 @@ async def add_defend(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("combat_add_skill_"))
 async def add_skill(c: CallbackQuery):
+    """Добавляет скилл в очередь БЕЗ проверки MP.
+
+    Скилл сработает, только если в момент его хода в очереди хватает MP
+    (например, если раньше стоит зелье MP). Если не хватает — пропустится.
+    """
     skill_code = c.data.replace("combat_add_skill_", "")
     s = get_skill(skill_code)
     if not s:
@@ -68,13 +73,11 @@ async def add_skill(c: CallbackQuery):
     combat = await _get_active_combat(c.from_user.id)
     if not combat:
         await c.answer("Бой завершён", show_alert=True); return
-    user = await g.db.get_user(c.from_user.id)
-    if user["mp"] < s["mp_cost"]:
-        await c.answer(f"❌ Нужно {s['mp_cost']} MP", show_alert=True); return
     ok, reason = await queue_action(c.from_user.id, f"skill_{skill_code}")
     if not ok:
         await c.answer("Очередь полна", show_alert=True); return
-    await c.answer(f"✨ +{s['name']}")
+    await c.answer(f"✨ +{s['name']} ({s['mp_cost']} MP)")
+    user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
                             await g.db.get_combat(c.from_user.id),
                             edit_message=c.message)
@@ -82,16 +85,19 @@ async def add_skill(c: CallbackQuery):
 
 @router.callback_query(F.data == "combat_add_potion_hp")
 async def add_potion_hp(c: CallbackQuery):
+    """Добавляет зелье HP БЕЗ проверки HP/золота.
+
+    Если при выполнении HP полное или нет золота — зелье не сработает,
+    но в очереди будет. Удобно для сценария «хил → атака».
+    """
     combat = await _get_active_combat(c.from_user.id)
     if not combat:
         await c.answer("Бой завершён", show_alert=True); return
-    user = await g.db.get_user(c.from_user.id)
-    if user["hp"] >= user["max_hp"]:
-        await c.answer("❤️ HP полное", show_alert=True); return
     ok, reason = await queue_action(c.from_user.id, "potion_hp")
     if not ok:
         await c.answer("Очередь полна", show_alert=True); return
-    await c.answer("💚 +Зелье HP")
+    await c.answer(f"💚 +Зелье HP ({POTION_PRICE}💰)")
+    user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
                             await g.db.get_combat(c.from_user.id),
                             edit_message=c.message)
@@ -99,16 +105,19 @@ async def add_potion_hp(c: CallbackQuery):
 
 @router.callback_query(F.data == "combat_add_potion_mp")
 async def add_potion_mp(c: CallbackQuery):
+    """Добавляет зелье MP БЕЗ проверки MP/золота.
+
+    Ключевой кейс: поставить зелье MP ПЕРВЫМ, а скилл ВТОРЫМ — тогда
+    скилл сработает, даже если сейчас MP не хватает.
+    """
     combat = await _get_active_combat(c.from_user.id)
     if not combat:
         await c.answer("Бой завершён", show_alert=True); return
-    user = await g.db.get_user(c.from_user.id)
-    if user["mp"] >= user["max_mp"]:
-        await c.answer("💧 MP полное", show_alert=True); return
     ok, reason = await queue_action(c.from_user.id, "potion_mp")
     if not ok:
         await c.answer("Очередь полна", show_alert=True); return
-    await c.answer("🔮 +Зелье MP")
+    await c.answer(f"🔮 +Зелье MP ({MP_POTION_PRICE}💰)")
+    user = await g.db.get_user(c.from_user.id)
     await send_combat_state(c.message.chat.id, user,
                             await g.db.get_combat(c.from_user.id),
                             edit_message=c.message)
@@ -225,7 +234,6 @@ async def dungeon_cmd(m: Message):
                  f"  Ур.{d['level_req']}+ · вход {d['entry']}💰 · комнат {d['rooms']}\n")
     text += "\n<i>Цепочка боёв, в конце босс. Смерть = потеря добычи.</i>"
 
-    # Собираем клавиатуру + back+close
     kb_rows = []
     for code, d in DUNGEONS.items():
         can = u["level"] >= d["level_req"] and u["gold"] >= d["entry"]
