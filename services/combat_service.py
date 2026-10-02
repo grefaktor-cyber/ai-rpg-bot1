@@ -1,4 +1,4 @@
-"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, сезоны."""
+"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, защита по кол-ву defends."""
 import json
 import random
 
@@ -32,6 +32,15 @@ from services.notifications import (
 import world as W
 
 MAX_ACTIONS = 4
+
+# Множитель урона врага в зависимости от количества defend в очереди игрока
+DEFEND_MULT_BY_COUNT = {
+    0: 1.00,
+    1: 0.70,
+    2: 0.50,
+    3: 0.35,
+    4: 0.20,
+}
 
 
 def _get_enemy_actions(combat):
@@ -197,9 +206,8 @@ async def undo_action(uid):
 
 # ================= ДЕЙСТВИЕ ИГРОКА =================
 async def _exec_player_action(user, combat, action, log):
+    """Выполнить одно действие игрока. Возвращает (new_enemy_hp, enemy_skip)."""
     new_enemy_hp = combat["enemy_hp"]
-    def_reduce = 1.0
-    enemy_debuff = 1.0
     enemy_skip = False
 
     if action == "attack":
@@ -230,8 +238,9 @@ async def _exec_player_action(user, combat, action, log):
         log.append(line)
 
     elif action == "defend":
-        def_reduce = 0.5
-        log.append("🛡 Защита: −50% урона")
+        # Защита не считается здесь — она применяется к урону врага,
+        # а не к урону игрока. Смотри execute_queued_round.
+        log.append("🛡 Защита")
 
     elif action == "spoil":
         await g.db.set_combat_spoil_used(user["user_id"])
@@ -242,11 +251,11 @@ async def _exec_player_action(user, combat, action, log):
         s = get_skill(skill_code)
         if not s:
             log.append("⚠️ Скил не найден")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         mp_cost = s["mp_cost"]
         if user["mp"] < mp_cost:
             log.append(f"❌ Не хватило MP для «{s['name']}»")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         await g.db.spend_mp(user["user_id"], mp_cost)
         user["mp"] -= mp_cost
         mult = skill_multiplier(user, skill_code)
@@ -272,11 +281,9 @@ async def _exec_player_action(user, combat, action, log):
             await g.db.set_next_atk_mult(user["user_id"], mult)
             log.append(f"✨ {s['name']}: +{int((mult-1)*100)}% атака")
         elif effect == "buff_def":
-            def_reduce = min(def_reduce, mult)
-            log.append(f"✨ {s['name']}: −{int((1-mult)*100)}% урон")
+            log.append(f"✨ {s['name']}: защита активна")
         elif effect == "debuff":
-            enemy_debuff = min(enemy_debuff, mult)
-            log.append(f"✨ {s['name']}: враг −{int((1-mult)*100)}%")
+            log.append(f"✨ {s['name']}: враг ослаблен")
         elif effect == "stun":
             enemy_skip = True
             log.append(f"✨ {s['name']}: враг оглушён!")
@@ -284,10 +291,10 @@ async def _exec_player_action(user, combat, action, log):
     elif action == "potion_hp":
         if user["hp"] >= user["max_hp"]:
             log.append("💚 HP полное")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         if user["gold"] < POTION_PRICE:
             log.append(f"❌ Нет {POTION_PRICE}💰")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], POTION_PRICE)
         new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
         await g.db.update_hp(user["user_id"], new_hp)
@@ -297,20 +304,21 @@ async def _exec_player_action(user, combat, action, log):
     elif action == "potion_mp":
         if user["mp"] >= user["max_mp"]:
             log.append("🔮 MP полное")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         if user["gold"] < MP_POTION_PRICE:
             log.append(f"❌ Нет {MP_POTION_PRICE}💰")
-            return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+            return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], MP_POTION_PRICE)
         new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
         await g.db.update_mp(user["user_id"], new_mp)
         user["mp"] = new_mp
         log.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
 
-    return new_enemy_hp, def_reduce, enemy_debuff, enemy_skip
+    return new_enemy_hp, enemy_skip
 
 
-async def _exec_enemy_turn(chat_id, user, combat, log):
+async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
+    """Ход врага с учётом защиты игрока (def_mult от кол-ва defends)."""
     n_actions, dmg_mult = _get_enemy_actions(combat)
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     player_def = get_player_def_for_enemy(user, enemy_dmg_type)
@@ -321,7 +329,10 @@ async def _exec_enemy_turn(chat_id, user, combat, log):
         raw = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
                                    is_boss=bool(combat["is_boss"]))
         total_raw += int(raw * dmg_mult * phase_mult)
+    # Сначала обычная защита (P.Def/M.Def), потом множитель от defends
     total_dmg = apply_player_defense(total_raw, player_def)
+    total_dmg = int(total_dmg * def_mult)
+
     block_chance = get_block_chance(user)
     if block_chance > 0 and random.randint(1, 100) <= block_chance:
         log.append(f"🛡 <b>Блок!</b> Все {n_actions} атак отражены")
@@ -355,41 +366,49 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             edit_message=edit_message)
         return False
 
+    # === ПОДСЧЁТ ЗАЩИТ ===
+    defends_count = sum(1 for a in pending if a == "defend")
+    def_mult = DEFEND_MULT_BY_COUNT.get(defends_count, 1.0)
+
     player_log = []
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
-    total_def_reduce = 1.0
-    total_enemy_debuff = 1.0
 
     for action in pending:
         if new_enemy_hp <= 0:
             break
         cur_combat = dict(combat)
         cur_combat["enemy_hp"] = new_enemy_hp
-        new_hp_enemy, def_red, en_deb, en_skip = await _exec_player_action(
+        new_hp_enemy, en_skip = await _exec_player_action(
             user, cur_combat, action, player_log
         )
         new_enemy_hp = new_hp_enemy
-        total_def_reduce = min(total_def_reduce, def_red)
-        total_enemy_debuff = min(total_enemy_debuff, en_deb)
         if en_skip:
             enemy_skip = True
         user = await g.db.get_user(user["user_id"])
 
     await g.db.clear_pending_actions(user["user_id"])
 
+    # Если игрок нанёс добивающий удар — победа
     if new_enemy_hp <= 0:
         await handle_victory(chat_id, user, combat, "\n".join(player_log))
         return False
 
+    # Лог защиты (после действий игрока, перед ходом врага)
+    if defends_count > 0:
+        pct = int((1 - def_mult) * 100)
+        player_log.append(f"🛡 Защита ×{defends_count}: урон врага −{pct}%")
+
+    # === ХОД ВРАГА ===
     enemy_log = []
     if not enemy_skip:
-        dead = await _exec_enemy_turn(chat_id, user, combat, enemy_log)
+        dead = await _exec_enemy_turn(chat_id, user, combat, enemy_log, def_mult)
         if dead:
             return False
     else:
         enemy_log.append("💫 Враг пропускает ход")
 
+    # MP-регенерация игрока (5% в раунд)
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
         new_mp = min(user["max_mp"], user["mp"] + regen)
@@ -415,6 +434,7 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
 
 # ================= ДРОП С БОССОВ =================
 async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
+    """Проверить дроп книги/рецепта с босса. Возвращает список дропов."""
     drops = []
 
     for code, b in SKILL_BOOKS.items():
@@ -603,7 +623,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             text += "\n🏆 Достижение: ⚔️ Убийца боссов"
             await notify_achievement(chat_id, "⚔️ Убийца боссов")
 
-        # Дропы с босса — уведомления отдельно
         for cat, name in boss_drops:
             text += f"\n{cat}: <b>{name}</b>"
             if "Книга" in cat:
@@ -637,7 +656,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             )
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
 
-        # Уведомление об уровне
         await notify_level(chat_id, level, nm, nmp)
 
         if level in (5, 10, 15, 20, 30):
