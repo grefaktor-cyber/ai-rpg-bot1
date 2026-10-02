@@ -1,9 +1,8 @@
-"""Игровые данные: расы, классы, фракции, магазин (из equipment), питомцы, подземелья, крафт."""
-from core.equipment import SHOP  # ← SHOP теперь в equipment.py
+"""Игровые данные: расы, классы, фракции, магазин, питомцы, подземелья, крафт."""
+from core.equipment import SHOP
 
 # ================= РАСЫ =================
 RACES = {
-    # ---- Обычные (доступны всем) ----
     "human":    {"name": "Человек",     "desc": "Универсал.", "premium": False,
                  "stats": {"str": 5, "dex": 5, "con": 5, "int": 5, "wit": 5, "men": 5}},
     "elf":      {"name": "Эльф",        "desc": "Ловкий, мудрый.", "premium": False,
@@ -13,15 +12,73 @@ RACES = {
     "orc":      {"name": "Орк",         "desc": "Могучий воин.", "premium": False,
                  "stats": {"str": 7, "dex": 4, "con": 7, "int": 3, "wit": 5, "men": 4}},
 
-    # ---- Премиум (только с подпиской) ----
-    "demon":    {"name": "😈 Демон",    "desc": "Маг тьмы, агрессивный.", "premium": True,
-                 "stats": {"str": 6, "dex": 4, "con": 4, "int": 7, "wit": 6, "men": 3}},
+    "demon":    {"name": "😈 Демон",    "desc": "Маг тьмы, ярость, вампиризм.", "premium": True,
+                 "stats": {"str": 5, "dex": 4, "con": 5, "int": 7, "wit": 6, "men": 3}},
     "angel":    {"name": "😇 Ангел",    "desc": "Целитель и защитник.", "premium": True,
                  "stats": {"str": 4, "dex": 5, "con": 4, "int": 6, "wit": 6, "men": 5}},
-    "prit":     {"name": "🎭 Плут",     "desc": "Ловкач, воровство, крит.", "premium": True,
+    "prit":     {"name": "🎭 Плут",     "desc": "Ловкач, уклонение, крит.", "premium": True,
                  "stats": {"str": 4, "dex": 7, "con": 4, "int": 5, "wit": 6, "men": 4}},
 }
 
+# ================= БОЕВЫЕ БОНУСЫ РАС =================
+# Применяются в combat_service.py (PvE) и pvp.py (PvP).
+# Ключи:
+#   dmg_mult      — общий множитель урона (default 1.0)
+#   magic_mult    — множитель маг. урона (default 1.0)
+#   crit_bonus    — аддитивный бонус к шансу крита, % (default 0)
+#   dodge         — % шанс уклониться от атаки врага целиком (default 0)
+#   lifesteal     — доля урона возвращается как HP (default 0.0)
+#   rage_max      — макс. множитель урона при 0% HP (default 0.0 = нет ярости)
+#   heal_mult     — множитель лечения (default 1.0)
+RACIAL_COMBAT_BONUSES = {
+    "human": {
+        "desc": "🎯 Универсал: +5% урона",
+        "dmg_mult": 1.05,
+    },
+    "elf": {
+        "desc": "🏹 Ловкость: +15% маг. урона",
+        "magic_mult": 1.15,
+    },
+    "dark_elf": {
+        "desc": "🗡 Тень: +10% маг. урона, +8% крита",
+        "magic_mult": 1.10,
+        "crit_bonus": 8,
+    },
+    "orc": {
+        "desc": "🪓 Сила: +10% урона",
+        "dmg_mult": 1.10,
+    },
+    "demon": {
+        "desc": "😈 Ярость: до +60% урона при низком HP. Вампиризм 15%.",
+        "rage_max": 1.60,
+        "lifesteal": 0.15,
+        "magic_mult": 1.10,
+    },
+    "angel": {
+        "desc": "😇 Свет: +30% лечения",
+        "heal_mult": 1.30,
+    },
+    "prit": {
+        "desc": "🎭 Трюк: +12% крита, +15% уклонения",
+        "crit_bonus": 12,
+        "dodge": 15,
+    },
+}
+
+
+def get_racial_combat_bonus(user, key, default=1.0):
+    """Возвращает бонус расы. default=1.0 для множителей, 0/0.0 для аддитивных."""
+    race = user.get("race", "")
+    return RACIAL_COMBAT_BONUSES.get(race, {}).get(key, default)
+
+
+# ================= RANGE-КЛАССЫ =================
+# Эти классы бьют "издалека" — получают +30% урона в 1-м раунде боя,
+# пока враг не подошёл.
+RANGE_CLASSES = {"archer", "mage", "necro", "bard", "overlord"}
+
+
+# ================= КЛАССЫ =================
 CLASSES = {
     "warrior": {"name": "Воин", "desc": "Мастер меча.",
                 "races": ["human"],
@@ -59,13 +116,18 @@ CLASSES = {
     "overlord":  {"name": "Владыка", "desc": "Гибрид воина и мага.",
                   "races": ["orc"],
                   "bonus": {"str": 2, "con": 1, "int": 2, "wit": 1}, "role": "universal", "dmg_type": "magic"},
+    "keeper":    {"name": "Хранитель", "desc": "Универсал премиум.",
+                  "races": ["angel"],
+                  "bonus": {"str": 2, "con": 2, "int": 2}, "role": "universal", "dmg_type": "phys"},
 }
 
 
 def classes_for_race(race_code):
     return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
 
+
 ROLE_HP_BONUS = {"tank": 20, "fighter": 15, "universal": 10, "agile": 5, "mage": 10}
+
 
 FACTIONS = {
     "light": {"name": "Орден Света",     "desc": "+10% HP, скидка 10%",
@@ -79,8 +141,6 @@ PETS = {
     "owl":     {"name": "Сова",      "price": 500,  "desc": "+15% крита",   "bonus": {"wit": 2, "int": 1}},
     "dragon":  {"name": "Дракончик", "price": 2000, "desc": "Атака через ход", "bonus": {"str": 3, "con": 1}},
     "phoenix": {"name": "Феникс",    "price": 3000, "desc": "Лечит 5% HP каждый раунд", "bonus": {"men": 3, "con": 2}},
-    
-    # ---- Эксклюзивные (только за Stars) ----
     "lion":    {"name": "🦁 Небесный лев",    "price": 99999,
                 "desc": "+15 STR/DEX/CON", "premium": True,
                 "bonus": {"str": 15, "dex": 15, "con": 15}},
@@ -163,8 +223,3 @@ POTION_PRICE = 25
 POTION_HEAL = 30
 MP_POTION_PRICE = 25
 MP_POTION_RESTORE = 40
-
-
-def classes_for_race(race_code):
-    """Классы, доступные расе."""
-    return {c: info for c, info in CLASSES.items() if race_code in info["races"]}
