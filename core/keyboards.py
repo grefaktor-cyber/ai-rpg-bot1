@@ -436,11 +436,14 @@ def skills_back_kb():
 
 
 def skills_slot_choice_kb(available, slot_num):
+    """Показываем уровень скилла рядом с названием."""
     rows = []
     for s in available:
         src = " 📖" if s.get("source") == "book" else ""
+        lvl = s.get("_level", 1)  # опционально передаём уровень из хендлера
+        lvl_str = f" ур.{lvl}" if lvl and lvl > 1 else ""
         rows.append([InlineKeyboardButton(
-            text=f"{s['name']}{src} · {s['mp_cost']} MP",
+            text=f"{s['name']}{src}{lvl_str} · {s['mp_cost']} MP",
             callback_data=f"skills_set_{slot_num}_{s['code']}"
         )])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="skills_menu")])
@@ -448,16 +451,22 @@ def skills_slot_choice_kb(available, slot_num):
 
 
 def skills_upgrade_kb(available, learned):
+    """Кнопки улучшения скиллов. Максимум — 5 уровень.
+
+    available — список словарей скиллов (из available_skills).
+    learned — dict {code: level} (из user['learned_skills']).
+    """
+    from core.skills import MAX_SKILL_LEVEL
     rows = []
     for s in available:
         if s["effect"] == "passive":
             continue
         lvl = learned.get(s["code"], 1)
-        if lvl >= 3:
-            mark = "✅ МАКС"
+        if lvl >= MAX_SKILL_LEVEL:
+            mark = f"✅ ур.{lvl} МАКС"
             cb = "skills_noop"
         else:
-            mark = f"ур.{lvl} → {lvl+1} (1 очко)"
+            mark = f"ур.{lvl}→{lvl+1} (1 очко)"
             cb = f"skills_up_{s['code']}"
         rows.append([InlineKeyboardButton(
             text=f"{s['name']} · {mark}",
