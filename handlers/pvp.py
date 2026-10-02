@@ -1,4 +1,4 @@
-"""PvP: одновременные раунды с очередью действий + расовые бонусы."""
+"""PvP: одновременные раунды с очередью действий + расовые бонусы + квесты."""
 import json
 import random
 
@@ -37,13 +37,11 @@ DEFEND_MULT_BY_COUNT = {
 
 
 def _is_range_round_1(user, combat):
-    """Range-класс бьёт дальше в 1-м раунде."""
     return (combat.get("round_num", 1) == 1
             and user.get("class") in RANGE_CLASSES)
 
 
 def _rage_mult(user):
-    """Множитель ярости (демон): чем ниже HP, тем выше урон."""
     rage_max = get_racial_combat_bonus(user, "rage_max", 0.0)
     if rage_max <= 1.0:
         return 1.0
@@ -533,7 +531,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
                           * racial_low_hp_mult(user_a) * a_rage * a_range * def_mult_b)
                 if s.get("double"):
                     dmg *= 2
-                # execute
                 if s.get("execute") and new_hp_b < max_hp_b * 0.20:
                     dmg = int(dmg * s["execute"])
                     log_a.append(f"✨ {s['name']}: <b>ДОБИВАНИЕ ×{s['execute']}</b>")
@@ -542,7 +539,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
                     log_a.append(f"✨ {s['name']} (игнор брони): {dmg} урона")
                 else:
                     log_a.append(f"✨ {s['name']}: {dmg} урона")
-                # lifesteal скилла
                 if s.get("lifesteal") and dmg > 0:
                     heal = int(dmg * s["lifesteal"])
                     new_hp_a = min(max_hp_a, new_hp_a + heal)
@@ -674,12 +670,10 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_b.append(f"✨ {s['name']}: соперник оглушён")
 
     # ============ УКЛОНЕНИЕ (плут) ============
-    # A уклоняется от всего урона B?
     if dmg_b_to_a > 0 and a_dodge > 0 and random.randint(1, 100) <= a_dodge:
         log_a.append(f"💨 <b>Уклонение!</b> Ты уклонился от всех атак ({dmg_b_to_a} урона)")
         log_b.append(f"💨 {user_a['char_name']} уклонился от твоих атак")
         dmg_b_to_a = 0
-    # B уклоняется от всего урона A?
     if dmg_a_to_b > 0 and b_dodge > 0 and random.randint(1, 100) <= b_dodge:
         log_b.append(f"💨 <b>Уклонение!</b> Ты уклонился от всех атак ({dmg_a_to_b} урона)")
         log_a.append(f"💨 {user_b['char_name']} уклонился от твоих атак")
@@ -869,15 +863,20 @@ async def pvp_end(winner_id, loser_id, stake):
                                           parse_mode=ParseMode.HTML)
             except Exception:
                 pass
-                
-# Старый NPC-зачёт
-await g.db.progress_quest(winner_id, "win_duels", 1)
-# Новый — timed_quest_progress (то что в /quests)
-try:
-    from handlers.quests import progress_quest as quest_progress
-    await quest_progress(winner_id, "win_duels", 1)
-except Exception:
-    pass
+
+    # ============ ЗАЧЁТ КВЕСТА «Гроза арены» (еженедельный) ============
+    # Старый NPC-зачёт (для npc_quest_progress, если где-то ещё используется)
+    try:
+        await g.db.progress_quest(winner_id, "win_duels", 1)
+    except Exception:
+        pass
+    # Новый — timed_quest_progress (то что показывается в /quests)
+    try:
+        from handlers.quests import progress_quest as quest_progress
+        await quest_progress(winner_id, "win_duels", 1)
+    except Exception as _e:
+        import logging
+        logging.error(f"[PVP QUEST] {_e}", exc_info=True)
 
     summary_winner = (
         f"━━━━━━━━━━━━━━━━━━━\n"
