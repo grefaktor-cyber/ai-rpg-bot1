@@ -1,4 +1,4 @@
-"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, защита по defends, итоги."""
+"""Логика боя 4.0: очередь 4 действия, спойл, range, расовые бонусы, итоги."""
 import json
 import random
 
@@ -8,6 +8,7 @@ from core import globals as g
 from core.game_data import (
     DUNGEONS, DROP_TABLE, MATERIAL_NAMES,
     POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION_RESTORE,
+    PETS, RANGE_CLASSES, get_racial_combat_bonus,
 )
 from core.materials import RARE_MATERIALS, SPOIL_CLASSES
 from core.books import SKILL_BOOKS
@@ -23,7 +24,6 @@ from core.formulas import (
     get_boss_phase, get_block_chance, get_crit_bonus, get_gold_mult,
 )
 from core.keyboards import combat_kb, combat_pending_text, dungeon_continue_kb
-from core.game_data import PETS
 from core.skills import get_skill, skill_multiplier
 from services.notifications import (
     notify_item, notify_achievement, notify_boss, notify_quest,
@@ -34,12 +34,24 @@ import world as W
 MAX_ACTIONS = 4
 
 DEFEND_MULT_BY_COUNT = {
-    0: 1.00,
-    1: 0.70,
-    2: 0.50,
-    3: 0.35,
-    4: 0.20,
+    0: 1.00, 1: 0.70, 2: 0.50, 3: 0.35, 4: 0.20,
 }
+
+
+def _is_range_round_1(user, combat):
+    """Range-класс бьёт дальше в 1-м раунде."""
+    return (combat.get("round_num", 1) == 1
+            and user.get("class") in RANGE_CLASSES)
+
+
+def _rage_mult(user):
+    """Множитель ярости: чем ниже HP, тем выше урон.
+    Демон: rage_max = 1.60 → при 0% HP урон ×1.6."""
+    rage_max = get_racial_combat_bonus(user, "rage_max", 0.0)
+    if rage_max <= 1.0:
+        return 1.0
+    hp_pct = user["hp"] / max(1, user["max_hp"])
+    return 1.0 + (1.0 - hp_pct) * (rage_max - 1.0)
 
 
 def _get_enemy_actions(combat):
@@ -168,6 +180,8 @@ def pet_attack_damage(user, round_num):
         if round_num % 2 == 0:
             return 10 + plvl * 3, "🐉 Дракон дышит огнём"
         return 0, ""
+    if ptype == "edragon":
+        return 25 * plvl, "🐲 Древний дракон атакует"
     return 0, ""
 
 
@@ -204,9 +218,16 @@ async def undo_action(uid):
 
 # ================= ДЕЙСТВИЕ ИГРОКА =================
 async def _exec_player_action(user, combat, action, log):
-    """Выполняет ОДНО действие игрока. user уже актуален (перечитан из БД)."""
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
+
+    # --- Расчёт расовых бонусов ---
+    race_dmg_mult = get_racial_combat_bonus(user, "dmg_mult", 1.0)
+    race_magic_mult = get_racial_combat_bonus(user, "magic_mult", 1.0)
+    race_crit_bonus = get_racial_combat_bonus(user, "crit_bonus", 0)
+    race_lifesteal = get_racial_combat_bonus(user, "lifesteal", 0.0)
+    rage_mult = _rage_mult(user)
+    range_bonus = 1.30 if _is_range_round_1(user, combat) else 1.0
 
     if action == "attack":
         eff = effective_stats(user)
@@ -215,15 +236,18 @@ async def _exec_player_action(user, combat, action, log):
         t_mdef = enemy_m_def(combat["enemy_level"])
         dmg_after_def, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
         if dmg_type == "magic":
-            dmg_after_def = int(dmg_after_def * racial_magic_mult(user))
+            dmg_after_def = int(dmg_after_def * racial_magic_mult(user) * race_magic_mult)
+        else:
+            dmg_after_def = int(dmg_after_def * race_dmg_mult)
         dmg_after_def = int(dmg_after_def * racial_low_hp_mult(user))
-        crit_chance = eff["dex"] + racial_crit_bonus(user) + get_crit_bonus(user)
+        dmg_after_def = int(dmg_after_def * rage_mult)
+        crit_chance = eff["dex"] + racial_crit_bonus(user) + get_crit_bonus(user) + race_crit_bonus
         if user.get("pet_type") == "owl":
             crit_chance += 15
         is_crit = random.randint(1, 100) <= crit_chance
         if is_crit:
             dmg_after_def = int(dmg_after_def * 2)
-        dmg = int(dmg_after_def * faction_mult(user, "dmg_mult") * next_mult)
+        dmg = int(dmg_after_def * faction_mult(user, "dmg_mult") * next_mult * range_bonus)
         if next_mult != 1.0:
             await g.db.set_next_atk_mult(user["user_id"], 1.0)
         pet_dmg, pet_text = pet_attack_damage(user, combat["round_num"])
@@ -231,9 +255,20 @@ async def _exec_player_action(user, combat, action, log):
         new_enemy_hp = combat["enemy_hp"] - total_dmg
         await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
         line = f"⚔️ {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
+        if range_bonus > 1.0:
+            line += " 🎯 <i>(преимущество дальнего боя)</i>"
+        if rage_mult > 1.05:
+            line += f" 😈 <i>(ярость ×{rage_mult:.2f})</i>"
         if pet_dmg > 0:
             line += f"\n  {pet_text} — {pet_dmg}!"
         log.append(line)
+        # Вампиризм расы
+        if race_lifesteal > 0 and total_dmg > 0:
+            heal = int(total_dmg * race_lifesteal)
+            new_hp = min(user["max_hp"], user["hp"] + heal)
+            await g.db.update_hp(user["user_id"], new_hp)
+            user["hp"] = new_hp
+            log.append(f"😈 Вампиризм: +{heal} HP")
 
     elif action == "defend":
         log.append("🛡 Защита")
@@ -249,7 +284,6 @@ async def _exec_player_action(user, combat, action, log):
             log.append("⚠️ Скил не найден")
             return new_enemy_hp, enemy_skip
         mp_cost = s["mp_cost"]
-        # ✅ Проверка MP по факту на момент хода (после предыдущих действий)
         if user["mp"] < mp_cost:
             log.append(f"❌ «{s['name']}» — не хватило MP ({user['mp']}/{mp_cost})")
             return new_enemy_hp, enemy_skip
@@ -260,14 +294,38 @@ async def _exec_player_action(user, combat, action, log):
         if effect == "damage":
             t_pdef = enemy_p_def(combat["enemy_level"])
             t_mdef = enemy_m_def(combat["enemy_level"])
-            base_dmg, dmg_type = calc_final_damage_safe(user, t_pdef, t_mdef)
+            dmg_type = get_dmg_type(user)
+            # pierce — игнорирует защиту
+            if s.get("pierce"):
+                base_dmg = calc_damage(user)
+            else:
+                base_dmg, _ = calc_final_damage_safe(user, t_pdef, t_mdef)
             if dmg_type == "magic":
-                base_dmg = int(base_dmg * racial_magic_mult(user))
-            base_dmg = int(base_dmg * racial_low_hp_mult(user))
-            dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult"))
+                base_dmg = int(base_dmg * racial_magic_mult(user) * race_magic_mult)
+            else:
+                base_dmg = int(base_dmg * race_dmg_mult)
+            base_dmg = int(base_dmg * racial_low_hp_mult(user) * rage_mult)
+            dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult") * range_bonus)
+            # double — двойной удар
+            if s.get("double"):
+                dmg *= 2
+            # execute — добивание при HP врага < 20%
+            if s.get("execute") and new_enemy_hp < combat["enemy_max_hp"] * 0.20:
+                dmg = int(dmg * s["execute"])
+                log.append(f"✨ {s['name']}: <b>ДОБИВАНИЕ!</b> ×{s['execute']}")
+            if s.get("pierce"):
+                log.append(f"✨ {s['name']} (игнор брони): {dmg} урона")
+            else:
+                log.append(f"✨ {s['name']}: {dmg} урона")
             new_enemy_hp = combat["enemy_hp"] - dmg
             await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
-            log.append(f"✨ {s['name']}: {dmg} урона")
+            # lifesteal
+            if s.get("lifesteal") and dmg > 0:
+                heal = int(dmg * s["lifesteal"])
+                new_hp = min(user["max_hp"], user["hp"] + heal)
+                await g.db.update_hp(user["user_id"], new_hp)
+                user["hp"] = new_hp
+                log.append(f"💗 Вампиризм скилла: +{heal} HP")
         elif effect == "heal":
             heal = int(user["max_hp"] * mult * racial_heal_mult(user))
             new_hp = min(user["max_hp"], user["hp"] + heal)
@@ -317,6 +375,12 @@ async def _exec_player_action(user, combat, action, log):
 
 
 async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
+    # Уклонение (плут)
+    dodge = get_racial_combat_bonus(user, "dodge", 0)
+    if dodge > 0 and random.randint(1, 100) <= dodge:
+        log.append(f"💨 <b>Уклонение!</b> Ты избежал атаки врага")
+        return False
+
     n_actions, dmg_mult = _get_enemy_actions(combat)
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     player_def = get_player_def_for_enemy(user, enemy_dmg_type)
@@ -387,8 +451,6 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             await g.db.incr_combat_dmg_dealt(user["user_id"], dmg_dealt)
         if en_skip:
             enemy_skip = True
-        # ✅ Перечитываем user из БД после каждого действия —
-        # важно для сценария «зелье MP → скилл»
         user = await g.db.get_user(user["user_id"])
 
     await g.db.clear_pending_actions(user["user_id"])
@@ -585,7 +647,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     elif diff <= -5:
         xp_note = " 💤"
 
-    # === ИТОГИ БОЯ ===
     rounds = combat.get("round_num", 1)
     dmg_dealt = combat.get("total_dmg_dealt", 0)
     dmg_taken = combat.get("total_dmg_taken", 0)
