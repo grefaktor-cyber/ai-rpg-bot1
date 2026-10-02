@@ -1,4 +1,4 @@
-"""Логика мировых боссов + рейд-боссы (2+ игрока) + очередь действий."""
+"""Логика мировых боссов + рейд-боссы (2-3 игрока) + очередь действий."""
 import json
 import random
 import time
@@ -27,9 +27,8 @@ from core.skills import get_skill, skill_multiplier
 import world as W
 
 
-# ================= РЕЙД-БОССЫ (4 уровня сложности) =================
+# ================= РЕЙД-БОССЫ =================
 RAID_BOSSES = {
-    # ============ ЛЁГКИЙ (2 игрока 25-35 ур.) ============
     "dragon_cub": {
         "name": "🐲 Дракончик",
         "level": 30,
@@ -44,8 +43,6 @@ RAID_BOSSES = {
         "heal_amount": 200,
         "heal_every_n": 6,
     },
-
-    # ============ СРЕДНИЙ (2 игрока 35-45 ур.) ============
     "abyss_lord": {
         "name": "👹 Повелитель Бездны",
         "level": 40,
@@ -60,8 +57,6 @@ RAID_BOSSES = {
         "heal_amount": 300,
         "heal_every_n": 6,
     },
-
-    # ============ СЛОЖНЫЙ (3 игрока 40+ ур.) ============
     "forest_king": {
         "name": "🌳 Лесной Король",
         "level": 45,
@@ -76,8 +71,6 @@ RAID_BOSSES = {
         "heal_amount": 500,
         "heal_every_n": 6,
     },
-
-    # ============ ХАРДКОР (4 игрока 45+ ур.) ============
     "world_devourer": {
         "name": "🐲 Пожиратель Миров",
         "level": 55,
@@ -97,13 +90,8 @@ RAID_BOSSES = {
 WORLD_BOSSES.update(RAID_BOSSES)
 
 
-# ================= МНОЖИТЕЛИ ЗАЩИТЫ =================
 DEFEND_MULT_BY_COUNT = {
-    0: 1.00,
-    1: 0.70,
-    2: 0.50,
-    3: 0.35,
-    4: 0.20,
+    0: 1.00, 1: 0.70, 2: 0.50, 3: 0.35, 4: 0.20,
 }
 
 
@@ -250,7 +238,7 @@ async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
     }
 
 
-# ================= АТАКА (старая, для совместимости) =================
+# ================= СТАРАЯ АТАКА (совместимость) =================
 async def attack_boss(uid):
     u = await g.db.get_user(uid)
     if not u["char_name"]:
@@ -322,9 +310,7 @@ async def attack_boss(uid):
         await g.db.set_location_code(uid, "village")
         await g.db.incr_deaths(uid)
         await g.db.add_journal_entry(
-            uid,
-            f"Пал от мирового босса «{boss_data.get('name', '?')}»",
-            "death"
+            uid, f"Пал от мирового босса «{boss_data.get('name', '?')}»", "death"
         )
 
     killed = updated and updated["current_hp"] <= 0
@@ -332,29 +318,17 @@ async def attack_boss(uid):
         await _handle_boss_kill(updated, uid)
 
     return True, {
-        "killed": killed,
-        "boss": updated,
-        "my_damage": my_dmg,
-        "is_crit": is_crit,
-        "boss_atk": boss_atk,
+        "killed": killed, "boss": updated, "my_damage": my_dmg,
+        "is_crit": is_crit, "boss_atk": boss_atk,
         "boss_dmg_type": boss_data.get("dmg_type", "phys"),
-        "my_hp": new_hp,
-        "player_died": player_died,
-        "lost_gold": lost_gold,
-        "is_raid": is_raid,
-        "boss_heal": heal_amount,
+        "my_hp": new_hp, "player_died": player_died,
+        "lost_gold": lost_gold, "is_raid": is_raid, "boss_heal": heal_amount,
     }
 
 
 # ================= ОЧЕРЕДЬ ДЕЙСТВИЙ =================
 async def execute_boss_actions(uid, actions):
-    """Прогоняет очередь действий игрока против мирового босса.
-
-    actions: список строк — "attack", "defend", "potion_hp", "potion_mp",
-             "skill_<code>"
-
-    Возвращает (ok, info), где info — словарь с логом и результатом.
-    """
+    """Прогоняет очередь действий игрока против мирового босса."""
     u = await g.db.get_user(uid)
     if not u["char_name"]:
         return False, {"error": "no_char"}
@@ -380,7 +354,6 @@ async def execute_boss_actions(uid, actions):
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
     is_raid = is_raid_boss(boss["boss_code"])
 
-    # Рейд: проверка min_players
     if is_raid:
         min_players = boss_data.get("min_players", 2)
         count = await _count_players_in_location(loc_code, exclude_uid=0)
@@ -388,7 +361,6 @@ async def execute_boss_actions(uid, actions):
             return False, {"error": "not_enough_players",
                            "min_players": min_players, "current": count}
 
-    # === ПОДСЧЁТ ЗАЩИТЫ ===
     defends_count = sum(1 for a in actions if a == "defend")
     def_mult = DEFEND_MULT_BY_COUNT.get(defends_count, 1.0)
 
@@ -401,7 +373,6 @@ async def execute_boss_actions(uid, actions):
     hp = u["hp"]
     max_hp = u["max_hp"]
 
-    # === ПРОХОД ПО ДЕЙСТВИЯМ ===
     for action in actions:
         if action == "attack":
             eff = effective_stats(u)
@@ -483,7 +454,6 @@ async def execute_boss_actions(uid, actions):
             elif effect == "stun":
                 log.append(f"✨ {s['name']}: враг оглушён")
 
-    # === ОТВЕТ БОССА ===
     boss_atk_raw = calc_boss_damage_to_player(u, boss_data, phase_mult=1.0)
     boss_atk = int(boss_atk_raw * def_mult)
     if defends_count > 0:
@@ -493,18 +463,15 @@ async def execute_boss_actions(uid, actions):
     new_hp = max(0, hp - boss_atk)
     log.append(f"💔 Босс ответил: -{boss_atk}")
 
-    # === ПРИМЕНЯЕМ К БД ===
     await g.db.update_hp(uid, new_hp)
     await g.db.update_mp(uid, mp)
     if gold != u["gold"]:
         await g.db.set_gold(uid, gold)
 
-    # === УРОН БОССУ ===
     if total_my_dmg > 0:
         await g.db.add_boss_damage(boss["id"], uid, u["char_name"], total_my_dmg)
     updated = await g.db.get_active_world_boss(loc_code)
 
-    # === РЕГЕНЕРАЦИЯ РЕЙД-БОССА (раз в N атак) ===
     heal_amount = 0
     if is_raid and updated and updated["current_hp"] > 0:
         n = boss_data.get("heal_every_n", 6)
@@ -515,7 +482,6 @@ async def execute_boss_actions(uid, actions):
                 await g.db.heal_world_boss(boss["id"], heal_amount)
                 updated = await g.db.get_active_world_boss(loc_code)
 
-    # === СМЕРТЬ ИГРОКА ===
     player_died = (new_hp <= 0)
     lost_gold = 0
     if player_died:
@@ -526,35 +492,24 @@ async def execute_boss_actions(uid, actions):
         await g.db.set_location_code(uid, "village")
         await g.db.incr_deaths(uid)
         await g.db.add_journal_entry(
-            uid,
-            f"Пал от мирового босса «{boss_data.get('name', '?')}»",
-            "death"
+            uid, f"Пал от мирового босса «{boss_data.get('name', '?')}»", "death"
         )
 
-    # === УБИЙСТВО БОССА ===
     killed = updated and updated["current_hp"] <= 0
     if killed:
         await _handle_boss_kill(updated, uid)
 
     return True, {
-        "killed": killed,
-        "boss": updated,
-        "my_damage": total_my_dmg,
-        "is_crit": is_any_crit,
-        "boss_atk": boss_atk,
+        "killed": killed, "boss": updated, "my_damage": total_my_dmg,
+        "is_crit": is_any_crit, "boss_atk": boss_atk,
         "boss_dmg_type": boss_data.get("dmg_type", "phys"),
-        "my_hp": new_hp,
-        "player_died": player_died,
-        "lost_gold": lost_gold,
-        "is_raid": is_raid,
-        "boss_heal": heal_amount,
-        "log": log,
-        "defends_count": defends_count,
-        "def_mult": def_mult,
+        "my_hp": new_hp, "player_died": player_died,
+        "lost_gold": lost_gold, "is_raid": is_raid, "boss_heal": heal_amount,
+        "log": log, "defends_count": defends_count, "def_mult": def_mult,
     }
 
 
-# ================= НАГРАДЫ ЗА УБИЙСТВО =================
+# ================= НАГРАДЫ =================
 async def _handle_boss_kill(boss, killer_id):
     await g.db.kill_world_boss(boss["id"], killer_id)
     damage_list = await g.db.get_boss_damage_list(boss["id"], limit=50)
@@ -597,10 +552,17 @@ async def _handle_boss_kill(boss, killer_id):
         await g.db.add_gold(uid, gold)
         await g.db.add_xp(uid, xp)
         await g.db.add_journal_entry(
-            uid,
-            f"Победил мирового босса «{boss_name}»",
-            "boss"
+            uid, f"Победил мирового босса «{boss_name}»", "boss"
         )
+
+        # === ЗАЧЁТ КВЕСТОВ ===
+        try:
+            from handlers.quests import progress_quest as quest_progress
+            await quest_progress(uid, "kill_bosses", 1)
+            await quest_progress(uid, "kill_enemies", 1, target_name=boss_name)
+        except Exception as _e:
+            import logging
+            logging.error(f"[WB QUEST] {_e}", exc_info=True)
 
         text = (f"🏆 <b>Мировой босс побеждён!</b>\n\n"
                 f"<b>{boss_name}</b> в «{loc_name}»\n"
