@@ -185,7 +185,17 @@ async def travel_do(c: CallbackQuery):
 
     await g.db.set_location_code(c.from_user.id, code)
     await g.db.add_location(c.from_user.id, new_loc["name"])
+
+    # === ЗАЧЁТ КВЕСТА «Исследователь» ===
+    # Старый метод (db.progress_quest) — на случай если где-то ещё используется
     await g.db.progress_quest(c.from_user.id, "visit_locations", 1)
+    # Новый метод — timed_quest_progress (то что в /quests)
+    try:
+        from handlers.quests import progress_quest as quest_progress
+        await quest_progress(c.from_user.id, "visit_locations", 1)
+    except Exception as _e:
+        import logging
+        logging.error(f"[TRAVEL QUEST] {_e}", exc_info=True)
 
     if first_visit:
         await g.db.add_journal_entry(
