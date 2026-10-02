@@ -27,13 +27,13 @@ def calc_stats(race_code, class_code):
 
 
 def effective_stats(user):
-    """Статы с учётом 7 слотов, питомца и сетов."""
+    """Статы с учётом 8 слотов, питомца и сетов."""
     base = {
         "str": user.get("stat_str", 5), "dex": user.get("stat_dex", 5),
         "con": user.get("stat_con", 5), "int": user.get("stat_int", 5),
         "wit": user.get("stat_wit", 5), "men": user.get("stat_men", 5),
     }
-    # Все 7 слотов
+    # Все 8 слотов
     for slot in SLOTS:
         raw = user.get(f"equipped_{slot}", "")
         if not raw:
@@ -49,10 +49,15 @@ def effective_stats(user):
         if pet:
             for k, v in pet["bonus"].items():
                 base[k] = base.get(k, 0) + v
-    # Сетовый бонус (только DEX для light)
+    # Сетовые бонусы (DEX, STR, INT)
     set_b = get_set_bonus(user)
-    if set_b and "dex_bonus" in set_b:
-        base["dex"] = base.get("dex", 0) + set_b["dex_bonus"]
+    if set_b:
+        if "dex_bonus" in set_b:
+            base["dex"] = base.get("dex", 0) + set_b["dex_bonus"]
+        if "str_bonus" in set_b:
+            base["str"] = base.get("str", 0) + set_b["str_bonus"]
+        if "int_bonus" in set_b:
+            base["int"] = base.get("int", 0) + set_b["int_bonus"]
     return base
 
 
