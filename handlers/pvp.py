@@ -1,10 +1,10 @@
-"""PvP: дуэли с очередью 4 действия."""
+"""PvP: одновременные раунды — оба выбирают, потом разрешение."""
 import json
 import random
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 
@@ -22,6 +22,15 @@ from core.game_data import POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION
 router = Router()
 
 MAX_ACTIONS = 4
+
+# Множитель урона в зависимости от количества defend у защитника
+DEFEND_MULT_BY_COUNT = {
+    0: 1.00,
+    1: 0.70,
+    2: 0.50,
+    3: 0.35,
+    4: 0.20,
+}
 
 
 # ================= ВЫЗОВ =================
@@ -148,7 +157,12 @@ async def send_pvp_state(uid, user, combat, edit_message=None):
 
     enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
     player_bar = hp_bar(user["hp"], user["max_hp"])
-    turn_text = "🎯 <b>Твой ход!</b>" if combat["my_turn"] else "⏳ Ждём хода противника..."
+
+    my_ready = bool(combat.get("my_ready", 0))
+    if my_ready:
+        turn_text = "⏳ <b>Ждём соперника...</b>"
+    else:
+        turn_text = "🎯 <b>Выбери действия и жми Готов</b>"
 
     header = f"⚔️ <b>ДУЭЛЬ · РАУНД {combat['round_num']}</b>"
     mp = user.get("mp", 0)
@@ -167,7 +181,7 @@ async def send_pvp_state(uid, user, combat, edit_message=None):
         pending = json.loads(combat.get("pending_actions") or "[]")
     except Exception:
         pending = []
-    if combat["my_turn"]:
+    if not my_ready:
         text += f"\n\n{combat_pending_text(pending, MAX_ACTIONS)}"
 
     try:
@@ -176,8 +190,14 @@ async def send_pvp_state(uid, user, combat, edit_message=None):
         active = []
     active = [x for x in active if x][:3]
 
-    kb = combat_kb(active, mp, pending, prefix="pvp",
-                   max_actions=MAX_ACTIONS, is_pvp=True)
+    # Если ещё не готов — показываем кнопки, иначе нет
+    if my_ready:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏳️ Сдаться", callback_data="pvp_surrender")],
+        ])
+    else:
+        kb = combat_kb(active, mp, pending, prefix="pvp",
+                       max_actions=MAX_ACTIONS, is_pvp=True)
 
     if edit_message:
         try:
@@ -191,7 +211,7 @@ async def send_pvp_state(uid, user, combat, edit_message=None):
         pass
 
 
-# ================= ДЕЙСТВИЯ ИГРОКА =================
+# ================= ДЕЙСТВИЯ =================
 async def _get_pvp_combat(uid):
     combat = await g.db.get_combat(uid)
     if not combat or not combat.get("is_pvp"):
@@ -203,8 +223,8 @@ async def _queue_pvp_action(uid, action_code):
     combat = await _get_pvp_combat(uid)
     if not combat:
         return False, "no_combat"
-    if not combat["my_turn"]:
-        return False, "not_my_turn"
+    if combat.get("my_ready"):
+        return False, "already_ready"
     try:
         pending = json.loads(combat.get("pending_actions") or "[]")
     except Exception:
@@ -218,7 +238,7 @@ async def _queue_pvp_action(uid, action_code):
 
 async def _undo_pvp_action(uid):
     combat = await _get_pvp_combat(uid)
-    if not combat or not combat["my_turn"]:
+    if not combat or combat.get("my_ready"):
         return False
     try:
         pending = json.loads(combat.get("pending_actions") or "[]")
@@ -235,8 +255,8 @@ async def _undo_pvp_action(uid):
 async def pvp_add_attack(c: CallbackQuery):
     ok, reason = await _queue_pvp_action(c.from_user.id, "attack")
     if not ok:
-        msg = {"not_my_turn": "Не твой ход", "full": "Очередь полна"}.get(reason, "Ошибка")
-        await c.answer(msg, show_alert=True); return
+        await c.answer("Нельзя добавить" if reason != "full" else "Очередь полна",
+                       show_alert=True); return
     await c.answer("⚔️ +Атака")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
@@ -248,8 +268,7 @@ async def pvp_add_attack(c: CallbackQuery):
 async def pvp_add_defend(c: CallbackQuery):
     ok, reason = await _queue_pvp_action(c.from_user.id, "defend")
     if not ok:
-        msg = {"not_my_turn": "Не твой ход", "full": "Очередь полна"}.get(reason, "Ошибка")
-        await c.answer(msg, show_alert=True); return
+        await c.answer("Ошибка", show_alert=True); return
     await c.answer("🛡 +Защита")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
@@ -307,7 +326,7 @@ async def pvp_add_potion_mp(c: CallbackQuery):
 async def pvp_undo(c: CallbackQuery):
     ok = await _undo_pvp_action(c.from_user.id)
     if not ok:
-        await c.answer("Очередь пуста или не твой ход"); return
+        await c.answer("Очередь пуста или уже готов"); return
     await c.answer("↩️")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
@@ -315,188 +334,373 @@ async def pvp_undo(c: CallbackQuery):
                           edit_message=c.message)
 
 
-# ================= ВЫПОЛНЕНИЕ ХОДА =================
+# ================= РАЗРЕШЕНИЕ РАУНДА =================
 @router.callback_query(F.data == "pvp_execute")
 async def pvp_execute(c: CallbackQuery):
     uid = c.from_user.id
     combat = await _get_pvp_combat(uid)
     if not combat:
         await c.answer("Бой завершён", show_alert=True); return
-    if not combat["my_turn"]:
-        await c.answer("Не твой ход", show_alert=True); return
+    if combat.get("my_ready"):
+        await c.answer("Ты уже готов", show_alert=True); return
 
     try:
         pending = json.loads(combat.get("pending_actions") or "[]")
     except Exception:
         pending = []
     if not pending:
-        await c.answer("Очередь пуста", show_alert=True); return
+        await c.answer("Добавь хотя бы 1 действие", show_alert=True); return
 
-    user = await g.db.get_user(uid)
+    # Ставим флаг готовности
+    await g.db.set_my_ready(uid, 1)
+
     opp_id = combat["opponent_id"]
-    opp = await g.db.get_user(opp_id)
+    opp_combat = await g.db.get_opponent_combat(opp_id)
 
-    log = []
-    enemy_skip = False
+    # Проверяем готов ли оппонент
+    if not opp_combat or not opp_combat.get("my_ready"):
+        # Ждём соперника
+        try:
+            await c.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(
+                    text="⏳ Ждём соперника...", callback_data="pvp_noop")]]))
+        except Exception:
+            pass
+        await c.answer("⏳ Ждём соперника...")
+        # Уведомим оппонента
+        try:
+            await g.bot.send_message(opp_id,
+                f"⚔️ <b>Соперник готов!</b>\n\nТвой ход — выбери действия.",
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+        return
 
-    for action in pending:
-        opp = await g.db.get_user(opp_id)
-        if opp["hp"] <= 0:
-            break
+    # ОБА ГОТОВЫ → разрешаем раунд
+    await c.answer("⚡ Разрешаем раунд...")
+    await _resolve_pvp_round(uid, opp_id)
 
+
+async def _resolve_pvp_round(uid_a, uid_b):
+    """Разрешает раунд между двумя игроками одновременно."""
+    combat_a = await g.db.get_combat(uid_a)
+    combat_b = await g.db.get_combat(uid_b)
+    if not combat_a or not combat_b:
+        return
+
+    user_a = await g.db.get_user(uid_a)
+    user_b = await g.db.get_user(uid_b)
+
+    try:
+        actions_a = json.loads(combat_a.get("pending_actions") or "[]")
+    except Exception:
+        actions_a = []
+    try:
+        actions_b = json.loads(combat_b.get("pending_actions") or "[]")
+    except Exception:
+        actions_b = []
+
+    log_a = []  # что произошло с A (для отчёта A)
+    log_b = []  # что произошло с B (для отчёта B)
+
+    # ============ 1. СЧИТАЕМ ЗАЩИТУ ============
+    defends_a = sum(1 for x in actions_a if x == "defend")
+    defends_b = sum(1 for x in actions_b if x == "defend")
+    def_mult_a = DEFEND_MULT_BY_COUNT.get(defends_a, 1.0)
+    def_mult_b = DEFEND_MULT_BY_COUNT.get(defends_b, 1.0)
+
+    # ============ 2. ЗЕЛЬЯ И ХИЛЫ (применяются первыми) ============
+    new_hp_a = user_a["hp"]
+    new_hp_b = user_b["hp"]
+    new_mp_a = user_a.get("mp", 0)
+    new_mp_b = user_b.get("mp", 0)
+    gold_a = user_a["gold"]
+    gold_b = user_b["gold"]
+
+    # Хилы A
+    for action in actions_a:
+        if action == "potion_hp":
+            if new_hp_a >= user_a["max_hp"]:
+                log_a.append("💚 HP полное, зелье не использовано")
+                continue
+            if gold_a < POTION_PRICE:
+                log_a.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
+                continue
+            gold_a -= POTION_PRICE
+            new_hp_a = min(user_a["max_hp"], new_hp_a + POTION_HEAL)
+            log_a.append(f"💚 Зелье HP: +{POTION_HEAL}")
+        elif action == "potion_mp":
+            if new_mp_a >= user_a["max_mp"]:
+                log_a.append("🔮 MP полное")
+                continue
+            if gold_a < MP_POTION_PRICE:
+                log_a.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
+                continue
+            gold_a -= MP_POTION_PRICE
+            new_mp_a = min(user_a["max_mp"], new_mp_a + MP_POTION_RESTORE)
+            log_a.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+        elif action.startswith("skill_"):
+            code = action.replace("skill_", "")
+            s = get_skill(code)
+            if not s:
+                continue
+            if s["effect"] == "heal":
+                if new_mp_a < s["mp_cost"]:
+                    log_a.append(f"❌ Не хватило MP для «{s['name']}»")
+                    continue
+                new_mp_a -= s["mp_cost"]
+                mult = skill_multiplier(user_a, code)
+                heal = int(user_a["max_hp"] * mult * racial_heal_mult(user_a))
+                new_hp_a = min(user_a["max_hp"], new_hp_a + heal)
+                log_a.append(f"✨ {s['name']}: +{heal} HP")
+
+    # Хилы B
+    for action in actions_b:
+        if action == "potion_hp":
+            if new_hp_b >= user_b["max_hp"]:
+                log_b.append("💚 HP полное, зелье не использовано")
+                continue
+            if gold_b < POTION_PRICE:
+                log_b.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
+                continue
+            gold_b -= POTION_PRICE
+            new_hp_b = min(user_b["max_hp"], new_hp_b + POTION_HEAL)
+            log_b.append(f"💚 Зелье HP: +{POTION_HEAL}")
+        elif action == "potion_mp":
+            if new_mp_b >= user_b["max_mp"]:
+                log_b.append("🔮 MP полное")
+                continue
+            if gold_b < MP_POTION_PRICE:
+                log_b.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
+                continue
+            gold_b -= MP_POTION_PRICE
+            new_mp_b = min(user_b["max_mp"], new_mp_b + MP_POTION_RESTORE)
+            log_b.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+        elif action.startswith("skill_"):
+            code = action.replace("skill_", "")
+            s = get_skill(code)
+            if not s:
+                continue
+            if s["effect"] == "heal":
+                if new_mp_b < s["mp_cost"]:
+                    log_b.append(f"❌ Не хватило MP для «{s['name']}»")
+                    continue
+                new_mp_b -= s["mp_cost"]
+                mult = skill_multiplier(user_b, code)
+                heal = int(user_b["max_hp"] * mult * racial_heal_mult(user_b))
+                new_hp_b = min(user_b["max_hp"], new_hp_b + heal)
+                log_b.append(f"✨ {s['name']}: +{heal} HP")
+
+    # ============ 3. АТАКИ ============
+    # Все атаки A → по B (с учётом def_mult_b)
+    # Все атаки B → по A (с учётом def_mult_a)
+
+    # Считаем урон A по B
+    dmg_a_to_b = 0
+    for action in actions_a:
         if action == "attack":
-            eff = effective_stats(user)
-            t_pdef = calc_p_def(opp)
-            t_mdef = calc_m_def(opp)
-            dmg_type = get_dmg_type(user)
-            base = calc_damage(user)
+            eff_a = effective_stats(user_a)
+            t_pdef = calc_p_def(user_b)
+            t_mdef = calc_m_def(user_b)
+            dmg_type = get_dmg_type(user_a)
+            base = calc_damage(user_a)
             if dmg_type == "magic":
                 dmg = apply_defense(base, t_mdef)
             else:
                 dmg = apply_defense(base, t_pdef)
-            dmg = int(dmg * faction_mult(user, "dmg_mult"))
-
-            crit_chance = eff["dex"] + racial_crit_bonus(user) + get_crit_bonus(user)
-            if user.get("pet_type") == "owl":
+            dmg = int(dmg * faction_mult(user_a, "dmg_mult"))
+            crit_chance = eff_a["dex"] + racial_crit_bonus(user_a) + get_crit_bonus(user_a)
+            if user_a.get("pet_type") == "owl":
                 crit_chance += 15
             is_crit = random.randint(1, 100) <= crit_chance
             if is_crit:
                 dmg = int(dmg * 2)
-
-            new_hp = max(0, opp["hp"] - dmg)
-            await g.db.update_hp(opp_id, new_hp)
-            async with g.db.pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
-                    new_hp, uid
-                )
-            log.append(f"⚔️ {dmg} урона" + (" 💥 КРИТ!" if is_crit else ""))
-
-        elif action == "defend":
-            heal = int(user["max_hp"] * 0.05)
-            new_hp = min(user["max_hp"], user["hp"] + heal)
-            await g.db.update_hp(uid, new_hp)
-            user["hp"] = new_hp
-            log.append(f"🛡 Защита: +{heal} HP")
+            dmg = int(dmg * def_mult_b)
+            dmg_a_to_b += dmg
+            crit_txt = " 💥 КРИТ!" if is_crit else ""
+            log_a.append(f"⚔️ Атака: {dmg} урона{crit_txt}")
 
         elif action.startswith("skill_"):
-            skill_code = action.replace("skill_", "")
-            s = get_skill(skill_code)
+            code = action.replace("skill_", "")
+            s = get_skill(code)
             if not s:
                 continue
-            mp_cost = s["mp_cost"]
-            if user["mp"] < mp_cost:
-                log.append(f"❌ Не хватило MP для «{s['name']}»")
-                continue
-            await g.db.spend_mp(uid, mp_cost)
-            user["mp"] -= mp_cost
-            mult = skill_multiplier(user, skill_code)
-            effect = s["effect"]
-
-            if effect == "damage":
-                t_pdef = calc_p_def(opp)
-                t_mdef = calc_m_def(opp)
-                dmg_type = get_dmg_type(user)
-                base = calc_damage(user)
-                if dmg_type == "magic":
-                    dmg = apply_defense(base, t_mdef)
+            if s["effect"] in ("damage", "debuff", "stun", "buff_atk", "buff_def"):
+                if new_mp_a < s["mp_cost"]:
+                    log_a.append(f"❌ Не хватило MP для «{s['name']}»")
+                    continue
+                new_mp_a -= s["mp_cost"]
+                if s["effect"] == "damage":
+                    mult = skill_multiplier(user_a, code)
+                    t_pdef = calc_p_def(user_b)
+                    t_mdef = calc_m_def(user_b)
+                    dmg_type = get_dmg_type(user_a)
+                    base = calc_damage(user_a)
+                    if dmg_type == "magic":
+                        dmg = apply_defense(base, t_mdef)
+                    else:
+                        dmg = apply_defense(base, t_pdef)
+                    dmg = int(dmg * mult * faction_mult(user_a, "dmg_mult") * def_mult_b)
+                    dmg_a_to_b += dmg
+                    log_a.append(f"✨ {s['name']}: {dmg} урона")
+                elif s["effect"] == "stun":
+                    log_a.append(f"✨ {s['name']}: соперник оглушён")
+                elif s["effect"] == "debuff":
+                    log_a.append(f"✨ {s['name']}: дебафф на соперника")
                 else:
-                    dmg = apply_defense(base, t_pdef)
-                dmg = int(dmg * mult * faction_mult(user, "dmg_mult"))
-                new_hp = max(0, opp["hp"] - dmg)
-                await g.db.update_hp(opp_id, new_hp)
-                async with g.db.pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
-                        new_hp, uid
-                    )
-                log.append(f"✨ {s['name']}: {dmg} урона")
+                    log_a.append(f"✨ {s['name']}")
 
-            elif effect == "heal":
-                heal = int(user["max_hp"] * mult * racial_heal_mult(user))
-                new_hp = min(user["max_hp"], user["hp"] + heal)
-                await g.db.update_hp(uid, new_hp)
-                user["hp"] = new_hp
-                log.append(f"✨ {s['name']}: +{heal} HP")
+    # Считаем урон B по A
+    dmg_b_to_a = 0
+    for action in actions_b:
+        if action == "attack":
+            eff_b = effective_stats(user_b)
+            t_pdef = calc_p_def(user_a)
+            t_mdef = calc_m_def(user_a)
+            dmg_type = get_dmg_type(user_b)
+            base = calc_damage(user_b)
+            if dmg_type == "magic":
+                dmg = apply_defense(base, t_mdef)
+            else:
+                dmg = apply_defense(base, t_pdef)
+            dmg = int(dmg * faction_mult(user_b, "dmg_mult"))
+            crit_chance = eff_b["dex"] + racial_crit_bonus(user_b) + get_crit_bonus(user_b)
+            if user_b.get("pet_type") == "owl":
+                crit_chance += 15
+            is_crit = random.randint(1, 100) <= crit_chance
+            if is_crit:
+                dmg = int(dmg * 2)
+            dmg = int(dmg * def_mult_a)
+            dmg_b_to_a += dmg
+            crit_txt = " 💥 КРИТ!" if is_crit else ""
+            log_b.append(f"⚔️ Атака: {dmg} урона{crit_txt}")
 
-            elif effect == "buff_atk":
-                log.append(f"✨ {s['name']}: бафф атаки")
-
-            elif effect == "debuff":
-                log.append(f"✨ {s['name']}: дебафф")
-
-            elif effect == "stun":
-                enemy_skip = True
-                log.append(f"✨ {s['name']}: враг оглушён!")
-
-            elif effect == "buff_def":
-                log.append(f"✨ {s['name']}: защита")
-
-        elif action == "potion_hp":
-            if user["hp"] >= user["max_hp"]:
-                log.append("💚 HP полное, зелье не использовано")
+        elif action.startswith("skill_"):
+            code = action.replace("skill_", "")
+            s = get_skill(code)
+            if not s:
                 continue
-            if user["gold"] < POTION_PRICE:
-                log.append(f"❌ Нет {POTION_PRICE}💰 на зелье")
-                continue
-            await g.db.spend_gold(uid, POTION_PRICE)
-            new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
-            await g.db.update_hp(uid, new_hp)
-            user["hp"] = new_hp
-            log.append(f"💚 Зелье HP: +{POTION_HEAL}")
+            if s["effect"] in ("damage", "debuff", "stun", "buff_atk", "buff_def"):
+                if new_mp_b < s["mp_cost"]:
+                    log_b.append(f"❌ Не хватило MP для «{s['name']}»")
+                    continue
+                new_mp_b -= s["mp_cost"]
+                if s["effect"] == "damage":
+                    mult = skill_multiplier(user_b, code)
+                    t_pdef = calc_p_def(user_a)
+                    t_mdef = calc_m_def(user_a)
+                    dmg_type = get_dmg_type(user_b)
+                    base = calc_damage(user_b)
+                    if dmg_type == "magic":
+                        dmg = apply_defense(base, t_mdef)
+                    else:
+                        dmg = apply_defense(base, t_pdef)
+                    dmg = int(dmg * mult * faction_mult(user_b, "dmg_mult") * def_mult_a)
+                    dmg_b_to_a += dmg
+                    log_b.append(f"✨ {s['name']}: {dmg} урона")
+                elif s["effect"] == "stun":
+                    log_b.append(f"✨ {s['name']}: соперник оглушён")
+                elif s["effect"] == "debuff":
+                    log_b.append(f"✨ {s['name']}: дебафф на соперника")
+                else:
+                    log_b.append(f"✨ {s['name']}")
 
-        elif action == "potion_mp":
-            if user["mp"] >= user["max_mp"]:
-                log.append("🔮 MP полное, зелье не использовано")
-                continue
-            if user["gold"] < MP_POTION_PRICE:
-                log.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье")
-                continue
-            await g.db.spend_gold(uid, MP_POTION_PRICE)
-            new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
-            await g.db.update_mp(uid, new_mp)
-            user["mp"] = new_mp
-            log.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+    # ============ 4. ПРИМЕНЯЕМ УРОН ============
+    new_hp_b = max(0, new_hp_b - dmg_a_to_b)
+    new_hp_a = max(0, new_hp_a - dmg_b_to_a)
 
-    await g.db.clear_pending_actions(uid)
+    # ============ 5. ОБНОВЛЯЕМ БД ============
+    await g.db.update_hp(uid_a, new_hp_a)
+    await g.db.update_hp(uid_b, new_hp_b)
+    await g.db.update_mp(uid_a, new_mp_a)
+    await g.db.update_mp(uid_b, new_mp_b)
+    if gold_a != user_a["gold"]:
+        await g.db.set_gold(uid_a, gold_a)
+    if gold_b != user_b["gold"]:
+        await g.db.set_gold(uid_b, gold_b)
 
-    opp = await g.db.get_user(opp_id)
-    summary = "<b>🗡 Твои действия:</b>\n" + "\n".join(log)
+    # Обновляем enemy_hp в combat (для отображения HP оппонента)
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
+            new_hp_b, uid_a
+        )
+        await conn.execute(
+            "UPDATE active_combat SET enemy_hp=$1 WHERE user_id=$2",
+            new_hp_a, uid_b
+        )
 
-    if opp["hp"] <= 0:
-        await c.answer("⚡ Выполнено!")
-        try:
-            await c.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        await pvp_end(winner_id=uid, loser_id=opp_id, stake=combat["stake"])
+    # Обнуляем действия и флаги готовности
+    await g.db.clear_pending_actions(uid_a)
+    await g.db.clear_pending_actions(uid_b)
+    await g.db.set_my_ready(uid_a, 0)
+    await g.db.set_my_ready(uid_b, 0)
+    await g.db.incr_combat_round(uid_a)
+    await g.db.incr_combat_round(uid_b)
+
+    # ============ 6. ПРОВЕРКА СМЕРТИ ============
+    a_dead = new_hp_a <= 0
+    b_dead = new_hp_b <= 0
+
+    if a_dead or b_dead:
+        if a_dead and b_dead:
+            # Ничья — оба упали
+            await _pvp_draw(uid_a, uid_b)
+        elif b_dead:
+            await pvp_end(winner_id=uid_a, loser_id=uid_b, stake=combat_a["stake"])
+        else:
+            await pvp_end(winner_id=uid_b, loser_id=uid_a, stake=combat_a["stake"])
         return
 
+    # ============ 7. ОТПРАВЛЯЕМ РЕЗУЛЬТАТ ============
+    # Игроку A — его действия + что сделал B
+    text_a = "<b>🗡 Твои действия:</b>\n" + "\n".join(f"  {x}" for x in log_a)
+    text_a += "\n\n<b>💀 Что делал соперник:</b>\n"
+    if not log_b:
+        text_a += "  <i>— ничего —</i>"
+    else:
+        text_a += "\n".join(f"  {x}" for x in log_b)
+
+    if dmg_a_to_b > 0:
+        text_a += f"\n\n💥 <b>Ты нанёс: {dmg_a_to_b}</b>"
+    if dmg_b_to_a > 0:
+        text_a += f"\n💔 <b>Получил: {dmg_b_to_a}</b>"
+
+    # Игроку B — зеркально
+    text_b = "<b>🗡 Твои действия:</b>\n" + "\n".join(f"  {x}" for x in log_b)
+    text_b += "\n\n<b>💀 Что делал соперник:</b>\n"
+    if not log_a:
+        text_b += "  <i>— ничего —</i>"
+    else:
+        text_b += "\n".join(f"  {x}" for x in log_a)
+
+    if dmg_b_to_a > 0:
+        text_b += f"\n\n💥 <b>Ты нанёс: {dmg_b_to_a}</b>"
+    if dmg_a_to_b > 0:
+        text_b += f"\n💔 <b>Получил: {dmg_a_to_b}</b>"
+
+    user_a = await g.db.get_user(uid_a)
+    user_b = await g.db.get_user(uid_b)
+    combat_a = await g.db.get_combat(uid_a)
+    combat_b = await g.db.get_combat(uid_b)
+
+    await send_pvp_state(uid_a, user_a, combat_a, edit_message=None)
+    await send_pvp_state(uid_b, user_b, combat_b, edit_message=None)
+
+    # Дополнительно отправляем отчёт
     try:
-        await g.bot.send_message(opp_id,
-            f"⚔️ <b>Ход противника</b> ({user['char_name']})\n\n{summary}",
-            parse_mode=ParseMode.HTML)
+        await g.bot.send_message(uid_a, text_a, parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+    try:
+        await g.bot.send_message(uid_b, text_b, parse_mode=ParseMode.HTML)
     except Exception:
         pass
 
-    if enemy_skip:
-        await g.db.set_pending_actions(uid, "[]")
-        try:
-            await c.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        user = await g.db.get_user(uid)
-        await send_pvp_state(uid, user, await g.db.get_combat(uid))
-        await c.answer("⚡ Враг оглушён! Ход остаётся у тебя")
-        return
 
-    await g.db.pvp_switch_turn(uid)
-    user = await g.db.get_user(uid)
-    opp = await g.db.get_user(opp_id)
-    await send_pvp_state(uid, user, await g.db.get_combat(uid),
-                         edit_message=c.message)
-    await send_pvp_state(opp_id, opp, await g.db.get_combat(opp_id))
-    await c.answer("⚡ Ход передан")
+@router.callback_query(F.data == "pvp_noop")
+async def pvp_noop(c: CallbackQuery):
+    await c.answer("⏳ Ждём соперника...", show_alert=False)
 
 
 # ================= СДАТЬСЯ =================
@@ -530,6 +734,22 @@ async def pvp_surrender_cb(c: CallbackQuery):
     except Exception:
         pass
     await c.answer()
+
+
+async def _pvp_draw(uid_a, uid_b):
+    """Оба умерли одновременно."""
+    await g.db.end_combat(uid_a)
+    await g.db.end_combat(uid_b)
+    for uid in (uid_a, uid_b):
+        u = await g.db.get_user(uid)
+        nm = calc_max_hp(u)
+        await g.db.update_hp_max(uid, nm, nm)
+        try:
+            await g.bot.send_message(uid,
+                "🤝 <b>НИЧЬЯ!</b>\n\nОба героя пали одновременно. Ставки возвращены.",
+                reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
 
 
 async def pvp_end(winner_id, loser_id, stake):
