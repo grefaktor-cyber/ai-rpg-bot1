@@ -1,4 +1,4 @@
-"""Магазин: категории, покупка. UI-2.6: короткие кнопки + back/close."""
+"""Магазин: категории, покупка. Фильтр по уровню игрока."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -12,6 +12,21 @@ from core.formulas import faction_mult, calc_max_hp, calc_max_mp, parse_item
 from core.keyboards import main_kb
 
 router = Router()
+
+
+# Ранг грейда: чем выше, тем "новее" предмет
+GRADE_RANK = {"common": 0, "D": 1, "C": 2, "B": 3}
+
+
+def _player_grade_rank(level):
+    """Какой грейд игрок сейчас «должен» носить."""
+    if level < 15:
+        return 0   # common
+    if level < 30:
+        return 1   # D
+    if level < 45:
+        return 2   # C
+    return 3       # B
 
 
 def _short(name, n=18):
@@ -40,7 +55,9 @@ CATEGORIES = {
 
 
 def _get_items(user_class, player_level, shop_mult, category):
+    """Возвращает доступные предметы, скрывая устаревшие (на 2+ тира ниже)."""
     groups = {"common": [], "D": [], "C": [], "B": []}
+    player_rank = _player_grade_rank(player_level)
     for name, data in SHOP.items():
         if category == "accessory" and data["type"] != "accessory":
             continue
@@ -55,10 +72,48 @@ def _get_items(user_class, player_level, shop_mult, category):
             continue
         if data.get("premium"):
             continue
-        price = int(data["price"] * shop_mult)
         grade = data.get("grade", "common")
+        item_rank = GRADE_RANK.get(grade, 0)
+        # Скрываем предметы, которые на 2+ тира ниже игрока
+        # Пример: игрок 35 lvl (rank 2) — скрываем common (rank 0)
+        # Но показываем D (rank 1) как «предыдущий»
+        if item_rank < player_rank - 1:
+            continue
+        price = int(data["price"] * shop_mult)
         groups[grade].append((name, data, price))
     return groups
+
+
+def _shop_menu_kb(counts):
+    rows = []
+    for cat, (label, icon) in CATEGORIES.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{label} ({counts[cat]})",
+            callback_data=f"shop_cat_{cat}"
+        )])
+    rows.append(_back_close_row("menu_game"))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _shop_menu_text(u, shop_mult, counts):
+    armor_type = get_armor_type(u["class"])
+    armor_names = {"heavy": "Тяжёлая", "light": "Лёгкая", "robe": "Мантия"}
+    text = (f"🛒 <b>Магазин</b>\n\n"
+            f"💰 Золото: <b>{u['gold']}</b>\n"
+            f"🎭 Класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')})\n"
+            f"⭐ Уровень: <b>{u['level']}</b>\n")
+    if shop_mult < 1:
+        text += f"🏷 Скидка фракции: <b>−{int((1-shop_mult)*100)}%</b>\n"
+    text += "\n<b>Категории:</b>\n"
+    for cat, (label, icon) in CATEGORIES.items():
+        cnt = counts[cat]
+        if cnt > 0:
+            text += f"• {label} — <b>{cnt}</b>\n"
+        else:
+            text += f"• {label} — <i>нет</i>\n"
+    text += "\n⚪ Обычный · 🔷 D (15+) · 🔶 C (30+) · 💎 B (45+)"
+    text += "\n<i>Показываются только актуальные для уровня предметы.</i>"
+    return text
 
 
 @router.message(Command("shop"))
@@ -68,70 +123,29 @@ async def shop(m: Message):
     if not u["char_name"]:
         await m.answer("Сначала создай героя."); return
     shop_mult = faction_mult(u, "shop_mult")
-    armor_type = get_armor_type(u["class"])
-    armor_names = {"heavy": "Тяжёлая", "light": "Лёгкая", "robe": "Мантия"}
-
-    text = (f"🛒 <b>Магазин</b>\n\n"
-            f"💰 Золото: <b>{u['gold']}</b>\n"
-            f"🎭 Класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')})\n"
-            f"⭐ Уровень: <b>{u['level']}</b>\n")
-    if shop_mult < 1:
-        text += f"🏷 Скидка фракции: <b>−{int((1-shop_mult)*100)}%</b>\n"
     counts = {}
     for cat in CATEGORIES:
         g_ = _get_items(u["class"], u["level"], shop_mult, cat)
         counts[cat] = sum(len(v) for v in g_.values())
-    text += "\n<b>Категории:</b>\n"
-    for cat, (label, icon) in CATEGORIES.items():
-        cnt = counts[cat]
-        if cnt > 0:
-            text += f"• {label} — <b>{cnt}</b>\n"
-        else:
-            text += f"• {label} — <i>нет</i>\n"
-    text += "\n⚪ Обычный · 🔷 D (15+) · 🔶 C (30+) · 💎 B (45+)"
-
-    rows = []
-    for cat, (label, icon) in CATEGORIES.items():
-        rows.append([InlineKeyboardButton(
-            text=f"{label} ({counts[cat]})",
-            callback_data=f"shop_cat_{cat}"
-        )])
-    rows.append(_back_close_row("menu_game"))
+    text = _shop_menu_text(u, shop_mult, counts)
     from services.ui import send_menu
-    await send_menu(m, text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await send_menu(m, text, _shop_menu_kb(counts))
 
 
 @router.callback_query(F.data == "shop_menu")
 async def shop_menu_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
     shop_mult = faction_mult(u, "shop_mult")
-    armor_type = get_armor_type(u["class"])
-    armor_names = {"heavy": "Тяжёлая", "light": "Лёгкая", "robe": "Мантия"}
-    text = (f"🛒 <b>Магазин</b>\n\n"
-            f"💰 Золото: <b>{u['gold']}</b>\n"
-            f"🎭 Класс: <b>{u['class']}</b> ({armor_names.get(armor_type, '?')})\n"
-            f"⭐ Уровень: <b>{u['level']}</b>\n")
     counts = {}
     for cat in CATEGORIES:
         g_ = _get_items(u["class"], u["level"], shop_mult, cat)
         counts[cat] = sum(len(v) for v in g_.values())
-    text += "\n<b>Категории:</b>\n"
-    for cat, (label, icon) in CATEGORIES.items():
-        text += f"• {label} — <b>{counts[cat]}</b>\n"
-    text += "\n⚪ Обычный · 🔷 D (15+) · 🔶 C (30+) · 💎 B (45+)"
-    rows = []
-    for cat, (label, icon) in CATEGORIES.items():
-        rows.append([InlineKeyboardButton(
-            text=f"{label} ({counts[cat]})", callback_data=f"shop_cat_{cat}")])
-    rows.append(_back_close_row("menu_game"))
+    text = _shop_menu_text(u, shop_mult, counts)
+    kb = _shop_menu_kb(counts)
     try:
-        await c.message.edit_text(text,
-                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                                  parse_mode=ParseMode.HTML)
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     except Exception:
-        await c.message.answer(text,
-                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                               parse_mode=ParseMode.HTML)
+        await c.message.answer(text, reply_markup=kb, parse_mode=ParseMode.HTML)
     await c.answer()
 
 
