@@ -1,4 +1,4 @@
-"""Логика боя 4.0: очередь 4 действия, спойл, range, расовые бонусы, итоги."""
+"""Логика боя 4.0: очередь 4 действия, спойл, range, расовые бонусы, квесты, итоги."""
 import json
 import random
 
@@ -221,7 +221,6 @@ async def _exec_player_action(user, combat, action, log):
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
 
-    # --- Расчёт расовых бонусов ---
     race_dmg_mult = get_racial_combat_bonus(user, "dmg_mult", 1.0)
     race_magic_mult = get_racial_combat_bonus(user, "magic_mult", 1.0)
     race_crit_bonus = get_racial_combat_bonus(user, "crit_bonus", 0)
@@ -262,7 +261,6 @@ async def _exec_player_action(user, combat, action, log):
         if pet_dmg > 0:
             line += f"\n  {pet_text} — {pet_dmg}!"
         log.append(line)
-        # Вампиризм расы
         if race_lifesteal > 0 and total_dmg > 0:
             heal = int(total_dmg * race_lifesteal)
             new_hp = min(user["max_hp"], user["hp"] + heal)
@@ -295,7 +293,6 @@ async def _exec_player_action(user, combat, action, log):
             t_pdef = enemy_p_def(combat["enemy_level"])
             t_mdef = enemy_m_def(combat["enemy_level"])
             dmg_type = get_dmg_type(user)
-            # pierce — игнорирует защиту
             if s.get("pierce"):
                 base_dmg = calc_damage(user)
             else:
@@ -306,10 +303,8 @@ async def _exec_player_action(user, combat, action, log):
                 base_dmg = int(base_dmg * race_dmg_mult)
             base_dmg = int(base_dmg * racial_low_hp_mult(user) * rage_mult)
             dmg = int(base_dmg * mult * faction_mult(user, "dmg_mult") * range_bonus)
-            # double — двойной удар
             if s.get("double"):
                 dmg *= 2
-            # execute — добивание при HP врага < 20%
             if s.get("execute") and new_enemy_hp < combat["enemy_max_hp"] * 0.20:
                 dmg = int(dmg * s["execute"])
                 log.append(f"✨ {s['name']}: <b>ДОБИВАНИЕ!</b> ×{s['execute']}")
@@ -319,7 +314,6 @@ async def _exec_player_action(user, combat, action, log):
                 log.append(f"✨ {s['name']}: {dmg} урона")
             new_enemy_hp = combat["enemy_hp"] - dmg
             await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
-            # lifesteal
             if s.get("lifesteal") and dmg > 0:
                 heal = int(dmg * s["lifesteal"])
                 new_hp = min(user["max_hp"], user["hp"] + heal)
@@ -375,7 +369,6 @@ async def _exec_player_action(user, combat, action, log):
 
 
 async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
-    # Уклонение (плут)
     dodge = get_racial_combat_bonus(user, "dodge", 0)
     if dodge > 0 and random.randint(1, 100) <= dodge:
         log.append(f"💨 <b>Уклонение!</b> Ты избежал атаки врага")
@@ -542,6 +535,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     await g.db.update_story(user["user_id"], (story_now + marker)[-4000:])
 
     enemy_name = combat["enemy_name"]
+
+    # ============ ЗАЧЁТ NPC-КВЕСТОВ (старый) ============
     all_q = await g.db.get_user_quests(user["user_id"])
     for qrow in all_q:
         if qrow["completed"]:
@@ -549,9 +544,24 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         q = W.get_quest(qrow["quest_code"])
         if not q:
             continue
-        if q["target"].lower() in enemy_name.lower():
+        target_low = q["target"].lower()
+        enemy_low = enemy_name.lower()
+        # Матч в обе стороны — устойчивее к "Гоблин" vs "Гоблин-воин"
+        if target_low in enemy_low or enemy_low in target_low:
             await g.db.incr_npc_quest(user["user_id"], qrow["quest_code"], 1)
 
+    # ============ ЗАЧЁТ ВСЕХ ТИПОВ КВЕСТОВ (сюжет + daily + weekly) ============
+    try:
+        from handlers.quests import progress_quest as quest_progress
+        await quest_progress(user["user_id"], "kill_enemies", 1,
+                              target_name=enemy_name)
+        if combat["is_boss"]:
+            await quest_progress(user["user_id"], "kill_bosses", 1)
+    except Exception as _e:
+        import logging
+        logging.error(f"[QUEST PROGRESS] {_e}", exc_info=True)
+
+    # Старый daily kill_enemies (двойная страховка)
     q = await g.db.progress_quest(user["user_id"], "kill_enemies", 1)
     if q and q.get("completed"):
         try:
