@@ -1,5 +1,6 @@
-"""Квесты: сюжетные, ежедневные, еженедельные. back+close."""
+"""Квесты: сюжетные, ежедневные, еженедельные. Зачёт из боя/travel/pvp."""
 import json
+import logging
 import random
 from datetime import date, timedelta
 
@@ -16,6 +17,7 @@ from core.quests import (
 import world as W
 
 router = Router()
+log = logging.getLogger(__name__)
 
 
 def get_daily_reset_date():
@@ -227,49 +229,96 @@ async def _ensure_weekly_quests(uid):
         )
 
 
+# ================= ОБЩИЙ ПРОГРЕСС ПО ВСЕМ ТИПАМ =================
 async def progress_quest(uid, quest_type, amount=1, target_name=None):
-    active_story = await g.db.get_active_story_quests(uid)
-    for q in active_story:
-        quest = STORY_QUESTS.get(q["quest_code"])
-        if not quest:
-            continue
-        if quest.get("type") == "kill":
-            if target_name and quest["target"].lower() in target_name.lower():
-                await g.db.incr_story_quest(uid, q["quest_code"], amount)
+    """Зачитывает прогресс по всем типам квестов.
 
-    daily = await g.db.get_timed_quests(uid, "daily", get_daily_reset_date())
-    for dq in daily:
-        if dq["completed"]:
-            continue
-        tgt = dq["quest_code"].lower()
-        match = False
-        if quest_type == "kill_enemies" and ("охотник" in tgt or "убить" in tgt):
-            match = True
-        elif quest_type == "kill_bosses" and ("босс" in tgt or "легендарн" in tgt):
-            match = True
-        elif quest_type == "visit_locations" and "исследова" in tgt:
-            match = True
-        elif quest_type == "win_duels" and "арена" in tgt:
-            match = True
-        if match:
-            await g.db.incr_timed_quest(uid, "daily", dq["quest_code"],
-                                        get_daily_reset_date(), amount)
+    Вызывается из боя (kill_enemies, kill_bosses),
+    из travel (visit_locations), из pvp (win_duels).
 
-    weekly = await g.db.get_timed_quests(uid, "weekly", get_weekly_reset_date())
-    for wq in weekly:
-        if wq["completed"]:
-            continue
-        tgt = wq["quest_code"].lower()
-        match = False
-        if quest_type == "kill_bosses" and ("босс" in tgt or "легендарн" in tgt):
-            match = True
-        elif quest_type == "win_duels" and "арена" in tgt:
-            match = True
-        if match:
-            await g.db.incr_timed_quest(uid, "weekly", wq["quest_code"],
-                                        get_weekly_reset_date(), amount)
+    - Сюжетные: story_quest_progress (только по target_name)
+    - Ежедневные: timed_quest_progress (по совпадению title)
+    - Еженедельные: timed_quest_progress
+    """
+    # === 1. СЮЖЕТНЫЕ ===
+    try:
+        active_story = await g.db.get_active_story_quests(uid)
+        for q in active_story:
+            quest = STORY_QUESTS.get(q["quest_code"])
+            if not quest:
+                continue
+            if quest.get("type") == "kill":
+                target = quest.get("target", "").lower()
+                if target_name and target:
+                    enemy_low = target_name.lower()
+                    # Матч в обе стороны — устойчивее к "Гоблин" vs "Гоблин-воин"
+                    if target in enemy_low or enemy_low in target:
+                        await g.db.incr_story_quest(uid, q["quest_code"], amount)
+                        log.info(f"[QUEST] story {q['quest_code']} +{amount} "
+                                 f"(target={target_name}, quest_target={target})")
+    except Exception as e:
+        log.error(f"[QUEST] story error: {e}", exc_info=True)
+
+    # === 2. ЕЖЕДНЕВНЫЕ ===
+    try:
+        daily = await g.db.get_timed_quests(uid, "daily", get_daily_reset_date())
+        for dq in daily:
+            if dq["completed"]:
+                continue
+            tgt = dq["quest_code"].lower()
+            match = False
+            if quest_type == "kill_enemies":
+                if ("охотник" in tgt or "убить" in tgt
+                        or "голов" in tgt or "монстр" in tgt):
+                    match = True
+            elif quest_type == "kill_bosses":
+                if ("босс" in tgt or "легендарн" in tgt
+                        or "убийц" in tgt or "побед" in tgt):
+                    match = True
+            elif quest_type == "visit_locations":
+                if ("исследова" in tgt or "локаци" in tgt
+                        or "посе" in tgt):
+                    match = True
+            elif quest_type == "win_duels":
+                if ("арена" in tgt or "дуэл" in tgt
+                        or "побе" in tgt):
+                    match = True
+            if match:
+                await g.db.incr_timed_quest(uid, "daily", dq["quest_code"],
+                                             get_daily_reset_date(), amount)
+                log.info(f"[QUEST] daily {dq['quest_code']} +{amount}")
+    except Exception as e:
+        log.error(f"[QUEST] daily error: {e}", exc_info=True)
+
+    # === 3. ЕЖЕНЕДЕЛЬНЫЕ ===
+    try:
+        weekly = await g.db.get_timed_quests(uid, "weekly", get_weekly_reset_date())
+        for wq in weekly:
+            if wq["completed"]:
+                continue
+            tgt = wq["quest_code"].lower()
+            match = False
+            if quest_type == "kill_bosses":
+                if ("босс" in tgt or "легендарн" in tgt
+                        or "убийц" in tgt or "побед" in tgt):
+                    match = True
+            elif quest_type == "win_duels":
+                if ("арена" in tgt or "дуэл" in tgt
+                        or "побе" in tgt):
+                    match = True
+            elif quest_type == "kill_enemies":
+                if ("охотник" in tgt or "убить" in tgt
+                        or "голов" in tgt or "монстр" in tgt):
+                    match = True
+            if match:
+                await g.db.incr_timed_quest(uid, "weekly", wq["quest_code"],
+                                             get_weekly_reset_date(), amount)
+                log.info(f"[QUEST] weekly {wq['quest_code']} +{amount}")
+    except Exception as e:
+        log.error(f"[QUEST] weekly error: {e}", exc_info=True)
 
 
+# ================= СЮЖЕТНЫЕ =================
 @router.callback_query(F.data.startswith("quest_take_"))
 async def quest_take_cb(c: CallbackQuery):
     code = c.data.replace("quest_take_", "")
@@ -295,6 +344,7 @@ async def quest_take_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "story", edit_message=c.message)
 
 
+# ================= СДАЧА КВЕСТОВ =================
 @router.callback_query(F.data.startswith("quest_turn_"))
 async def quest_turn_cb(c: CallbackQuery):
     raw = c.data.replace("quest_turn_", "")
@@ -355,6 +405,7 @@ async def quest_turnw_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "weekly", edit_message=c.message)
 
 
+# ================= ОЧКИ ЗАДАНИЙ =================
 @router.callback_query(F.data == "quest_points")
 async def quest_points_cb(c: CallbackQuery):
     qp = await g.db.get_quest_points(c.from_user.id)
