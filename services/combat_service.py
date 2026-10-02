@@ -204,6 +204,7 @@ async def undo_action(uid):
 
 # ================= ДЕЙСТВИЕ ИГРОКА =================
 async def _exec_player_action(user, combat, action, log):
+    """Выполняет ОДНО действие игрока. user уже актуален (перечитан из БД)."""
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
 
@@ -248,8 +249,9 @@ async def _exec_player_action(user, combat, action, log):
             log.append("⚠️ Скил не найден")
             return new_enemy_hp, enemy_skip
         mp_cost = s["mp_cost"]
+        # ✅ Проверка MP по факту на момент хода (после предыдущих действий)
         if user["mp"] < mp_cost:
-            log.append(f"❌ Не хватило MP для «{s['name']}»")
+            log.append(f"❌ «{s['name']}» — не хватило MP ({user['mp']}/{mp_cost})")
             return new_enemy_hp, enemy_skip
         await g.db.spend_mp(user["user_id"], mp_cost)
         user["mp"] -= mp_cost
@@ -285,29 +287,31 @@ async def _exec_player_action(user, combat, action, log):
 
     elif action == "potion_hp":
         if user["hp"] >= user["max_hp"]:
-            log.append("💚 HP полное")
+            log.append("💚 HP полное — зелье не использовано")
             return new_enemy_hp, enemy_skip
         if user["gold"] < POTION_PRICE:
-            log.append(f"❌ Нет {POTION_PRICE}💰")
+            log.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
             return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], POTION_PRICE)
+        before = user["hp"]
         new_hp = min(user["max_hp"], user["hp"] + POTION_HEAL)
         await g.db.update_hp(user["user_id"], new_hp)
         user["hp"] = new_hp
-        log.append(f"💚 Зелье HP: +{POTION_HEAL}")
+        log.append(f"💚 Зелье HP: {before} → {new_hp} (+{new_hp - before})")
 
     elif action == "potion_mp":
         if user["mp"] >= user["max_mp"]:
-            log.append("🔮 MP полное")
+            log.append("🔮 MP полное — зелье не использовано")
             return new_enemy_hp, enemy_skip
         if user["gold"] < MP_POTION_PRICE:
-            log.append(f"❌ Нет {MP_POTION_PRICE}💰")
+            log.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
             return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], MP_POTION_PRICE)
+        before = user["mp"]
         new_mp = min(user["max_mp"], user["mp"] + MP_POTION_RESTORE)
         await g.db.update_mp(user["user_id"], new_mp)
         user["mp"] = new_mp
-        log.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+        log.append(f"🔮 Зелье MP: {before} → {new_mp} (+{new_mp - before})")
 
     return new_enemy_hp, enemy_skip
 
@@ -383,6 +387,8 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             await g.db.incr_combat_dmg_dealt(user["user_id"], dmg_dealt)
         if en_skip:
             enemy_skip = True
+        # ✅ Перечитываем user из БД после каждого действия —
+        # важно для сценария «зелье MP → скилл»
         user = await g.db.get_user(user["user_id"])
 
     await g.db.clear_pending_actions(user["user_id"])
