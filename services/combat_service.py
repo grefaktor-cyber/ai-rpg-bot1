@@ -1,4 +1,4 @@
-"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, защита по кол-ву defends."""
+"""Логика боя 3.0: очередь 4 действия, спойл, дроп книг, защита по defends, итоги."""
 import json
 import random
 
@@ -33,7 +33,6 @@ import world as W
 
 MAX_ACTIONS = 4
 
-# Множитель урона врага в зависимости от количества defend в очереди игрока
 DEFEND_MULT_BY_COUNT = {
     0: 1.00,
     1: 0.70,
@@ -131,7 +130,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         except Exception:
             pass
 
-    # Контекстные подсказки
     hints = []
     hp_pct = user["hp"] / max(1, user["max_hp"])
     if hp_pct < 0.30 and user["hp"] > 0:
@@ -206,7 +204,6 @@ async def undo_action(uid):
 
 # ================= ДЕЙСТВИЕ ИГРОКА =================
 async def _exec_player_action(user, combat, action, log):
-    """Выполнить одно действие игрока. Возвращает (new_enemy_hp, enemy_skip)."""
     new_enemy_hp = combat["enemy_hp"]
     enemy_skip = False
 
@@ -238,8 +235,6 @@ async def _exec_player_action(user, combat, action, log):
         log.append(line)
 
     elif action == "defend":
-        # Защита не считается здесь — она применяется к урону врага,
-        # а не к урону игрока. Смотри execute_queued_round.
         log.append("🛡 Защита")
 
     elif action == "spoil":
@@ -318,7 +313,6 @@ async def _exec_player_action(user, combat, action, log):
 
 
 async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
-    """Ход врага с учётом защиты игрока (def_mult от кол-ва defends)."""
     n_actions, dmg_mult = _get_enemy_actions(combat)
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
     player_def = get_player_def_for_enemy(user, enemy_dmg_type)
@@ -329,7 +323,6 @@ async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
         raw = calc_enemy_base_dmg(combat["enemy_level"], user["level"],
                                    is_boss=bool(combat["is_boss"]))
         total_raw += int(raw * dmg_mult * phase_mult)
-    # Сначала обычная защита (P.Def/M.Def), потом множитель от defends
     total_dmg = apply_player_defense(total_raw, player_def)
     total_dmg = int(total_dmg * def_mult)
 
@@ -340,6 +333,8 @@ async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
     new_hp = max(0, user["hp"] - total_dmg)
     await g.db.update_hp(user["user_id"], new_hp)
     user["hp"] = new_hp
+    if total_dmg > 0:
+        await g.db.incr_combat_dmg_taken(user["user_id"], total_dmg)
     if n_actions == 1:
         log.append(f"💔 Враг: {total_dmg} урона")
     else:
@@ -366,7 +361,6 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             edit_message=edit_message)
         return False
 
-    # === ПОДСЧЁТ ЗАЩИТ ===
     defends_count = sum(1 for a in pending if a == "defend")
     def_mult = DEFEND_MULT_BY_COUNT.get(defends_count, 1.0)
 
@@ -379,27 +373,28 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             break
         cur_combat = dict(combat)
         cur_combat["enemy_hp"] = new_enemy_hp
+        prev_hp = new_enemy_hp
         new_hp_enemy, en_skip = await _exec_player_action(
             user, cur_combat, action, player_log
         )
         new_enemy_hp = new_hp_enemy
+        dmg_dealt = prev_hp - new_enemy_hp
+        if dmg_dealt > 0:
+            await g.db.incr_combat_dmg_dealt(user["user_id"], dmg_dealt)
         if en_skip:
             enemy_skip = True
         user = await g.db.get_user(user["user_id"])
 
     await g.db.clear_pending_actions(user["user_id"])
 
-    # Если игрок нанёс добивающий удар — победа
     if new_enemy_hp <= 0:
         await handle_victory(chat_id, user, combat, "\n".join(player_log))
         return False
 
-    # Лог защиты (после действий игрока, перед ходом врага)
     if defends_count > 0:
         pct = int((1 - def_mult) * 100)
         player_log.append(f"🛡 Защита ×{defends_count}: урон врага −{pct}%")
 
-    # === ХОД ВРАГА ===
     enemy_log = []
     if not enemy_skip:
         dead = await _exec_enemy_turn(chat_id, user, combat, enemy_log, def_mult)
@@ -408,7 +403,6 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
     else:
         enemy_log.append("💫 Враг пропускает ход")
 
-    # MP-регенерация игрока (5% в раунд)
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
         new_mp = min(user["max_mp"], user["mp"] + regen)
@@ -434,9 +428,7 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
 
 # ================= ДРОП С БОССОВ =================
 async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
-    """Проверить дроп книги/рецепта с босса. Возвращает список дропов."""
     drops = []
-
     for code, b in SKILL_BOOKS.items():
         if boss_name not in b.get("drop_boss", []):
             continue
@@ -456,10 +448,8 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
     else:
         pool = [r for r, d in RECIPES.items() if d.get("grade") == "B"]
         chance = 0.03
-
     if is_world_boss:
         chance *= 2
-
     if pool and random.random() <= chance:
         recipe = random.choice(pool)
         recipe_item = f"📜 Рецепт: {recipe}"
@@ -472,7 +462,6 @@ async def _roll_boss_drop(uid, boss_name, boss_level, is_world_boss=False):
             if random.random() <= mat_data.get("chance", 0.10):
                 await g.db.add_rare_material(uid, mat_code, 1)
                 drops.append(("💠 Материал", mat_data["name"]))
-
     return drops
 
 
@@ -526,7 +515,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     if user.get("pet_type"):
         await g.db.add_pet_xp(user["user_id"], combat["enemy_level"] * 5)
 
-    # === СПОЙЛ ===
     spoil_reward = None
     if combat.get("spoil_used") and user.get("class") in SPOIL_CLASSES:
         for mat_code, mat_data in RARE_MATERIALS.items():
@@ -536,7 +524,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                     spoil_reward = mat_data["name"]
                     break
 
-    # === ДРОП С БОССОВ ===
     boss_drops = []
     if combat["is_boss"]:
         boss_drops = await _roll_boss_drop(
@@ -555,8 +542,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if random.randint(1, 100) <= 40:
             items.append(random.choice(DROP_TABLE))
         await g.db.advance_dungeon(user["user_id"], gold, json.dumps(items))
-
-        # Сезонный XP за победу в подземелье
         await g.db.add_season_xp(user["user_id"], combat["enemy_level"] * 2)
 
         text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
@@ -582,7 +567,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     await g.db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
 
-    # Сезонный XP за победу
     season_exp = combat["enemy_level"] * 2
     if combat["is_boss"]:
         season_exp *= 5
@@ -595,19 +579,32 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     elif diff <= -5:
         xp_note = " 💤"
 
-    text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
-            f"<b>{combat['enemy_name']}</b> повержен!\n"
-            f"+{exp} XP{xp_note} · +{gold}💰")
+    # === ИТОГИ БОЯ ===
+    rounds = combat.get("round_num", 1)
+    dmg_dealt = combat.get("total_dmg_dealt", 0)
+    dmg_taken = combat.get("total_dmg_taken", 0)
+    boss_label = " 🐉" if combat["is_boss"] else ""
+
+    text = (
+        f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>ИТОГИ БОЯ</b>\n"
+        f"⚔️ Противник: <b>{combat['enemy_name']}</b> "
+        f"(ур. {combat['enemy_level']}){boss_label}\n"
+        f"🎯 Раундов: <b>{rounds}</b>\n"
+        f"💥 Нанесено: <b>{dmg_dealt}</b>\n"
+        f"💔 Получено: <b>{dmg_taken}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n\n"
+        f"+{exp} XP{xp_note} · +{gold}💰"
+    )
 
     if event:
         text += f"\n<i>{event['event_name']} усиливает награду</i>"
 
-    # Спойл
     if spoil_reward:
         text += f"\n\n🌿 <b>Спойл:</b> +{spoil_reward}"
         await notify_drop(chat_id, spoil_reward, source="🌿 Спойл")
 
-    # === БОСС ===
     if combat["is_boss"]:
         await g.db.incr_bosses(user["user_id"])
         await g.db.add_world_event(user["user_id"], user["username"],
@@ -616,7 +613,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                                       f"Победил босса «{combat['enemy_name']}»", "boss")
         await g.db.update_hp(user["user_id"], user["max_hp"])
         text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
-
         await notify_boss(chat_id, combat["enemy_name"])
 
         if await g.db.add_achievement(user["user_id"], "first_boss"):
@@ -655,9 +651,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                 user["user_id"]
             )
         text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
-
         await notify_level(chat_id, level, nm, nmp)
-
         if level in (5, 10, 15, 20, 30):
             await g.db.add_journal_entry(user["user_id"],
                                           f"Достиг {level} уровня", "level")
@@ -712,13 +706,24 @@ async def handle_death(chat_id, user, combat):
                                f"пал в бою с «{combat['enemy_name']}»")
     await g.db.add_journal_entry(user["user_id"],
                                   f"Пал в бою с «{combat['enemy_name']}»", "death")
+
+    rounds = combat.get("round_num", 1)
+    dmg_dealt = combat.get("total_dmg_dealt", 0)
+    dmg_taken = combat.get("total_dmg_taken", 0)
+
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
             f"Ты очнулся в Начальной деревне.\n"
             f"Жрецы забрали <b>{lost}💰</b> (30%).")
     if was_dungeon:
         text += "\n\n⚠️ <b>Вся добыча из подземелья потеряна!</b>"
-    text += (f"\n\n❤️ HP: {nm}/{nm}\n💰 Золото: {u['gold'] - lost}\n\n"
+    text += (f"\n\n━━━━━━━━━━━━━━━━━━━\n"
+             f"📊 <b>ИТОГИ БОЯ</b>\n"
+             f"🎯 Раундов: {rounds}\n"
+             f"💥 Нанесено: {dmg_dealt}\n"
+             f"💔 Получено: {dmg_taken}\n"
+             f"━━━━━━━━━━━━━━━━━━━\n\n"
+             f"❤️ HP: {nm}/{nm}\n💰 Золото: {u['gold'] - lost}\n\n"
              f"<i>Уровень и опыт сохранены.</i>")
     await g.db.set_location_code(user["user_id"], "village")
     await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
