@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import json
+import time
 import world as W
 from core.equipment import SHOP
 
@@ -132,7 +133,6 @@ def _build_items_block():
     names = _get_item_names()
     if not names:
         return ""
-    # Ограничим до 40 чтобы не раздувать промпт
     chunk = names[:40]
     return ("\n\nСПИСОК ПРЕДМЕТОВ (используй ТОЧНЫЕ названия):\n" +
             "\n".join(f"  • {n}" for n in chunk) +
@@ -165,7 +165,6 @@ def _sanitize_text(text):
         return text
     result = text
     for bad, good in _SANITIZE_MAP.items():
-        # Заменяем только целые слова (регистронезависимо)
         pattern = re.compile(r"\b" + re.escape(bad) + r"\b", re.IGNORECASE)
         result = pattern.sub(good, result)
     return result
@@ -224,8 +223,6 @@ def _fallback_response(action):
 
 
 # ================= КЛИЕНТ =================
-import time
-
 _client = None
 _last_call = 0
 
@@ -418,15 +415,12 @@ def _validate_item(item_name):
     """Проверяет есть ли предмет в SHOP. Возвращает точное имя или None."""
     if not item_name:
         return None
-    # Точное совпадение
     if item_name in SHOP:
         return item_name
-    # Регистр
     low = item_name.lower()
     for name in SHOP.keys():
         if name.lower() == low:
             return name
-    # Частичное совпадение (содержит)
     for name in SHOP.keys():
         if low in name.lower() or name.lower() in low:
             return name
@@ -438,7 +432,8 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
     if _is_blocked(user_action):
         return {"text": "🚫 Этот запрос нарушает правила игры.",
                 "item": None, "location": None, "enemy": None,
-                "material": None, "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0,
+                "_raw_rejected_item": None}
 
     arc_note = ""
     if arc % 20 == 0 and user:
@@ -450,7 +445,6 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
     char_ctx = _build_char_context(user, event, location_owner) if user else ""
     items_block = _build_items_block()
 
-    # Санитизируем action перед отправкой
     safe_action = _sanitize_text(user_action)
 
     context = (f"ПРЕДЫДУЩАЯ ИСТОРИЯ:\n{story}{char_ctx}"
@@ -473,12 +467,14 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
     except asyncio.TimeoutError:
         return {"text": "⏳ Нейросеть не ответила. Попробуй ещё раз.",
                 "item": None, "location": None, "enemy": None,
-                "material": None, "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0,
+                "_raw_rejected_item": None}
     except Exception as e:
         logging.error(f"GigaChat error: {e}")
         return {"text": "⚠️ Ошибка нейросети. Попробуй позже.",
                 "item": None, "location": None, "enemy": None,
-                "material": None, "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0,
+                "_raw_rejected_item": None}
 
     # === ОБРАБОТКА ОТКАЗА GIGACHAT ===
     if _is_refusal(text):
@@ -486,7 +482,8 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
         text = _fallback_response(user_action)
 
     result = {"text": text, "item": None, "location": None, "enemy": None,
-              "material": None, "damage": 0, "heal": 0, "gold": 0}
+              "material": None, "damage": 0, "heal": 0, "gold": 0,
+              "_raw_rejected_item": None}
 
     enemy, text = _extract_enemy(text)
     if enemy:
@@ -499,6 +496,7 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
             if validated:
                 result["item"] = validated
             else:
+                result["_raw_rejected_item"] = item_val
                 logging.info(f"GigaChat выдумал предмет «{item_val}» — отброшен")
 
         loc_val, text = _extract_simple(text, "LOCATION")
@@ -522,6 +520,7 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
     if _is_blocked(result["text"]):
         return {"text": "🚫 Сюжет ушёл в недопустимую тему.",
                 "item": None, "location": None, "enemy": None,
-                "material": None, "damage": 0, "heal": 0, "gold": 0}
+                "material": None, "damage": 0, "heal": 0, "gold": 0,
+                "_raw_rejected_item": None}
 
     return result
