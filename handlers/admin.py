@@ -104,7 +104,11 @@ async def admin_stats(m: Message):
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     u = await g.db.get_user(m.from_user.id)
-    text = "\n".join(f"<code>{k}</code> = {v}" for k, v in u.items())
+    # Обрезаем чтобы не превысить лимит Telegram
+    items = list(u.items())
+    text = "\n".join(f"<code>{k}</code> = {v}" for k, v in items)
+    if len(text) > 3800:
+        text = text[:3800] + "\n<i>...обрезано</i>"
     await m.answer(f"🛠 <b>Строка БД</b>\n\n{text}", parse_mode=ParseMode.HTML)
 
 
@@ -198,8 +202,8 @@ async def admin_spawn_event(m: Message):
     )
     loc_name = W.get_location(loc_code)["name"]
     await m.answer(f"🛠 Событие {tpl['name']} в {loc_name}.")
-    
-    
+
+
 @router.message(Command("admin_premium"))
 async def admin_premium(m: Message):
     if not _is_admin(m.from_user.id):
@@ -210,19 +214,88 @@ async def admin_premium(m: Message):
     await m.answer(f"🛠 Премиум: {'ВКЛ' if new_val else 'ВЫКЛ'}")
 
 
-
 # ================= ПРЕМИУМ-РАСЫ И КЛАССЫ =================
+@router.message(Command("admin_check_races"))
+async def admin_check_races(m: Message):
+    """Показать что записано в БД по премиум-расам."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    uid = m.from_user.id
+    async with g.db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id, char_name, is_premium, "
+            "unlocked_premium_races, unlocked_premium_classes "
+            "FROM users WHERE user_id=$1", uid
+        )
+    if not row:
+        await m.answer("❌ Нет строки в БД. Напиши /start сначала.")
+        return
+    await m.answer(
+        f"🛠 <b>Проверка БД</b>\n\n"
+        f"user_id: <code>{row['user_id']}</code>\n"
+        f"char_name: <code>{row['char_name']}</code>\n"
+        f"is_premium: <code>{row['is_premium']}</code>\n"
+        f"premium_races: <code>{row['unlocked_premium_races']}</code>\n"
+        f"premium_classes: <code>{row['unlocked_premium_classes']}</code>",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_set_races"))
+async def admin_set_races(m: Message):
+    """Форс-запись премиум-рас напрямую (если unlock сломан)."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    from core.premium import EXCLUSIVE_RACES, EXCLUSIVE_CLASSES
+    import json
+
+    races = list(EXCLUSIVE_RACES.keys())
+    classes = list(EXCLUSIVE_CLASSES.keys())
+
+    async with g.db.pool.acquire() as conn:
+        # Проверяем что строка есть
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users WHERE user_id=$1", m.from_user.id
+        )
+        if not row:
+            await conn.execute(
+                "INSERT INTO users (user_id, last_reset, last_energy_regen) "
+                "VALUES ($1, $2, NOW())",
+                m.from_user.id, str(__import__('datetime').date.today())
+            )
+        await conn.execute(
+            "UPDATE users SET "
+            "unlocked_premium_races=$1, "
+            "unlocked_premium_classes=$2, "
+            "is_premium=1 "
+            "WHERE user_id=$3",
+            json.dumps(races), json.dumps(classes), m.from_user.id
+        )
+
+    await m.answer(
+        f"🛠 <b>ФОРС-ЗАПИСЬ</b>\n\n"
+        f"🎭 Расы: <code>{races}</code>\n"
+        f"🛡 Классы: <code>{classes}</code>\n\n"
+        f"Проверь: /admin_check_races\n"
+        f"Потом: /newchar",
+        parse_mode=ParseMode.HTML)
+
+
 @router.message(Command("admin_unlock_races"))
 async def admin_unlock_races(m: Message):
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     from core.premium import EXCLUSIVE_RACES
+    ok_count = 0
     for code in EXCLUSIVE_RACES:
-        await g.db.unlock_premium_race(m.from_user.id, code)
+        res = await g.db.unlock_premium_race(m.from_user.id, code)
+        if res:
+            ok_count += 1
     names = ", ".join(r["name"] for r in EXCLUSIVE_RACES.values())
     await m.answer(
-        f"🛠 Открыты все премиум-расы: <b>{names}</b>\n\n"
-        f"Проверь /newchar → выбор расы.",
+        f"🛠 Открыты премиум-расы ({ok_count}/{len(EXCLUSIVE_RACES)}): "
+        f"<b>{names}</b>\n\n"
+        f"Проверь /newchar → выбор расы.\n"
+        f"<i>Если не появились — /admin_check_races</i>",
         parse_mode=ParseMode.HTML)
 
 
@@ -231,11 +304,15 @@ async def admin_unlock_classes(m: Message):
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     from core.premium import EXCLUSIVE_CLASSES
+    ok_count = 0
     for code in EXCLUSIVE_CLASSES:
-        await g.db.unlock_premium_class(m.from_user.id, code)
+        res = await g.db.unlock_premium_class(m.from_user.id, code)
+        if res:
+            ok_count += 1
     names = ", ".join(c["name"] for c in EXCLUSIVE_CLASSES.values())
     await m.answer(
-        f"🛠 Открыты все премиум-классы: <b>{names}</b>\n\n"
+        f"🛠 Открыты премиум-классы ({ok_count}/{len(EXCLUSIVE_CLASSES)}): "
+        f"<b>{names}</b>\n\n"
         f"Проверь /newchar → выбор класса.",
         parse_mode=ParseMode.HTML)
 
@@ -260,37 +337,64 @@ async def admin_unlock_all(m: Message):
         await m.answer("❌"); return
 
     from core.premium import EXCLUSIVE_RACES, EXCLUSIVE_CLASSES, EXCLUSIVE_ITEMS, EXCLUSIVE_PETS
+    import json
+
+    uid = m.from_user.id
+
+    # Проверяем что строка есть — если нет, не падаем
+    async with g.db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users WHERE user_id=$1", uid
+        )
+        if not row:
+            await m.answer("❌ Сначала /start — создай игрока.")
+            return
 
     # Расы
+    races_ok = 0
     for code in EXCLUSIVE_RACES:
-        await g.db.unlock_premium_race(m.from_user.id, code)
+        if await g.db.unlock_premium_race(uid, code):
+            races_ok += 1
 
     # Классы
+    classes_ok = 0
     for code in EXCLUSIVE_CLASSES:
-        await g.db.unlock_premium_class(m.from_user.id, code)
+        if await g.db.unlock_premium_class(uid, code):
+            classes_ok += 1
 
     # Предметы
     for code in EXCLUSIVE_ITEMS:
-        await g.db.add_item(m.from_user.id, code)
+        await g.db.add_item(uid, code)
 
     # Питомцы
     for code, pet in EXCLUSIVE_PETS.items():
         try:
-            await g.db.add_pet(m.from_user.id, code, pet.get("name", code))
+            await g.db.add_pet(uid, code, pet.get("name", code))
         except Exception:
             pass
 
     # Премиум навсегда
-    await g.db.set_premium(m.from_user.id, 1)
+    await g.db.set_premium(uid, 1)
+
+    # Проверяем что записалось
+    async with g.db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT unlocked_premium_races, unlocked_premium_classes "
+            "FROM users WHERE user_id=$1", uid
+        )
+
+    races_db = row["unlocked_premium_races"] if row else "?"
+    classes_db = row["unlocked_premium_classes"] if row else "?"
 
     await m.answer(
-        "🛠 <b>ВСЁ ОТКРЫТО!</b>\n\n"
-        f"🎭 Расы: {len(EXCLUSIVE_RACES)}\n"
-        f"🛡 Классы: {len(EXCLUSIVE_CLASSES)}\n"
+        f"🛠 <b>ВСЁ ОТКРЫТО!</b>\n\n"
+        f"🎭 Расы: {races_ok}/{len(EXCLUSIVE_RACES)}\n"
+        f"🛡 Классы: {classes_ok}/{len(EXCLUSIVE_CLASSES)}\n"
         f"⚔️ Предметы: {len(EXCLUSIVE_ITEMS)}\n"
         f"🐉 Питомцы: {len(EXCLUSIVE_PETS)}\n\n"
-        "Проверь:\n"
-        "• /newchar → расы и классы\n"
-        "• /inventory → предметы\n"
-        "• /pet → питомцы",
+        f"<b>В БД сейчас:</b>\n"
+        f"races: <code>{races_db}</code>\n"
+        f"classes: <code>{classes_db}</code>\n\n"
+        f"Проверь /newchar\n\n"
+        f"<i>Если расы не появились — /admin_set_races</i>",
         parse_mode=ParseMode.HTML)
