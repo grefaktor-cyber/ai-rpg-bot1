@@ -1,4 +1,5 @@
-"""Логика мировых боссов: спавн, атака с P.Def/M.Def, награды."""
+"""Логика мировых боссов: спавн, атака с P.Def/M.Def, награды.
+Поддерживает рейд-боссов с требованием min_players."""
 import random
 import time
 from datetime import datetime, timezone, timedelta
@@ -18,6 +19,40 @@ from core.formulas import (
     calc_boss_damage_to_player,
 )
 import world as W
+
+
+# ================= РЕЙД-БОССЫ (добавляются в WORLD_BOSSES) =================
+RAID_BOSSES = {
+    "abyss_lord": {
+        "name": "👹 Повелитель Бездны",
+        "level": 40,
+        "hp": 100000,
+        "attack_dmg": 350,
+        "dmg_type": "magic",
+        "locations": ["abyss", "cave", "mountains"],
+        "desc": ("Требует МИНИМУМ 2 игрока в локации. "
+                 "Восстанавливает 500 HP каждый ход."),
+        "raid": True,
+        "min_players": 2,
+        "heal_per_turn": 500,
+    },
+    "world_devourer": {
+        "name": "🐲 Пожиратель Миров",
+        "level": 45,
+        "hp": 150000,
+        "attack_dmg": 420,
+        "dmg_type": "phys",
+        "locations": ["abyss", "mountains", "port"],
+        "desc": ("Требует МИНИМУМ 3 игрока в локации. "
+                 "Восстанавливает 800 HP каждый ход."),
+        "raid": True,
+        "min_players": 3,
+        "heal_per_turn": 800,
+    },
+}
+
+# Регистрируем в общий словарь
+WORLD_BOSSES.update(RAID_BOSSES)
 
 
 _BOSS_COOLDOWN = {}
@@ -51,6 +86,23 @@ def should_spawn_now():
     return now_msk.hour in SPAWN_HOURS_MSK
 
 
+def is_raid_boss(boss_code):
+    """Проверка: рейд-босс ли это."""
+    return boss_code in RAID_BOSSES
+
+
+async def _count_players_in_location(loc_code, exclude_uid=0):
+    """Сколько игроков с персонажем в локации."""
+    async with g.db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) as cnt FROM users "
+            "WHERE location_code=$1 AND char_name!='' AND user_id!=$2",
+            loc_code, exclude_uid
+        )
+    return (row["cnt"] if row else 0) + 1  # +1 = сам атакующий
+
+
+# ================= СПАВН =================
 async def try_spawn_boss():
     """Плановая проверка спавна (раз в 5 мин из _cleanup_loop)."""
     if not should_spawn_now():
@@ -67,7 +119,11 @@ async def try_spawn_boss():
         if delta.total_seconds() < 60 * 60 * 5:
             return None
 
-    boss_code = random.choice(list(WORLD_BOSSES.keys()))
+    # Обычные боссы — из WORLD_BOSSES без рейд
+    normal_codes = [c for c in WORLD_BOSSES if c not in RAID_BOSSES]
+    if not normal_codes:
+        return None
+    boss_code = random.choice(normal_codes)
     boss_data = WORLD_BOSSES[boss_code]
     loc_code = random.choice(boss_data["locations"])
 
@@ -100,22 +156,13 @@ async def try_spawn_boss():
             "boss_name": boss_data["name"]}
 
 
-# ================= ФОРС-СПАВН ДЛЯ ТЕСТА =================
 async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
-    """Форс-спавн босса. Игнорирует расписание и лимит 5 часов.
-    
-    Args:
-        boss_code: код босса (None = случайный)
-        location_code: код локации (None = случайная из доступных боссу)
-        notify: рассылать ли всем игрокам (по умолчанию False)
-    """
-    # Удаляем старых мёртвых/истёкших, чтобы не мешали
+    """Форс-спавн ЛЮБОГО босса (включая рейд). Игнорирует расписание."""
     async with g.db.pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM world_bosses WHERE killed=1 OR expires_at < NOW()"
         )
 
-    # Выбираем босса
     if boss_code is None:
         boss_code = random.choice(list(WORLD_BOSSES.keys()))
     boss_data = WORLD_BOSSES.get(boss_code)
@@ -123,33 +170,36 @@ async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
         return {"error": f"boss '{boss_code}' не найден",
                 "available": list(WORLD_BOSSES.keys())}
 
-    # Выбираем локацию
     if location_code is None:
         location_code = random.choice(boss_data["locations"])
     if location_code not in W.LOCATIONS:
         return {"error": f"локация '{location_code}' не найдена",
                 "available": list(W.LOCATIONS.keys())}
 
-    # Спавним
     boss_id = await g.db.spawn_world_boss(
         boss_code, location_code, boss_data["hp"]
     )
     loc_name = W.get_location(location_code).get("name", "?")
 
-    # Рассылка (опционально)
     if notify:
         async with g.db.pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT user_id FROM users WHERE char_name!=''"
             )
+        is_raid = is_raid_boss(boss_code)
+        raid_tag = "⚔️ <b>РЕЙД-БОСС!</b>\n" if is_raid else ""
+        min_p = boss_data.get("min_players", 1)
+        raid_hint = (f"\n⚠️ <b>Требуется {min_p}+ игрока в локации!</b>\n"
+                     if is_raid else "")
         for r in rows:
             try:
                 await g.bot.send_message(
                     r["user_id"],
-                    f"🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
+                    f"{raid_tag}🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
                     f"<b>{boss_data['name']}</b> в «{loc_name}»!\n"
                     f"HP: <b>{boss_data['hp']}</b>\n"
-                    f"⚔️ Урон: ~{boss_data['attack_dmg']} ({boss_data['dmg_type']})\n\n"
+                    f"⚔️ Урон: ~{boss_data['attack_dmg']} ({boss_data['dmg_type']})\n"
+                    f"{raid_hint}\n"
                     f"⚠️ <i>{boss_data['desc']}</i>",
                     parse_mode=ParseMode.HTML
                 )
@@ -166,9 +216,12 @@ async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
         "hp": boss_data["hp"],
         "attack_dmg": boss_data["attack_dmg"],
         "dmg_type": boss_data["dmg_type"],
+        "is_raid": is_raid_boss(boss_code),
+        "min_players": boss_data.get("min_players", 1),
     }
 
 
+# ================= АТАКА =================
 async def attack_boss(uid):
     u = await g.db.get_user(uid)
     if not u["char_name"]:
@@ -191,6 +244,18 @@ async def attack_boss(uid):
 
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
 
+    # ============ ПРОВЕРКА РЕЙД-БОССА: минимум игроков ============
+    is_raid = is_raid_boss(boss["boss_code"])
+    if is_raid:
+        min_players = boss_data.get("min_players", 2)
+        count = await _count_players_in_location(loc_code, exclude_uid=0)
+        if count < min_players:
+            return False, {
+                "error": "not_enough_players",
+                "min_players": min_players,
+                "current": count,
+            }
+
     eff = effective_stats(u)
     my_dmg = calc_damage(u)
     crit_chance = eff["dex"] + racial_crit_bonus(u) + get_crit_bonus(u)
@@ -208,6 +273,22 @@ async def attack_boss(uid):
 
     await g.db.add_boss_damage(boss["id"], uid, u["char_name"], my_dmg)
     updated = await g.db.get_active_world_boss(loc_code)
+
+    # ============ РЕГЕНЕРАЦИЯ РЕЙД-БОССА ============
+    heal_amount = 0
+    if is_raid and updated and updated["current_hp"] > 0:
+        heal_amount = boss_data.get("heal_per_turn", 0)
+        if heal_amount > 0:
+            new_boss_hp = min(
+                updated["max_hp"],
+                updated["current_hp"] + heal_amount
+            )
+            async with g.db.pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE world_bosses SET current_hp=$1 WHERE id=$2",
+                    new_boss_hp, updated["id"]
+                )
+            updated = await g.db.get_active_world_boss(loc_code)
 
     player_died = (new_hp <= 0)
     lost_gold = 0
@@ -238,6 +319,8 @@ async def attack_boss(uid):
         "my_hp": new_hp,
         "player_died": player_died,
         "lost_gold": lost_gold,
+        "is_raid": is_raid,
+        "boss_heal": heal_amount,
     }
 
 
@@ -251,12 +334,18 @@ async def _handle_boss_kill(boss, killer_id):
     boss_data = WORLD_BOSSES.get(boss_code, {})
     boss_name = boss_data.get("name", "Босс")
     loc_name = W.get_location(boss["location_code"]).get("name", "?")
+    is_raid = is_raid_boss(boss_code)
 
     for entry in damage_list:
         uid = entry["user_id"]
         damage = entry["damage"]
         gold = max(50, int((damage / 1000) * GOLD_PER_1K_DAMAGE))
         xp = max(100, int((damage / 1000) * XP_PER_1K_DAMAGE))
+
+        # Рейд-босс даёт больше наград
+        if is_raid:
+            gold = int(gold * 2)
+            xp = int(xp * 2)
 
         is_killer = (uid == killer_id)
         if is_killer:
@@ -267,6 +356,14 @@ async def _handle_boss_kill(boss, killer_id):
         if is_top1 and random.random() < TOP1_BONUS_ITEM_CHANCE:
             bonus_item = random.choice(DROP_TABLE)
             await g.db.add_item(uid, bonus_item)
+
+        # Рейд-босс: топ-3 получают доп. предмет
+        if is_raid and len(damage_list) >= 3:
+            if entry in damage_list[:3] and random.random() < 0.5:
+                bonus_raid_item = random.choice(DROP_TABLE)
+                await g.db.add_item(uid, bonus_raid_item)
+                if not bonus_item:
+                    bonus_item = bonus_raid_item
 
         await g.db.add_gold(uid, gold)
         await g.db.add_xp(uid, xp)
@@ -280,8 +377,10 @@ async def _handle_boss_kill(boss, killer_id):
                 f"<b>{boss_name}</b> в «{loc_name}»\n"
                 f"Твой урон: <b>{damage}</b>\n"
                 f"+{gold}💰 · +{xp} XP")
+        if is_raid:
+            text += "\n⚔️ <b>Рейд-босс! ×2 награды</b>"
         if is_killer:
-            text += "\n⚔️ <b>Последний удар — твой!</b> (+50% золота)"
+            text += "\n🎯 <b>Последний удар — твой!</b> (+50% золота)"
         if is_top1:
             text += "\n🥇 <b>Топ-1 по урону!</b>"
         if bonus_item:
