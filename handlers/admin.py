@@ -520,13 +520,40 @@ async def admin_spawn_boss(m: Message):
         parse_mode=ParseMode.HTML)
 
 
+# ================= СПИСОК РЕЙД-БОССОВ =================
+@router.message(Command("admin_raid_list"))
+async def admin_raid_list(m: Message):
+    """Показать список всех рейд-боссов."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    try:
+        from services.world_boss_service import RAID_BOSSES
+    except ImportError:
+        await m.answer("⚠️ В services/world_boss_service.py нет RAID_BOSSES.")
+        return
+
+    lines = ["🛠 <b>Рейд-боссы:</b>\n"]
+    for code, b in RAID_BOSSES.items():
+        lines.append(
+            f"<b>{b['name']}</b>\n"
+            f"  <code>{code}</code>\n"
+            f"  HP: {b['hp']} · Урон: {b['attack_dmg']} ({b['dmg_type']})\n"
+            f"  Мин. игроков: {b['min_players']}\n"
+            f"  Локации: {', '.join(b['locations'])}\n"
+        )
+    lines.append("\n<i>Спавн: /admin_spawn_raid &lt;код&gt; &lt;локация&gt;</i>")
+    await m.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ================= СПАВН РЕЙД-БОССА =================
 @router.message(Command("admin_spawn_raid"))
 async def admin_spawn_raid(m: Message):
-    """Форс-спавн РЕЙД-босса (требует 2-3 игрока).
+    """Форс-спавн РЕЙД-босса (требует 2-4 игрока).
 
     /admin_spawn_raid                      — случайный рейд-босс
-    /admin_spawn_raid abyss_lord           — конкретный
-    /admin_spawn_raid abyss_lord abyss     — + локация
+    /admin_spawn_raid dragon_cub           — конкретный
+    /admin_spawn_raid dragon_cub cave      — + локация
     """
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
@@ -549,7 +576,8 @@ async def admin_spawn_raid(m: Message):
         avail = ", ".join(f"<code>{c}</code>" for c in RAID_BOSSES)
         await m.answer(
             f"❌ Рейд-босс «{boss_code}» не найден.\n\n"
-            f"<b>Доступные:</b> {avail}",
+            f"<b>Доступные:</b> {avail}\n\n"
+            f"Список: /admin_raid_list",
             parse_mode=ParseMode.HTML)
         return
 
