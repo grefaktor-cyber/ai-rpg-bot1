@@ -109,6 +109,13 @@ async def handle(m: Message):
         await _show_faction(m)
         return
 
+    # Обработка /back — возврат к выбору фракции
+    if m.text.strip().lower() in ("/back", "назад"):
+        await g.db.set_faction(uid, "")
+        from handlers.start import show_faction_selection
+        await show_faction_selection(m)
+        return
+    
     # Создание героя
     if not user["char_name"]:
         name = m.text.strip()[:20]
