@@ -274,7 +274,6 @@ async def admin_premium(m: Message):
 # ================= ПРЕМИУМ-РАСЫ И КЛАССЫ =================
 @router.message(Command("admin_check_races"))
 async def admin_check_races(m: Message):
-    """Показать что записано в БД по премиум-расам."""
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     uid = m.from_user.id
@@ -299,7 +298,6 @@ async def admin_check_races(m: Message):
 
 @router.message(Command("admin_set_races"))
 async def admin_set_races(m: Message):
-    """Форс-запись премиум-рас напрямую (если unlock сломан)."""
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     from core.premium import EXCLUSIVE_RACES, EXCLUSIVE_CLASSES
@@ -393,7 +391,6 @@ async def admin_unlock_all(m: Message):
         await m.answer("❌"); return
 
     from core.premium import EXCLUSIVE_RACES, EXCLUSIVE_CLASSES, EXCLUSIVE_ITEMS, EXCLUSIVE_PETS
-    import json
 
     uid = m.from_user.id
 
@@ -444,6 +441,115 @@ async def admin_unlock_all(m: Message):
         f"<b>В БД сейчас:</b>\n"
         f"races: <code>{races_db}</code>\n"
         f"classes: <code>{classes_db}</code>\n\n"
-        f"Проверь /newchar\n\n"
-        f"<i>Если расы не появились — /admin_set_races</i>",
+        f"Проверь /newchar",
+        parse_mode=ParseMode.HTML)
+
+
+# ================= СПАВН БОССА (ТЕСТ) =================
+@router.message(Command("admin_spawn_boss"))
+async def admin_spawn_boss(m: Message):
+    """Форс-спавн обычного босса.
+
+    /admin_spawn_boss                    — случайный
+    /admin_spawn_boss ancient_dragon     — конкретный
+    /admin_spawn_boss ancient_dragon cave — + локация
+    """
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    parts = m.text.split()
+    boss_code = parts[1] if len(parts) > 1 else None
+    location_code = parts[2] if len(parts) > 2 else None
+
+    try:
+        from services.world_boss_service import force_spawn_boss
+    except ImportError:
+        await m.answer("⚠️ В services/world_boss_service.py нет force_spawn_boss.")
+        return
+
+    result = await force_spawn_boss(boss_code, location_code, notify=False)
+
+    if "error" in result:
+        err_text = f"❌ {result['error']}\n\n"
+        if "available" in result:
+            err_text += "<b>Доступные коды:</b>\n"
+            for code in result["available"]:
+                err_text += f"• <code>{code}</code>\n"
+        await m.answer(err_text, parse_mode=ParseMode.HTML)
+        return
+
+    await m.answer(
+        f"🛠 <b>Босс заспавнен!</b>\n\n"
+        f"🐉 <b>{result['boss_name']}</b> (ур. {result['boss_level']})\n"
+        f"❤️ HP: <b>{result['hp']}</b>\n"
+        f"⚔️ Урон: ~{result['attack_dmg']} ({result['dmg_type']})\n"
+        f"📍 Локация: <b>{result['location_name']}</b>\n"
+        f"   код: <code>{result['location_code']}</code>\n\n"
+        f"<b>Что дальше:</b>\n"
+        f"1. <code>/admin_teleport {result['location_code']}</code>\n"
+        f"2. В боте напиши <code>/boss</code>\n"
+        f"3. Жми «⚔️ Атаковать»",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_spawn_raid"))
+async def admin_spawn_raid(m: Message):
+    """Форс-спавн РЕЙД-босса (требует 2+ игрока).
+
+    /admin_spawn_raid                      — случайный рейд-босс
+    /admin_spawn_raid abyss_lord           — конкретный
+    /admin_spawn_raid abyss_lord abyss     — + локация
+    """
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    parts = m.text.split()
+    boss_code = parts[1] if len(parts) > 1 else None
+    location_code = parts[2] if len(parts) > 2 else None
+
+    try:
+        from services.world_boss_service import (
+            force_spawn_boss, RAID_BOSSES,
+        )
+    except ImportError:
+        await m.answer("⚠️ В services/world_boss_service.py нет RAID_BOSSES.")
+        return
+
+    if boss_code is None:
+        import random as _r
+        boss_code = _r.choice(list(RAID_BOSSES.keys()))
+
+    if boss_code not in RAID_BOSSES:
+        avail = ", ".join(f"<code>{c}</code>" for c in RAID_BOSSES)
+        await m.answer(
+            f"❌ Рейд-босс «{boss_code}» не найден.\n\n"
+            f"<b>Доступные:</b> {avail}",
+            parse_mode=ParseMode.HTML)
+        return
+
+    result = await force_spawn_boss(boss_code, location_code, notify=True)
+
+    if "error" in result:
+        err_text = f"❌ {result['error']}\n\n"
+        if "available" in result:
+            err_text += "<b>Доступные коды:</b>\n"
+            for code in result["available"]:
+                err_text += f"• <code>{code}</code>\n"
+        await m.answer(err_text, parse_mode=ParseMode.HTML)
+        return
+
+    await m.answer(
+        f"🛠 <b>⚔️ РЕЙД-БОСС заспавнен!</b>\n\n"
+        f"👹 <b>{result['boss_name']}</b> (ур. {result['boss_level']})\n"
+        f"❤️ HP: <b>{result['hp']}</b>\n"
+        f"⚔️ Урон: ~{result['attack_dmg']} ({result['dmg_type']})\n"
+        f"👥 Требуется: <b>{result['min_players']}+ игрока</b>\n"
+        f"📍 Локация: <b>{result['location_name']}</b>\n"
+        f"   код: <code>{result['location_code']}</code>\n\n"
+        f"<i>Все игроки получили уведомление.</i>\n\n"
+        f"<b>Что дальше:</b>\n"
+        f"1. <code>/admin_teleport {result['location_code']}</code>\n"
+        f"2. Позови друга с собой\n"
+        f"3. В боте напиши <code>/boss</code>\n"
+        f"4. Жми «⚔️ Атаковать»",
         parse_mode=ParseMode.HTML)
