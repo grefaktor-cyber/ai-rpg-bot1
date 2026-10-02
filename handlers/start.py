@@ -61,7 +61,9 @@ async def start(m: Message):
     if not user["faction"]:
         await show_faction_selection(m); return
     if not user["char_name"]:
-        await m.answer("✏️ Как зовут вашего героя? (2–20 символов)")
+        await m.answer("✏️ Как зовут вашего героя? (2–20 символов)\n\n"
+                       "<i>Если хочешь сменить фракцию — напиши /back</i>",
+                       parse_mode=ParseMode.HTML)
         return
 
     combat = await g.db.get_combat(m.from_user.id)
@@ -98,7 +100,6 @@ async def newchar_cmd(m: Message):
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ Сначала закончи бой!"); return
 
-    # Показать предупреждение
     warn = (f"⚠️ <b>Создать нового героя?</b>\n\n"
             f"Текущий герой: <b>{u['char_name']}</b> "
             f"({RACES.get(u['race'], {}).get('name', '?')}, "
@@ -167,6 +168,12 @@ async def show_race_selection(m):
     else:
         hint = ""
 
+    # Удаляем предыдущее сообщение бота, если есть (чтобы не плодить)
+    try:
+        await g.bot.delete_message(m.chat.id, m.message_id)
+    except Exception:
+        pass
+
     await g.bot.send_message(m.chat.id, "🧝 <b>Выбери расу:</b>" + hint,
                              reply_markup=race_selection_kb(available),
                              parse_mode=ParseMode.HTML)
@@ -183,8 +190,11 @@ async def on_race(c: CallbackQuery):
             await c.answer("💎 Купи расу в /premium", show_alert=True); return
     await g.db.set_race(c.from_user.id, code)
     await g.db.set_class(c.from_user.id, "")
-    await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
-                              parse_mode=ParseMode.HTML)
+    try:
+        await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
     await show_class_selection(c.message, code)
 
 
@@ -199,9 +209,26 @@ async def show_class_selection(m, race_code):
             text=f"{cl['name']} — {cl['desc']}",
             callback_data=f"class_{code}"
         )])
+    # ⬅️ Кнопка назад к выбору расы
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Назад к расам",
+        callback_data="back_to_races"
+    )])
     await g.bot.send_message(m.chat.id, "⚔️ <b>Выбери класс:</b>",
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                              parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "back_to_races")
+async def back_to_races(c: CallbackQuery):
+    """Вернуться к выбору расы, сбросив класс."""
+    await g.db.set_class(c.from_user.id, "")
+    try:
+        await c.message.delete()
+    except Exception:
+        pass
+    await show_race_selection(c.message)
+    await c.answer()
 
 
 @router.callback_query(F.data.startswith("class_"))
@@ -222,15 +249,46 @@ async def on_class(c: CallbackQuery):
     hp = calc_max_hp(user_tmp)
     mp = calc_max_mp(user_tmp)
     await g.db.update_stats(c.from_user.id, stats, hp, mp)
-    await c.message.edit_text(f"✅ Класс: <b>{CLASSES[code]['name']}</b>",
-                              parse_mode=ParseMode.HTML)
+    try:
+        await c.message.edit_text(f"✅ Класс: <b>{CLASSES[code]['name']}</b>",
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
     await show_faction_selection(c.message)
 
 
 async def show_faction_selection(m):
+    # Строим клавиатуру вручную — с кнопкой Назад
+    rows = []
+    for code, f in FACTIONS.items():
+        rows.append([InlineKeyboardButton(
+            text=f"{f['name']} — {f['desc']}",
+            callback_data=f"faction_{code}"
+        )])
+    # ⬅️ Кнопка назад к выбору класса
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Назад к классам",
+        callback_data="back_to_classes"
+    )])
     await g.bot.send_message(m.chat.id, "🏛 <b>Выбери фракцию:</b>",
-                             reply_markup=faction_selection_kb(FACTIONS),
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                              parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == "back_to_classes")
+async def back_to_classes(c: CallbackQuery):
+    """Вернуться к выбору класса, сбросив фракцию."""
+    await g.db.set_faction(c.from_user.id, "")
+    u = await g.db.get_user(c.from_user.id)
+    try:
+        await c.message.delete()
+    except Exception:
+        pass
+    if u["race"]:
+        await show_class_selection(c.message, u["race"])
+    else:
+        await show_race_selection(c.message)
+    await c.answer()
 
 
 @router.callback_query(F.data.startswith("faction_"))
@@ -239,10 +297,14 @@ async def on_faction(c: CallbackQuery):
     if code not in FACTIONS:
         await c.answer("Ошибка"); return
     await g.db.set_faction(c.from_user.id, code)
-    await c.message.edit_text(f"✅ Фракция: <b>{FACTIONS[code]['name']}</b>",
-                              parse_mode=ParseMode.HTML)
+    try:
+        await c.message.edit_text(f"✅ Фракция: <b>{FACTIONS[code]['name']}</b>",
+                                   parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
     await g.bot.send_message(c.from_user.id,
-                             "✏️ Напиши <b>имя героя</b> (2–20 символов).",
+                             "✏️ Напиши <b>имя героя</b> (2–20 символов).\n\n"
+                             "<i>Если хочешь сменить фракцию — напиши /back</i>",
                              parse_mode=ParseMode.HTML)
 
 
