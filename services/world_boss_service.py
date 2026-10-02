@@ -31,30 +31,30 @@ import world as W
 RAID_BOSSES = {
     "abyss_lord": {
         "name": "👹 Повелитель Бездны",
-        "level": 40,
-        "hp": 20000,
-        "attack_dmg": 200,
+        "level": 45,
+        "hp": 40000,
+        "attack_dmg": 240,
         "dmg_type": "magic",
-        "locations": ["abyss", "cave", "mountains"],
-        "desc": ("Требует МИНИМУМ 2 игрока в локации. "
-                 "Каждые 5 атак восстанавливает 400 HP."),
+        "locations": ["cave", "mountains", "ruins"],
+        "desc": ("Требует МИНИМУМ 2 игрока. "
+                 "Каждые 5 атак восстанавливает 500 HP."),
         "raid": True,
         "min_players": 2,
-        "heal_amount": 400,
+        "heal_amount": 500,
         "heal_every_n": 5,
     },
     "world_devourer": {
         "name": "🐲 Пожиратель Миров",
-        "level": 45,
-        "hp": 25000,
-        "attack_dmg": 250,
+        "level": 50,
+        "hp": 70000,
+        "attack_dmg": 300,
         "dmg_type": "phys",
-        "locations": ["abyss", "mountains", "port"],
-        "desc": ("Требует МИНИМУМ 3 игрока в локации. "
-                 "Каждые 5 атак восстанавливает 600 HP."),
+        "locations": ["mountains", "ruins", "swamp"],
+        "desc": ("Требует МИНИМУМ 3 игрока. "
+                 "Каждые 5 атак восстанавливает 700 HP."),
         "raid": True,
         "min_players": 3,
-        "heal_amount": 600,
+        "heal_amount": 700,
         "heal_every_n": 5,
     },
 }
