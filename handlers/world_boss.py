@@ -21,6 +21,20 @@ router = Router()
 
 MAX_ACTIONS = 4
 
+ACTION_NAMES = {
+    "attack": "Атака",
+    "defend": "Защита",
+    "potion_hp": "Зелье HP",
+    "potion_mp": "Зелье MP",
+}
+
+ACTION_ICONS = {
+    "attack": "⚔️",
+    "defend": "🛡",
+    "potion_hp": "💚",
+    "potion_mp": "🔮",
+}
+
 
 def _hp_bar(hp, max_hp, length=15):
     if max_hp <= 0:
@@ -40,12 +54,6 @@ def _back_close_row():
 def _format_pending(pending):
     if not pending:
         return "📋 <i>Очередь пуста. Добавь до 4 действий.</i>"
-    icons = {
-        "attack": "⚔️",
-        "defend": "🛡",
-        "potion_hp": "💚",
-        "potion_mp": "🔮",
-    }
     slots = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
     lines = []
     for i, a in enumerate(pending[:4]):
@@ -55,8 +63,9 @@ def _format_pending(pending):
             name = s["name"] if s else code
             lines.append(f"{slots[i]} ✨ {name}")
         else:
-            lines.append(f"{slots[i]} {icons.get(a, '•')} "
-                         f"{{'attack':'Атака','defend':'Защита','potion_hp':'Зелье HP','potion_mp':'Зелье MP'}.get(a, a)}")
+            icon = ACTION_ICONS.get(a, "•")
+            name = ACTION_NAMES.get(a, a)
+            lines.append(f"{slots[i]} {icon} {name}")
     return "📋 <b>Очередь:</b>\n" + "\n".join(lines)
 
 
@@ -159,7 +168,7 @@ def _boss_kb(u, pending):
     if action_row:
         rows.append(action_row)
 
-    # Ряд 5: Обновить + back/close
+    # Ряд 5: Обновить
     rows.append([
         InlineKeyboardButton(text="🔄 Обновить", callback_data="wb_refresh"),
     ])
@@ -399,7 +408,8 @@ async def wb_execute_cb(c: CallbackQuery):
         except Exception:
             pass
         try:
-            await c.message.answer("Возвращайся в деревню.", reply_markup=main_kb())
+            await c.message.answer("Возвращайся в деревню.",
+                                    reply_markup=main_kb())
         except Exception:
             pass
         return
