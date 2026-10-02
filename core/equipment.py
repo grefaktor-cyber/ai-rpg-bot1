@@ -31,9 +31,12 @@ SLOT_NAMES = {
 
 # ================= СЕТЫ =================
 SET_BONUSES = {
-    "heavy": {"hp_mult": 1.15, "pdef_mult": 1.10, "desc": "+15% HP, +10% P.Def"},
-    "light": {"dex_bonus": 3, "crit_bonus": 5, "desc": "+3 DEX, +5% крит"},
-    "robe":  {"mp_mult": 1.20, "mdef_mult": 1.15, "desc": "+20% MP, +15% M.Def"},
+    "heavy": {"hp_mult": 1.15, "pdef_mult": 1.10, "str_bonus": 3,
+              "desc": "+15% HP, +10% P.Def, +3 STR"},
+    "light": {"dex_bonus": 3, "crit_bonus": 5, "str_bonus": 2,
+              "desc": "+3 DEX, +2 STR, +5% крит"},
+    "robe":  {"mp_mult": 1.20, "mdef_mult": 1.15, "int_bonus": 3,
+              "desc": "+20% MP, +15% M.Def, +3 INT"},
 }
 
 # ================= ГРЕЙДЫ (4) =================
@@ -160,14 +163,6 @@ _w("Кастеты титана", "cestus", "B", 10000, {"str": 18}, ["tyrant"])
 
 # ================= БРОНЯ =================
 # Heavy
-for grade, price_h, price_a, price_b, b in [
-    ("common", 30, 50, 30, {"con": 1, "armor": 3, "boots": 1}),
-    ("D", 250, 500, 300, {"con": 3, "armor": 7, "boots": 4}),
-    ("C", 1500, 3000, 2000, {"con": 5, "armor": 12, "boots": 6}),
-    ("B", 5000, 9000, 6000, {"con": 8, "armor": 18, "boots": 10}),
-]:
-    pass  # сделаем явно ниже
-
 _a("Кожаный шлем", "heavy", "helmet", "common", 30, {"con": 1})
 _a("Тяжёлая куртка", "heavy", "armor", "common", 50, {"con": 3})
 _a("Кожаные сапоги", "heavy", "boots", "common", 30, {"con": 1})
@@ -240,6 +235,22 @@ _acc("Серьга защиты", "earring", "D", 500, {"con": 3})
 _acc("Серьга мага", "earring", "D", 500, {"int": 3})
 _acc("Серьга мудрости", "earring", "C", 2000, {"men": 6})
 _acc("Серьга вечности", "earring", "B", 7000, {"con": 12, "men": 8})
+
+
+# ================= НОВЫЕ АКСЕССУАРЫ STR/DEX/CON =================
+# Амулеты
+_acc("Амулет воина", "accessory", "D", 600, {"str": 5})
+_acc("Амулет ловкача", "accessory", "D", 600, {"dex": 5})
+_acc("Амулет защитника", "accessory", "D", 600, {"con": 5})
+_acc("Амулет берсерка", "accessory", "C", 2500, {"str": 8, "con": 3})
+_acc("Амулет охотника", "accessory", "C", 2500, {"dex": 8, "str": 3})
+_acc("Амулет хранителя", "accessory", "C", 2500, {"con": 8, "men": 3})
+
+# Серьги
+_acc("Серьга воина", "earring", "D", 500, {"str": 3})
+_acc("Серьга ловкача", "earring", "D", 500, {"dex": 3})
+_acc("Серьга силы", "earring", "C", 2000, {"str": 6, "con": 3})
+_acc("Серьга ловкости", "earring", "C", 2000, {"dex": 6, "str": 3})
 
 
 # ================= ЗЕЛЬЯ =================
