@@ -14,7 +14,6 @@ class DB:
     async def connect(self):
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=3)
         async with self.pool.acquire() as conn:
-            # ============ ОСНОВНЫЕ ТАБЛИЦЫ ============
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
@@ -311,7 +310,6 @@ class DB:
                     total_points INTEGER DEFAULT 0
                 )
             """)
-            # === СЕЗОНЫ ===
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS seasons (
                     id SERIAL PRIMARY KEY,
@@ -322,9 +320,7 @@ class DB:
                 )
             """)
 
-            # ============ МИГРАЦИИ ============
             migrations = [
-                # --- базовые ---
                 "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS race TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS class TEXT DEFAULT ''",
@@ -357,28 +353,23 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS dungeon_loot_items TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS location_code TEXT DEFAULT 'village'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS guild_id BIGINT DEFAULT 0",
-                # --- энергия ---
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy INTEGER DEFAULT 20",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS energy_max INTEGER DEFAULT 20",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_energy_regen TIMESTAMP DEFAULT NOW()",
-                # --- MP + скилы ---
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS mp INTEGER DEFAULT 50",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS max_mp INTEGER DEFAULT 50",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS skill_points INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_skills TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS learned_skills TEXT DEFAULT '{}'",
-                # --- бой ---
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_pvp INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS opponent_id BIGINT DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS stake INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_turn INTEGER DEFAULT 1",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS is_dungeon INTEGER DEFAULT 0",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS next_atk_mult REAL DEFAULT 1.0",
-                # --- Этап 2.1: миграция на новые расы/классы ---
                 "UPDATE users SET race='', class='', char_name='' WHERE race='dwarf'",
                 "UPDATE users SET class='' WHERE race IN ('human','elf','dark_elf','orc') AND class NOT IN ('warrior','knight','mage','archer','guardian','bard','assassin','necro','dancer','destroyer','tyrant','overlord')",
                 "ALTER TABLE dropped_items ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
-                # === Этап 3.5: экипировка 2.0 ===
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_helmet TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_boots TEXT DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_shield TEXT DEFAULT ''",
@@ -395,13 +386,16 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS known_recipes TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS rare_materials TEXT DEFAULT '{}'",
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS spoil_used INTEGER DEFAULT 0",
-                # === Сезоны ===
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_xp INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_titles TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_races TEXT DEFAULT '[]'",
-                # === PvP одновременные раунды ===
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_ready INTEGER DEFAULT 0",
+                # === Итоги боя ===
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS total_dmg_dealt INTEGER DEFAULT 0",
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS total_dmg_taken INTEGER DEFAULT 0",
+                # === Рейд-боссы: счётчик атак ===
+                "ALTER TABLE world_bosses ADD COLUMN IF NOT EXISTS attacks_count INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -409,9 +403,7 @@ class DB:
                 except Exception as e:
                     logging.warning(f"Migration skipped: {e}")
 
-    # ============ ЭНЕРГИЯ ============
     async def _refresh_energy(self, uid):
-        """Пересчитать energy_max, подтянуть energy к росту max + регенерация."""
         async with self.pool.acquire() as c:
             await c.execute("""
                 WITH calc AS (
@@ -474,7 +466,6 @@ class DB:
             """, uid)
             return row["wait_min"] if row else 30
 
-    # ============ БАЗОВЫЕ ============
     async def get_user(self, user_id, username=""):
         today = str(date.today())
         async with self.pool.acquire() as conn:
@@ -591,7 +582,6 @@ class DB:
             )
             return row["action_count"], row["arc"]
 
-    # ============ ИНВЕНТАРЬ ============
     async def add_item(self, uid, item, lvl=0):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -619,7 +609,6 @@ class DB:
                 return True
         return False
 
-    # ============ ЛОКАЦИИ / ГРАФФИТИ ============
     async def add_location(self, uid, loc):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -657,7 +646,6 @@ class DB:
             )
             return [dict(r) for r in rows]
 
-    # ============ ЕЖЕДНЕВНАЯ ============
     async def claim_daily(self, uid):
         today = str(date.today())
         async with self.pool.acquire() as c:
@@ -677,7 +665,6 @@ class DB:
             )
             return streak
 
-    # ============ ГЕРОЙ ============
     async def set_race(self, uid, r):
         async with self.pool.acquire() as c:
             await c.execute("UPDATE users SET race=$1 WHERE user_id=$2", r, uid)
@@ -749,7 +736,6 @@ class DB:
                 WHERE user_id=$1""", uid)
         await self._refresh_energy(uid)
 
-    # ============ HP / GOLD / РЕПУТАЦИЯ ============
     async def update_hp(self, uid, hp):
         async with self.pool.acquire() as c:
             await c.execute("UPDATE users SET hp=$1 WHERE user_id=$2", max(0, hp), uid)
@@ -794,7 +780,6 @@ class DB:
         async with self.pool.acquire() as c:
             await c.execute("UPDATE users SET pvp_losses=pvp_losses+1 WHERE user_id=$1", uid)
 
-    # ============ ЭКИПИРОВКА ============
     async def equip_item(self, uid, slot, item):
         col = f"equipped_{slot}"
         async with self.pool.acquire() as c:
@@ -811,7 +796,6 @@ class DB:
             await c.execute(f"UPDATE users SET {col}='' WHERE user_id=$1", uid)
             return old
 
-    # ============ РЕЙТИНГИ ============
     async def get_top_players(self, limit=10):
         async with self.pool.acquire() as c:
             rows = await c.fetch("""
@@ -830,7 +814,6 @@ class DB:
             """, limit)
             return [dict(r) for r in rows]
 
-    # ============ ДОСТИЖЕНИЯ ============
     async def add_achievement(self, uid, code):
         async with self.pool.acquire() as c:
             try:
@@ -846,7 +829,6 @@ class DB:
             rows = await c.fetch("SELECT code FROM user_achievements WHERE user_id=$1", uid)
             return [dict(r) for r in rows]
 
-    # ============ МИР (события) ============
     async def add_world_event(self, uid, uname, text):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -862,7 +844,6 @@ class DB:
             )
             return [dict(r) for r in rows]
 
-    # ============ БОЙ ============
     async def get_combat(self, uid):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("SELECT * FROM active_combat WHERE user_id=$1", uid)
@@ -873,8 +854,9 @@ class DB:
             await c.execute("DELETE FROM active_combat WHERE user_id=$1", uid)
             await c.execute("""
                 INSERT INTO active_combat
-                (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp, is_boss, is_dungeon)
-                VALUES ($1,$2,$3,$4,$4,$5,$6)
+                (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp, is_boss, is_dungeon,
+                 total_dmg_dealt, total_dmg_taken)
+                VALUES ($1,$2,$3,$4,$4,$5,$6, 0, 0)
             """, uid, name, lvl, hp, boss, dungeon)
 
     async def update_combat_enemy_hp(self, uid, hp):
@@ -904,7 +886,22 @@ class DB:
                 mult, uid
             )
 
-    # ============ PVP ============
+    async def incr_combat_dmg_dealt(self, uid, amount):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET total_dmg_dealt=total_dmg_dealt+$1 "
+                "WHERE user_id=$2",
+                amount, uid
+            )
+
+    async def incr_combat_dmg_taken(self, uid, amount):
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET total_dmg_taken=total_dmg_taken+$1 "
+                "WHERE user_id=$2",
+                amount, uid
+            )
+
     async def start_pvp_combat(self, a, b, stake):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -914,14 +911,16 @@ class DB:
             await c.execute("""
                 INSERT INTO active_combat
                 (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp,
-                 is_pvp, opponent_id, stake, my_turn)
-                VALUES ($1,$2,$3,$4,$4,1,$5,$6,1)
+                 is_pvp, opponent_id, stake, my_turn,
+                 total_dmg_dealt, total_dmg_taken)
+                VALUES ($1,$2,$3,$4,$4,1,$5,$6,1, 0, 0)
             """, a["user_id"], b["char_name"], b["level"], b["hp"], b["user_id"], stake)
             await c.execute("""
                 INSERT INTO active_combat
                 (user_id, enemy_name, enemy_level, enemy_hp, enemy_max_hp,
-                 is_pvp, opponent_id, stake, my_turn)
-                VALUES ($1,$2,$3,$4,$4,1,$5,$6,0)
+                 is_pvp, opponent_id, stake, my_turn,
+                 total_dmg_dealt, total_dmg_taken)
+                VALUES ($1,$2,$3,$4,$4,1,$5,$6,0, 0, 0)
             """, b["user_id"], a["char_name"], a["level"], a["hp"], a["user_id"], stake)
 
     async def pvp_damage(self, aid, dmg):
@@ -951,7 +950,6 @@ class DB:
                 "UPDATE active_combat SET my_turn=1, round_num=round_num+1 WHERE user_id=$1", opp
             )
 
-    # ============ ДУЭЛИ ============
     async def create_duel_offer(self, cid, cname, oid, oname, stake):
         async with self.pool.acquire() as c:
             await c.execute("""
@@ -974,7 +972,6 @@ class DB:
         async with self.pool.acquire() as c:
             await c.execute("UPDATE duel_offers SET status=$1 WHERE id=$2", status, oid)
 
-    # ============ ПИТОМЦЫ ============
     async def get_pet(self, uid):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("SELECT * FROM pets WHERE user_id=$1", uid)
@@ -1006,7 +1003,6 @@ class DB:
             )
             return lvl
 
-    # ============ МАТЕРИАЛЫ ============
     async def add_material(self, uid, mat, amount):
         col = f"mat_{mat}"
         async with self.pool.acquire() as c:
@@ -1025,7 +1021,6 @@ class DB:
                 return True
         return False
 
-    # ============ ПОДЗЕМЕЛЬЯ ============
     async def start_dungeon(self, uid, dungeon_id):
         async with self.pool.acquire() as c:
             await c.execute("""
@@ -1048,7 +1043,6 @@ class DB:
                 dungeon_loot_gold=0, dungeon_loot_items='[]' WHERE user_id=$1
             """, uid)
 
-    # ============ ОНБОРДИНГ ============
     async def get_tutorial_step(self, uid):
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -1067,7 +1061,6 @@ class DB:
                 ON CONFLICT (user_id) DO UPDATE SET step=$2, finished=$3
             """, uid, step, 1 if finished else 0)
 
-    # ============ ЕЖЕДНЕВНЫЕ КВЕСТЫ ============
     async def get_daily_quests(self, uid):
         today = str(date.today())
         async with self.pool.acquire() as c:
@@ -1123,7 +1116,6 @@ class DB:
             )
             return {"completed": False}
 
-    # ============ ЛОКАЦИИ (новая система) ============
     async def set_location_code(self, uid, code):
         async with self.pool.acquire() as c:
             await c.execute("UPDATE users SET location_code=$1 WHERE user_id=$2", code, uid)
@@ -1144,7 +1136,6 @@ class DB:
             )
             return [r["location_name"] for r in rows]
 
-    # ============ NPC-КВЕСТЫ ============
     async def accept_npc_quest(self, uid, quest_code):
         async with self.pool.acquire() as c:
             try:
@@ -1194,7 +1185,6 @@ class DB:
                 uid, quest_code
             )
 
-    # ============ ГИЛЬДИИ ============
     async def create_guild(self, name, tag, leader_id):
         async with self.pool.acquire() as c:
             try:
@@ -1260,7 +1250,6 @@ class DB:
             """, limit)
             return [dict(r) for r in rows]
 
-    # ============ ЗАХВАТ ЛОКАЦИЙ ============
     async def get_location_owner(self, location_code):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
@@ -1290,7 +1279,6 @@ class DB:
             """)
             return [dict(r) for r in rows]
 
-    # ============ БОССЫ ЛОКАЦИЙ ============
     async def get_location_boss_state(self, location_code):
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -1307,7 +1295,6 @@ class DB:
                 SET boss_name=$2, killed_at=NOW(), killed_by=$3
             """, location_code, boss_name, killer_id)
 
-    # ============ ДИНАМИЧЕСКИЕ СОБЫТИЯ ============
     async def get_active_event(self, location_code):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
@@ -1338,7 +1325,6 @@ class DB:
             """, location_code, event_code, event_name, event_desc,
                 xp_mult, gold_mult, spawn_mult, enemy_dmg_mult, str(duration_min))
 
-    # ============ СКИЛЫ ============
     async def set_active_skills(self, uid, json_str):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1364,7 +1350,6 @@ class DB:
                 return True
         return False
 
-    # ============ MP ============
     async def update_mp(self, uid, mp):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1390,7 +1375,6 @@ class DB:
                 UPDATE users SET mp=LEAST(max_mp, mp+$1) WHERE user_id=$2
             """, amount, uid)
 
-    # ============ ТОРГОВЛЯ / ОБМЕН ============
     async def sell_item(self, uid, item_name, price):
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -1454,7 +1438,6 @@ class DB:
                 WHERE dropped_at < NOW() - ($1 || ' minutes')::INTERVAL
             """, str(max_age_min))
 
-    # ============ TRADE (обмен) ============
     async def create_trade_offer(self, from_id, from_name, to_id, to_name):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
@@ -1484,7 +1467,6 @@ class DB:
             await c.execute("UPDATE trade_offers SET status=$1 WHERE id=$2",
                             status, oid)
 
-    # ============ ЧАТ ============
     async def add_chat_message(self, channel, from_id, from_name, text,
                                 guild_id=0, to_id=0):
         async with self.pool.acquire() as c:
@@ -1534,7 +1516,6 @@ class DB:
             )
             return [r["user_id"] for r in rows]
 
-    # ============ СЮЖЕТНЫЕ КВЕСТЫ ============
     async def accept_story_quest(self, uid, quest_code):
         async with self.pool.acquire() as c:
             try:
@@ -1585,7 +1566,6 @@ class DB:
                 uid, quest_code
             )
 
-    # ============ ЕЖЕДНЕВНЫЕ / ЕЖЕНЕДЕЛЬНЫЕ КВЕСТЫ ============
     async def get_timed_quests(self, uid, quest_type, reset_date):
         async with self.pool.acquire() as c:
             rows = await c.fetch(
@@ -1629,7 +1609,6 @@ class DB:
             )
             return {"completed": False, "progress": new_progress}
 
-    # ============ ОЧКИ ЗАДАНИЙ ============
     async def add_quest_points(self, uid, amount):
         async with self.pool.acquire() as c:
             await c.execute("""
@@ -1662,7 +1641,6 @@ class DB:
                 return True
         return False
 
-    # ============ ЭКСКЛЮЗИВНЫЙ КЛАСС ============
     async def unlock_premium_class(self, uid, class_code):
         import json
         async with self.pool.acquire() as c:
@@ -1685,7 +1663,6 @@ class DB:
             return True
 
     async def unlock_premium_race(self, uid, race_code):
-        """Открыть премиум-расу (навсегда)."""
         import json
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -1707,7 +1684,6 @@ class DB:
             return True
 
     async def has_premium_race(self, uid, race_code):
-        """Проверить, открыта ли премиум-раса у игрока."""
         import json
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
@@ -1733,7 +1709,6 @@ class DB:
             except Exception:
                 return False
 
-    # ============ КОСМЕТИКА ============
     async def unlock_cosmetic(self, uid, code):
         import json
         async with self.pool.acquire() as c:
@@ -1755,14 +1730,12 @@ class DB:
             )
             return True
 
-    # ============ ФЕНИКС ВЕЧНОСТИ ============
     async def set_combat_phoenix_used(self, uid):
         async with self.pool.acquire() as c:
             await c.execute(
                 "UPDATE active_combat SET phoenix_used=1 WHERE user_id=$1", uid
             )
 
-    # ============ ДНЕВНИК ИГРОКА ============
     async def add_journal_entry(self, uid, text, entry_type="event"):
         async with self.pool.acquire() as c:
             await c.execute("""
@@ -1793,7 +1766,6 @@ class DB:
                 )
             """, keep_min, str(days))
 
-    # ============ ПАМЯТЬ ЛОКАЦИЙ ============
     async def add_location_event(self, location_code, text,
                                   event_type="event", username=""):
         async with self.pool.acquire() as c:
@@ -1821,15 +1793,14 @@ class DB:
                 WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
             """, str(days))
 
-    # ============ МИРОВЫЕ БОССЫ ============
     async def spawn_world_boss(self, boss_code, location_code, hp):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
                 INSERT INTO world_bosses
                 (boss_code, location_code, current_hp, max_hp,
-                 expires_at)
+                 expires_at, attacks_count)
                 VALUES ($1, $2, $3, $3,
-                        NOW() + ($4 || ' minutes')::INTERVAL)
+                        NOW() + ($4 || ' minutes')::INTERVAL, 0)
                 RETURNING id
             """, boss_code, location_code, hp, "60")
             return row["id"]
@@ -1872,9 +1843,25 @@ class DB:
             await c.execute("""
                 UPDATE world_bosses
                 SET current_hp = GREATEST(0, current_hp - $1),
-                    total_damage = total_damage + $1
+                    total_damage = total_damage + $1,
+                    attacks_count = attacks_count + 1
                 WHERE id = $2
             """, damage, boss_id)
+
+    async def heal_world_boss(self, boss_id, amount):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                UPDATE world_bosses
+                SET current_hp = LEAST(max_hp, current_hp + $1)
+                WHERE id = $2
+            """, amount, boss_id)
+
+    async def get_boss_attacks_count(self, boss_id):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT attacks_count FROM world_bosses WHERE id=$1", boss_id
+            )
+            return row["attacks_count"] if row else 0
 
     async def get_boss_damage_list(self, boss_id, limit=10):
         async with self.pool.acquire() as c:
@@ -1914,7 +1901,6 @@ class DB:
             """)
             return row["spawned_at"] if row else None
 
-    # ============ ОЧЕРЕДЬ ДЕЙСТВИЙ (PvE) ============
     async def set_pending_actions(self, uid, json_str):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1929,9 +1915,7 @@ class DB:
                 uid
             )
 
-    # ============ PVP: ГОТОВНОСТЬ (одновременные раунды) ============
     async def set_my_ready(self, uid, ready=1):
-        """Установить флаг готовности игрока в PvP."""
         async with self.pool.acquire() as c:
             await c.execute(
                 "UPDATE active_combat SET my_ready=$1 WHERE user_id=$2",
@@ -1939,14 +1923,12 @@ class DB:
             )
 
     async def get_opponent_combat(self, uid):
-        """Получить active_combat игрока (для проверки готовности оппонента)."""
         async with self.pool.acquire() as c:
             row = await c.fetchrow(
                 "SELECT * FROM active_combat WHERE user_id=$1", uid
             )
             return dict(row) if row else None
 
-    # ============ КНИГИ СКИЛЛОВ ============
     async def learn_book(self, uid, skill_code):
         import json
         async with self.pool.acquire() as c:
@@ -1978,7 +1960,6 @@ class DB:
             except Exception:
                 return []
 
-    # ============ РЕЦЕПТЫ ============
     async def learn_recipe(self, uid, recipe_name):
         import json
         async with self.pool.acquire() as c:
@@ -2010,7 +1991,6 @@ class DB:
             except Exception:
                 return []
 
-    # ============ РЕДКИЕ МАТЕРИАЛЫ ============
     async def add_rare_material(self, uid, mat_code, amount=1):
         import json
         async with self.pool.acquire() as c:
@@ -2061,7 +2041,6 @@ class DB:
             )
             return True
 
-    # ============ СПОЙЛ ============
     async def set_combat_spoil_used(self, uid):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -2072,7 +2051,6 @@ class DB:
         async with self.pool.acquire() as c:
             await c.execute("DELETE FROM world_events_dyn WHERE expires_at < NOW()")
 
-    # ============ ТИТУЛЫ ============
     async def set_active_title(self, uid, code):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -2100,7 +2078,6 @@ class DB:
             )
             return True
 
-    # ============ СЕЗОНЫ ============
     async def get_current_season(self):
         async with self.pool.acquire() as c:
             row = await c.fetchrow("""
