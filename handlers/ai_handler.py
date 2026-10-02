@@ -1,4 +1,6 @@
 """Создание героя + основной обработчик (свободный текст → GigaChat)."""
+import logging
+
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.enums import ParseMode
@@ -115,7 +117,7 @@ async def handle(m: Message):
         from handlers.start import show_faction_selection
         await show_faction_selection(m)
         return
-    
+
     # Создание героя
     if not user["char_name"]:
         name = m.text.strip()[:20]
@@ -199,6 +201,7 @@ async def handle(m: Message):
     if not is_admin:
         await g.db.spend_energy(uid, 1)
 
+    # ===== БОЙ =====
     if result["enemy"]:
         await g.db.incr_action_count(uid)
         new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
@@ -207,9 +210,19 @@ async def handle(m: Message):
         await start_combat_from_ai(m.chat.id, user, result["enemy"])
         return
 
+    # ===== ПРЕДМЕТ (валидированный) =====
     if result["item"]:
         await g.db.add_item(uid, result["item"])
-        response += f"\n\n🎒 <i>+{result['item']}</i>"
+        response += (f"\n\n🎒 <b>Получен предмет:</b> <i>{result['item']}</i>\n"
+                     f"<i>Проверь инвентарь кнопкой 🎮 Игра → 🎒 Инвентарь</i>")
+        logging.info(f"ai_handler: игрок {uid} получил предмет «{result['item']}»")
+    else:
+        # Проверяем был ли отклонённый предмет (для отладки)
+        raw_text = result.get("_raw_rejected_item")
+        if raw_text:
+            logging.info(f"ai_handler: ИИ выдумал предмет «{raw_text}» — отброшен")
+
+    # ===== ЛОКАЦИЯ =====
     if result["location"]:
         loc_name = result["location"]
         for ncode, ninfo in W.get_neighbors(loc_code):
@@ -227,9 +240,13 @@ async def handle(m: Message):
         else:
             response += f"\n\n<i>📍 {loc_name}</i>"
 
+    # ===== МАТЕРИАЛ =====
     if result.get("material"):
         await g.db.add_material(uid, result["material"], 1)
-        response += f"\n\n🔨 <i>+{MATERIAL_NAMES[result['material']]}</i>"
+        mat_name = MATERIAL_NAMES.get(result["material"], result["material"])
+        response += f"\n\n🔨 <b>Материал:</b> <i>{mat_name} +1</i>"
+
+    # ===== УРОН / ЛЕЧЕНИЕ =====
     if result["damage"] > 0:
         nhp = user["hp"] - result["damage"]
         await g.db.update_hp(uid, nhp)
@@ -242,6 +259,7 @@ async def handle(m: Message):
         await g.db.update_hp(uid, nhp)
         response += f"\n\n💚 <i>+{result['heal']} HP</i>"
 
+    # ===== ЗОЛОТО =====
     gold_gain = int((5 + result["gold"]) * faction_mult(user, "gold_mult"))
     if owner and user.get("guild_id") and owner.get("guild_id") == user["guild_id"]:
         gold_gain = int(gold_gain * W.LOCATION_OWNER_BONUS["gold_mult"])
@@ -251,10 +269,12 @@ async def handle(m: Message):
     if gold_gain > 0:
         await g.db.progress_quest(uid, "earn_gold", gold_gain)
 
+    # ===== ИСТОРИЯ =====
     new_story = (user["story"] + f"\nИГРОК: {action}\nМАСТЕР: {response}")[-4000:]
     await g.db.update_story(uid, new_story)
     await g.db.incr_action_count(uid)
 
+    # ===== XP =====
     level, xp, leveled_up = await g.db.add_xp(uid, 10)
     if leveled_up:
         u = await g.db.get_user(uid)
@@ -272,6 +292,7 @@ async def handle(m: Message):
                                        f"достиг {level} уровня!")
 
     updated = await g.db.get_user(uid)
+
     # MP-регенерация вне боя (20%)
     if updated.get("max_mp", 0) > 0:
         regen = max(1, int(updated["max_mp"] * 0.20))
@@ -291,7 +312,6 @@ async def handle(m: Message):
     if new_ach:
         ach_lines = "\n".join(f"• {ACHIEVEMENTS[c]}" for c in new_ach)
         response += f"\n\n🏆 <b>Достижение!</b>\n{ach_lines}"
-        # Награды
         total_gold = 0
         total_xp = 0
         for c in new_ach:
@@ -303,7 +323,6 @@ async def handle(m: Message):
             await g.db.add_gold(uid, total_gold)
             await g.db.add_xp(uid, total_xp)
             response += f"\n💰 +{total_gold} · ⭐ +{total_xp} XP"
-        # Новые титулы
         earned = await g.db.get_achievements(uid)
         codes = {a["code"] for a in earned}
         avail2 = get_available_titles(updated, codes)
