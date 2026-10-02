@@ -1,11 +1,14 @@
-"""Скилы: классовые + расовые + скрытые (из книг).
+"""Скилы: классовые + расовые + скрытые (из книг). Улучшение до 5 уровня."""
 
-Новые механики у скиллов:
-- pierce: True       — игнорирует P.Def/M.Def врага
-- execute: 1.5       — множитель урона если HP врага < 20%
-- double: True       — двойной удар (урон ×2)
-- lifesteal: 0.5     — возвращает 50% нанесённого урона как HP
-"""
+# Максимальный уровень скилла
+MAX_SKILL_LEVEL = 5
+# Сколько очков умений стоит 1 улучшение
+UPGRADE_COST = 1
+# Прирост урона/хила за уровень (+15% за каждый уровень)
+UPGRADE_DMG_BONUS = 0.15
+# Прирост снижения урона за уровень для buff_def
+UPGRADE_DEF_BONUS = 0.10
+
 
 CLASS_SKILLS = {
     "warrior": [
@@ -198,12 +201,78 @@ def skill_level(user, code):
     return int(learned.get(code, 1))
 
 
+def set_skill_level_json(user, code, level):
+    """Возвращает обновлённый JSON для поля learned_skills.
+    Использование:
+        new_json = set_skill_level_json(user, code, lvl + 1)
+        await g.db.set_learned_skills(user["user_id"], new_json)
+    """
+    import json
+    try:
+        learned = json.loads(user.get("learned_skills") or "{}")
+    except Exception:
+        learned = {}
+    learned[code] = level
+    return json.dumps(learned)
+
+
 def skill_multiplier(user, code):
+    """Множитель скилла с учётом его уровня (1-5).
+
+    - damage / heal:    base × (1 + 0.15 × (lvl-1))
+    - buff_atk:         1 + (base-1) × (1 + 0.15 × (lvl-1))
+    - buff_def:         base − 0.10 × (lvl-1)  (чем ниже, тем лучше)
+    - остальные:        base без изменений
+    """
     s = get_skill(code)
     if not s:
         return 1.0
     lvl = skill_level(user, code)
     base = s.get("mult", 1.0)
-    if s["effect"] == "damage":
-        return base * (1 + (lvl - 1) * 0.15)
+    bonus = UPGRADE_DMG_BONUS * (lvl - 1)
+
+    if s["effect"] in ("damage", "heal"):
+        return base * (1 + bonus)
+    if s["effect"] == "buff_atk":
+        return 1 + (base - 1) * (1 + bonus)
+    if s["effect"] == "buff_def":
+        return max(0.05, base - UPGRADE_DEF_BONUS * (lvl - 1))
     return base
+
+
+def get_skill_info(user, code):
+    """Словарь с информацией о скилле для показа игроку."""
+    s = get_skill(code)
+    if not s:
+        return None
+    lvl = skill_level(user, code)
+    base = s.get("mult", 1.0)
+    current = skill_multiplier(user, code)
+
+    next_mult = None
+    if lvl < MAX_SKILL_LEVEL and s["effect"] != "passive":
+        # Симулируем уровень +1
+        class FakeUser:
+            pass
+        fake = FakeUser()
+        try:
+            import json
+            learned = json.loads(user.get("learned_skills") or "{}")
+        except Exception:
+            learned = {}
+        learned[code] = lvl + 1
+        fake.learned_skills = json.dumps(learned)
+        next_mult = skill_multiplier(fake, code)
+
+    return {
+        "skill": s,
+        "level": lvl,
+        "max_level": MAX_SKILL_LEVEL,
+        "cost": UPGRADE_COST,
+        "current_mult": current,
+        "next_mult": next_mult,
+        "can_upgrade": (lvl < MAX_SKILL_LEVEL
+                        and s["effect"] != "passive"),
+        "is_max": lvl >= MAX_SKILL_LEVEL,
+        "is_passive": s["effect"] == "passive",
+    }
