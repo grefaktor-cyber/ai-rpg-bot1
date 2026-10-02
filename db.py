@@ -400,6 +400,8 @@ class DB:
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS season_titles TEXT DEFAULT '[]'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_premium_races TEXT DEFAULT '[]'",
+                # === PvP одновременные раунды ===
+                "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS my_ready INTEGER DEFAULT 0",
             ]
             for sql in migrations:
                 try:
@@ -1912,7 +1914,7 @@ class DB:
             """)
             return row["spawned_at"] if row else None
 
-    # ============ ОЧЕРЕДЬ ДЕЙСТВИЙ ============
+    # ============ ОЧЕРЕДЬ ДЕЙСТВИЙ (PvE) ============
     async def set_pending_actions(self, uid, json_str):
         async with self.pool.acquire() as c:
             await c.execute(
@@ -1926,6 +1928,23 @@ class DB:
                 "UPDATE active_combat SET pending_actions='[]' WHERE user_id=$1",
                 uid
             )
+
+    # ============ PVP: ГОТОВНОСТЬ (одновременные раунды) ============
+    async def set_my_ready(self, uid, ready=1):
+        """Установить флаг готовности игрока в PvP."""
+        async with self.pool.acquire() as c:
+            await c.execute(
+                "UPDATE active_combat SET my_ready=$1 WHERE user_id=$2",
+                ready, uid
+            )
+
+    async def get_opponent_combat(self, uid):
+        """Получить active_combat игрока (для проверки готовности оппонента)."""
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT * FROM active_combat WHERE user_id=$1", uid
+            )
+            return dict(row) if row else None
 
     # ============ КНИГИ СКИЛЛОВ ============
     async def learn_book(self, uid, skill_code):
