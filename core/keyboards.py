@@ -123,17 +123,25 @@ def quests_filter_kb(active="all"):
 def combat_kb(active_skills=None, mp=0, pending=None,
               prefix="combat", max_actions=4, is_pvp=False,
               can_spoil=False, spoil_used=False):
+    """Боевая клавиатура.
+
+    ВАЖНО: скиллы показываются ВСЕГДА, даже если MP не хватает.
+    Если MP не хватает — кнопка всё равно активна, просто подписана ⚠️.
+    Это позволяет добавлять скилл в очередь и «подлечиться» зельем MP раньше скилла.
+    """
     from core.skills import get_skill
     from core.game_data import POTION_PRICE, MP_POTION_PRICE
 
     pending = pending or []
     rows = []
 
+    # Ряд 1: атака + защита
     rows.append([
         InlineKeyboardButton(text="⚔️ Атака", callback_data=f"{prefix}_add_attack"),
         InlineKeyboardButton(text="🛡 Защита", callback_data=f"{prefix}_add_defend"),
     ])
 
+    # Ряд 2-3: скиллы (ВСЕГДА все 3, независимо от MP)
     if active_skills:
         skill_buttons = []
         for code in active_skills[:3]:
@@ -148,9 +156,12 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                 "debuff": "🌀", "stun": "💫",
             }.get(s["effect"], "✨")
             short = s["name"][:10]
-            text = f"{icon} {short} ({s['mp_cost']}mp)"
+            # ⚠️ — маркер что MP не хватает СЕЙЧАС, но кнопка всё равно активна.
+            # (можно добавить зелье MP первым в очередь — тогда скилл сработает)
             if mp < s["mp_cost"]:
-                text = f"{icon} {short} ❌"
+                text = f"{icon} {short} ⚠️{s['mp_cost']}mp"
+            else:
+                text = f"{icon} {short} ({s['mp_cost']}mp)"
             skill_buttons.append(InlineKeyboardButton(
                 text=text, callback_data=f"{prefix}_add_skill_{code}"
             ))
@@ -160,6 +171,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
             rows.append(skill_buttons[:2])
             rows.append(skill_buttons[2:])
 
+    # Ряд 4: зелья (ВСЕГДА оба, даже если HP/MP полное — просто добавится вхолостую)
     rows.append([
         InlineKeyboardButton(text=f"💚 HP ({POTION_PRICE}💰)",
                              callback_data=f"{prefix}_add_potion_hp"),
@@ -167,6 +179,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                              callback_data=f"{prefix}_add_potion_mp"),
     ])
 
+    # Спойл (только PvE)
     if can_spoil and not is_pvp:
         if spoil_used:
             rows.append([InlineKeyboardButton(
@@ -177,6 +190,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                 text="🌿 Спойл (обчистить моба)",
                 callback_data="combat_add_spoil")])
 
+    # Ряд действий: убрать + выполнить
     count = len(pending)
     row_actions = []
     if count > 0:
@@ -187,6 +201,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
         callback_data=f"{prefix}_execute"))
     rows.append(row_actions)
 
+    # Сдаться / бежать
     if is_pvp:
         rows.append([InlineKeyboardButton(
             text="🏳️ Сдаться", callback_data="pvp_surrender")])
@@ -198,7 +213,11 @@ def combat_kb(active_skills=None, mp=0, pending=None,
 
 
 def combat_pending_text(pending, max_actions=4):
-    """Визуальные слоты очереди."""
+    """Визуальные слоты очереди.
+
+    Если скилл в очереди требует больше MP, чем сейчас есть — показываем ⚠️,
+    но НЕ блокируем: при выполнении может хватить, если раньше стоит зелье MP.
+    """
     from core.skills import get_skill
 
     action_icons = {
