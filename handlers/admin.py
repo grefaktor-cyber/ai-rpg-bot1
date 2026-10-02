@@ -161,6 +161,54 @@ async def admin_resetlevel(m: Message):
         parse_mode=ParseMode.HTML)
 
 
+@router.message(Command("admin_skillpoints"))
+async def admin_skillpoints(m: Message):
+    """Выдать очки умений.
+
+    /admin_skillpoints 10    — добавить 10
+    /admin_skillpoints -3    — отнять 3
+    /admin_skillpoints 0     — обнулить
+    """
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    parts = m.text.split()
+    if len(parts) < 2:
+        await m.answer(
+            "Использование: <code>/admin_skillpoints 5</code>\n"
+            "Отнять: <code>/admin_skillpoints -3</code>\n"
+            "Обнулить: <code>/admin_skillpoints 0</code>",
+            parse_mode=ParseMode.HTML)
+        return
+    try:
+        amount = int(parts[1])
+    except ValueError:
+        await m.answer("Число нужно."); return
+
+    uid = m.from_user.id
+
+    if amount == 0:
+        async with g.db.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET skill_points=0 WHERE user_id=$1", uid
+            )
+        await m.answer("🛠 <b>Очки умений обнулены</b>",
+                       parse_mode=ParseMode.HTML)
+        return
+
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET skill_points = GREATEST(0, skill_points + $1) "
+            "WHERE user_id=$2",
+            amount, uid
+        )
+
+    u = await g.db.get_user(uid)
+    await m.answer(
+        f"🛠 <b>Очки умений: {amount:+d}</b>\n"
+        f"🎯 Всего: <b>{u['skill_points']}</b>",
+        parse_mode=ParseMode.HTML)
+
+
 # ================= БОЙ =================
 @router.message(Command("admin_endcombat"))
 async def admin_endcombat(m: Message):
