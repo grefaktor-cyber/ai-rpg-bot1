@@ -1,4 +1,4 @@
-"""PvP: одновременные раунды с очередью действий. + Итоги."""
+"""PvP: одновременные раунды с очередью действий + расовые бонусы."""
 import json
 import random
 
@@ -13,10 +13,14 @@ from core.formulas import (
     effective_stats, faction_mult, calc_max_hp, hp_bar,
     calc_damage, calc_p_def, calc_m_def, apply_defense, get_dmg_type,
     racial_crit_bonus, get_crit_bonus, racial_heal_mult,
+    racial_magic_mult, racial_low_hp_mult,
 )
 from core.keyboards import main_kb, combat_kb, combat_pending_text
 from core.skills import get_skill, skill_multiplier
-from core.game_data import POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION_RESTORE
+from core.game_data import (
+    POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION_RESTORE,
+    RANGE_CLASSES, get_racial_combat_bonus,
+)
 
 
 router = Router()
@@ -30,6 +34,21 @@ DEFEND_MULT_BY_COUNT = {
     3: 0.35,
     4: 0.20,
 }
+
+
+def _is_range_round_1(user, combat):
+    """Range-класс бьёт дальше в 1-м раунде."""
+    return (combat.get("round_num", 1) == 1
+            and user.get("class") in RANGE_CLASSES)
+
+
+def _rage_mult(user):
+    """Множитель ярости (демон): чем ниже HP, тем выше урон."""
+    rage_max = get_racial_combat_bonus(user, "rage_max", 0.0)
+    if rage_max <= 1.0:
+        return 1.0
+    hp_pct = user["hp"] / max(1, user["max_hp"])
+    return 1.0 + (1.0 - hp_pct) * (rage_max - 1.0)
 
 
 # ================= ВЫЗОВ =================
@@ -276,12 +295,6 @@ async def pvp_add_defend(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("pvp_add_skill_"))
 async def pvp_add_skill(c: CallbackQuery):
-    """Добавляет скилл в очередь БЕЗ проверки MP.
-
-    Даже если сейчас MP не хватает — скилл добавится. Сработает,
-    если к моменту его хода в очереди будет достаточно MP
-    (например, если раньше стоит зелье MP).
-    """
     skill_code = c.data.replace("pvp_add_skill_", "")
     s = get_skill(skill_code)
     if not s:
@@ -299,11 +312,6 @@ async def pvp_add_skill(c: CallbackQuery):
 
 @router.callback_query(F.data == "pvp_add_potion_hp")
 async def pvp_add_potion_hp(c: CallbackQuery):
-    """Добавляет зелье HP в очередь БЕЗ проверки HP/золота.
-
-    Если при выполнении HP полное или нет золота — зелье не сработает,
-    но в очереди оно будет.
-    """
     ok, reason = await _queue_pvp_action(c.from_user.id, "potion_hp")
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
@@ -316,11 +324,6 @@ async def pvp_add_potion_hp(c: CallbackQuery):
 
 @router.callback_query(F.data == "pvp_add_potion_mp")
 async def pvp_add_potion_mp(c: CallbackQuery):
-    """Добавляет зелье MP в очередь БЕЗ проверки MP/золота.
-
-    Ключевой кейс: можно поставить зелье MP ПЕРВЫМ, а скилл ВТОРЫМ —
-    тогда скилл сработает даже если сейчас MP не хватает.
-    """
     ok, reason = await _queue_pvp_action(c.from_user.id, "potion_mp")
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
@@ -411,6 +414,23 @@ async def _resolve_pvp_round(uid_a, uid_b):
     def_mult_a = DEFEND_MULT_BY_COUNT.get(defends_a, 1.0)
     def_mult_b = DEFEND_MULT_BY_COUNT.get(defends_b, 1.0)
 
+    # === РАСОВЫЕ БОНУСЫ ===
+    a_dmg = get_racial_combat_bonus(user_a, "dmg_mult", 1.0)
+    a_magic = get_racial_combat_bonus(user_a, "magic_mult", 1.0)
+    a_crit = get_racial_combat_bonus(user_a, "crit_bonus", 0)
+    a_lifesteal = get_racial_combat_bonus(user_a, "lifesteal", 0.0)
+    a_dodge = get_racial_combat_bonus(user_a, "dodge", 0)
+    a_rage = _rage_mult(user_a)
+    a_range = 1.30 if _is_range_round_1(user_a, combat_a) else 1.0
+
+    b_dmg = get_racial_combat_bonus(user_b, "dmg_mult", 1.0)
+    b_magic = get_racial_combat_bonus(user_b, "magic_mult", 1.0)
+    b_crit = get_racial_combat_bonus(user_b, "crit_bonus", 0)
+    b_lifesteal = get_racial_combat_bonus(user_b, "lifesteal", 0.0)
+    b_dodge = get_racial_combat_bonus(user_b, "dodge", 0)
+    b_rage = _rage_mult(user_b)
+    b_range = 1.30 if _is_range_round_1(user_b, combat_b) else 1.0
+
     new_hp_a = user_a["hp"]
     new_hp_b = user_b["hp"]
     new_mp_a = user_a.get("mp", 0)
@@ -425,7 +445,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
     dmg_a_to_b = 0
     dmg_b_to_a = 0
 
-    # ============ ОЧЕРЕДЬ A (строго по порядку) ============
+    # ============ ОЧЕРЕДЬ A (по порядку) ============
     for action in actions_a:
         if action == "attack":
             eff_a = effective_stats(user_a)
@@ -434,8 +454,14 @@ async def _resolve_pvp_round(uid_a, uid_b):
             dmg_type = get_dmg_type(user_a)
             base = calc_damage(user_a)
             dmg = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
+            if dmg_type == "magic":
+                dmg = int(dmg * racial_magic_mult(user_a) * a_magic)
+            else:
+                dmg = int(dmg * a_dmg)
             dmg = int(dmg * faction_mult(user_a, "dmg_mult"))
-            crit_chance = eff_a["dex"] + racial_crit_bonus(user_a) + get_crit_bonus(user_a)
+            dmg = int(dmg * racial_low_hp_mult(user_a) * a_rage * a_range)
+            crit_chance = (eff_a["dex"] + racial_crit_bonus(user_a)
+                           + get_crit_bonus(user_a) + a_crit)
             if user_a.get("pet_type") == "owl":
                 crit_chance += 15
             is_crit = random.randint(1, 100) <= crit_chance
@@ -443,7 +469,16 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 dmg = int(dmg * 2)
             dmg = int(dmg * def_mult_b)
             dmg_a_to_b += dmg
-            log_a.append(f"⚔️ Атака: {dmg} урона" + (" 💥 КРИТ!" if is_crit else ""))
+            line = f"⚔️ Атака: {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
+            if a_range > 1.0:
+                line += " 🎯 <i>(дальний бой)</i>"
+            if a_rage > 1.05:
+                line += f" 😈 <i>(ярость ×{a_rage:.2f})</i>"
+            log_a.append(line)
+            if a_lifesteal > 0 and dmg > 0:
+                heal = int(dmg * a_lifesteal)
+                new_hp_a = min(max_hp_a, new_hp_a + heal)
+                log_a.append(f"😈 Вампиризм: +{heal} HP")
 
         elif action == "defend":
             log_a.append("🛡 Защита")
@@ -475,7 +510,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
             s = get_skill(code)
             if not s:
                 continue
-            # Проверка MP по ФАКТУ на момент хода (после предыдущих действий в очереди)
             if new_mp_a < s["mp_cost"]:
                 log_a.append(f"❌ «{s['name']}» — не хватило MP ({new_mp_a}/{s['mp_cost']})")
                 continue
@@ -486,11 +520,33 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 t_pdef = calc_p_def(user_b)
                 t_mdef = calc_m_def(user_b)
                 dmg_type = get_dmg_type(user_a)
-                base = calc_damage(user_a)
-                dmg = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
-                dmg = int(dmg * mult * faction_mult(user_a, "dmg_mult") * def_mult_b)
+                if s.get("pierce"):
+                    base = calc_damage(user_a)
+                else:
+                    base = calc_damage(user_a)
+                    base = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
+                if dmg_type == "magic":
+                    base = int(base * racial_magic_mult(user_a) * a_magic)
+                else:
+                    base = int(base * a_dmg)
+                dmg = int(base * mult * faction_mult(user_a, "dmg_mult")
+                          * racial_low_hp_mult(user_a) * a_rage * a_range * def_mult_b)
+                if s.get("double"):
+                    dmg *= 2
+                # execute
+                if s.get("execute") and new_hp_b < max_hp_b * 0.20:
+                    dmg = int(dmg * s["execute"])
+                    log_a.append(f"✨ {s['name']}: <b>ДОБИВАНИЕ ×{s['execute']}</b>")
                 dmg_a_to_b += dmg
-                log_a.append(f"✨ {s['name']}: {dmg} урона")
+                if s.get("pierce"):
+                    log_a.append(f"✨ {s['name']} (игнор брони): {dmg} урона")
+                else:
+                    log_a.append(f"✨ {s['name']}: {dmg} урона")
+                # lifesteal скилла
+                if s.get("lifesteal") and dmg > 0:
+                    heal = int(dmg * s["lifesteal"])
+                    new_hp_a = min(max_hp_a, new_hp_a + heal)
+                    log_a.append(f"💗 Вампиризм скилла: +{heal} HP")
             elif effect == "heal":
                 heal = int(max_hp_a * mult * racial_heal_mult(user_a))
                 new_hp_a = min(max_hp_a, new_hp_a + heal)
@@ -504,7 +560,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
             elif effect == "stun":
                 log_a.append(f"✨ {s['name']}: соперник оглушён")
 
-    # ============ ОЧЕРЕДЬ B (строго по порядку) ============
+    # ============ ОЧЕРЕДЬ B (по порядку) ============
     for action in actions_b:
         if action == "attack":
             eff_b = effective_stats(user_b)
@@ -513,8 +569,14 @@ async def _resolve_pvp_round(uid_a, uid_b):
             dmg_type = get_dmg_type(user_b)
             base = calc_damage(user_b)
             dmg = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
+            if dmg_type == "magic":
+                dmg = int(dmg * racial_magic_mult(user_b) * b_magic)
+            else:
+                dmg = int(dmg * b_dmg)
             dmg = int(dmg * faction_mult(user_b, "dmg_mult"))
-            crit_chance = eff_b["dex"] + racial_crit_bonus(user_b) + get_crit_bonus(user_b)
+            dmg = int(dmg * racial_low_hp_mult(user_b) * b_rage * b_range)
+            crit_chance = (eff_b["dex"] + racial_crit_bonus(user_b)
+                           + get_crit_bonus(user_b) + b_crit)
             if user_b.get("pet_type") == "owl":
                 crit_chance += 15
             is_crit = random.randint(1, 100) <= crit_chance
@@ -522,7 +584,16 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 dmg = int(dmg * 2)
             dmg = int(dmg * def_mult_a)
             dmg_b_to_a += dmg
-            log_b.append(f"⚔️ Атака: {dmg} урона" + (" 💥 КРИТ!" if is_crit else ""))
+            line = f"⚔️ Атака: {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
+            if b_range > 1.0:
+                line += " 🎯 <i>(дальний бой)</i>"
+            if b_rage > 1.05:
+                line += f" 😈 <i>(ярость ×{b_rage:.2f})</i>"
+            log_b.append(line)
+            if b_lifesteal > 0 and dmg > 0:
+                heal = int(dmg * b_lifesteal)
+                new_hp_b = min(max_hp_b, new_hp_b + heal)
+                log_b.append(f"😈 Вампиризм: +{heal} HP")
 
         elif action == "defend":
             log_b.append("🛡 Защита")
@@ -564,11 +635,31 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 t_pdef = calc_p_def(user_a)
                 t_mdef = calc_m_def(user_a)
                 dmg_type = get_dmg_type(user_b)
-                base = calc_damage(user_b)
-                dmg = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
-                dmg = int(dmg * mult * faction_mult(user_b, "dmg_mult") * def_mult_a)
+                if s.get("pierce"):
+                    base = calc_damage(user_b)
+                else:
+                    base = calc_damage(user_b)
+                    base = apply_defense(base, t_mdef if dmg_type == "magic" else t_pdef)
+                if dmg_type == "magic":
+                    base = int(base * racial_magic_mult(user_b) * b_magic)
+                else:
+                    base = int(base * b_dmg)
+                dmg = int(base * mult * faction_mult(user_b, "dmg_mult")
+                          * racial_low_hp_mult(user_b) * b_rage * b_range * def_mult_a)
+                if s.get("double"):
+                    dmg *= 2
+                if s.get("execute") and new_hp_a < max_hp_a * 0.20:
+                    dmg = int(dmg * s["execute"])
+                    log_b.append(f"✨ {s['name']}: <b>ДОБИВАНИЕ ×{s['execute']}</b>")
                 dmg_b_to_a += dmg
-                log_b.append(f"✨ {s['name']}: {dmg} урона")
+                if s.get("pierce"):
+                    log_b.append(f"✨ {s['name']} (игнор брони): {dmg} урона")
+                else:
+                    log_b.append(f"✨ {s['name']}: {dmg} урона")
+                if s.get("lifesteal") and dmg > 0:
+                    heal = int(dmg * s["lifesteal"])
+                    new_hp_b = min(max_hp_b, new_hp_b + heal)
+                    log_b.append(f"💗 Вампиризм скилла: +{heal} HP")
             elif effect == "heal":
                 heal = int(max_hp_b * mult * racial_heal_mult(user_b))
                 new_hp_b = min(max_hp_b, new_hp_b + heal)
@@ -581,6 +672,18 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_b.append(f"✨ {s['name']}: дебафф на соперника")
             elif effect == "stun":
                 log_b.append(f"✨ {s['name']}: соперник оглушён")
+
+    # ============ УКЛОНЕНИЕ (плут) ============
+    # A уклоняется от всего урона B?
+    if dmg_b_to_a > 0 and a_dodge > 0 and random.randint(1, 100) <= a_dodge:
+        log_a.append(f"💨 <b>Уклонение!</b> Ты уклонился от всех атак ({dmg_b_to_a} урона)")
+        log_b.append(f"💨 {user_a['char_name']} уклонился от твоих атак")
+        dmg_b_to_a = 0
+    # B уклоняется от всего урона A?
+    if dmg_a_to_b > 0 and b_dodge > 0 and random.randint(1, 100) <= b_dodge:
+        log_b.append(f"💨 <b>Уклонение!</b> Ты уклонился от всех атак ({dmg_a_to_b} урона)")
+        log_a.append(f"💨 {user_b['char_name']} уклонился от твоих атак")
+        dmg_a_to_b = 0
 
     # ============ ПРИМЕНЕНИЕ УРОНА ============
     new_hp_b = max(0, new_hp_b - dmg_a_to_b)
