@@ -1,4 +1,4 @@
-"""Меню скилов + изучение книг. back+close везде."""
+"""Меню скилов + изучение книг. Прокачка до 5 уровня."""
 import json
 
 from aiogram import Router, F
@@ -7,7 +7,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.skills import available_skills, get_skill
+from core.skills import (
+    available_skills, get_skill, skill_level, skill_multiplier,
+    get_skill_info, MAX_SKILL_LEVEL,
+)
 from core.books import SKILL_BOOKS
 from core.keyboards import (
     main_kb, skills_main_kb,
@@ -55,7 +58,8 @@ def _render_main(user):
     sp = user.get("skill_points", 0)
 
     text = f"✨ <b>Скилы</b>\n\n"
-    text += f"🎯 Очки умений: <b>{sp}</b>\n\n"
+    text += f"🎯 Очки умений: <b>{sp}</b>\n"
+    text += f"📈 Максимум уровень скилла: <b>{MAX_SKILL_LEVEL}</b>\n\n"
 
     text += "<b>Активные слоты:</b>\n"
     for i in range(3):
@@ -108,7 +112,7 @@ async def skills_close_cb(c: CallbackQuery):
 
 @router.callback_query(F.data == "skills_noop")
 async def skills_noop_cb(c: CallbackQuery):
-    await c.answer("Максимальный уровень")
+    await c.answer(f"✅ Максимальный уровень ({MAX_SKILL_LEVEL})")
 
 
 @router.callback_query(F.data == "skills_list")
@@ -226,12 +230,14 @@ async def learn_book_cb(c: CallbackQuery):
 async def skills_slots_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
     active = _load_active(u)
+    learned = _load_learned(u)
     text = "🎯 <b>Активные слоты</b>\n\n"
     for i in range(3):
         slot_code = active[i] if i < len(active) else None
         if slot_code:
             s = get_skill(slot_code)
-            text += f"{i+1}. {s['name'] if s else '?'}\n"
+            lvl = learned.get(slot_code, 1)
+            text += f"{i+1}. {s['name'] if s else '?'} (ур.{lvl})\n"
         else:
             text += f"{i+1}. <i>(пусто)</i>\n"
     text += "\n<i>Выбери слот для изменения:</i>"
@@ -261,7 +267,13 @@ async def skills_slot_pick_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
     learned_books = _load_learned_books(u)
     available = available_skills(u, learned_books)
+    learned = _load_learned(u)
+
     active_skills = [s for s in available if s["effect"] != "passive"]
+    # Добавляем уровень к каждому скиллу для показа в кнопке
+    for s in active_skills:
+        s["_level"] = learned.get(s["code"], 1)
+
     if not active_skills:
         await c.answer("Нет доступных активных скилов", show_alert=True); return
 
@@ -310,20 +322,34 @@ async def skills_set_cb(c: CallbackQuery):
     await skills_slots_cb(c)
 
 
+# ================= ПРОКАЧКА СКИЛЛОВ =================
 @router.callback_query(F.data == "skills_upgrade")
 async def skills_upgrade_cb(c: CallbackQuery):
     u = await g.db.get_user(c.from_user.id)
     sp = u.get("skill_points", 0)
-    if sp <= 0:
-        await c.answer("Нет очков умений. Получай уровни!", show_alert=True); return
     learned_books = _load_learned_books(u)
     available = available_skills(u, learned_books)
     learned = _load_learned(u)
+
+    # Считаем прогресс по всем активным скиллам
+    upgradable = [s for s in available if s["effect"] != "passive"]
+    total_levels = sum(learned.get(s["code"], 1) for s in upgradable)
+    max_levels = len(upgradable) * MAX_SKILL_LEVEL
+    max_count = sum(1 for s in upgradable
+                    if learned.get(s["code"], 1) >= MAX_SKILL_LEVEL)
+
     text = (f"⬆️ <b>Прокачка скилов</b>\n\n"
-            f"🎯 Очки умений: <b>{sp}</b>\n\n"
-            f"<i>Одно очко = +1 уровень скила (макс ур.3).\n"
-            f"Каждый уровень: +15% к эффекту.</i>\n\n"
-            f"Выбери скил:")
+            f"🎯 Очки умений: <b>{sp}</b>\n"
+            f"📈 Максимум: <b>ур. {MAX_SKILL_LEVEL}</b> на скилл\n"
+            f"💡 1 очко = +1 уровень (+15% к урону/лечению)\n\n"
+            f"📊 Прогресс: <b>{total_levels}/{max_levels}</b>")
+    if max_count > 0:
+        text += f" · МАКС у <b>{max_count}</b> скиллов"
+    text += "\n\n<i>Выбери скил:</i>"
+
+    if sp <= 0:
+        text += "\n\n⚠️ <i>Нет очков — получай уровни персонажа!</i>"
+
     try:
         await c.message.edit_text(text,
                                   reply_markup=skills_upgrade_kb(available, learned),
@@ -341,16 +367,88 @@ async def skills_up_cb(c: CallbackQuery):
     s = get_skill(code)
     if not s or s["effect"] == "passive":
         await c.answer("Нельзя прокачать"); return
+
     u = await g.db.get_user(c.from_user.id)
     sp = u.get("skill_points", 0)
     if sp <= 0:
-        await c.answer("Нет очков", show_alert=True); return
+        await c.answer("❌ Нет очков умений", show_alert=True); return
+
     learned = _load_learned(u)
     cur = learned.get(code, 1)
-    if cur >= 3:
-        await c.answer("Уже максимум"); return
+    if cur >= MAX_SKILL_LEVEL:
+        await c.answer(f"✅ Уже максимальный уровень ({cur})", show_alert=True); return
+
+    # Сохраняем новый уровень
     learned[code] = cur + 1
     await g.db.set_learned_skills(c.from_user.id, json.dumps(learned))
     await g.db.spend_skill_point(c.from_user.id)
+
+    # Перечитываем и считаем новый множитель
+    u2 = await g.db.get_user(c.from_user.id)
+    new_mult = skill_multiplier(u2, code)
+    old_mult = skill_multiplier(u, code)
+    diff = new_mult - old_mult
+
+    # Форматируем
+    delta_str = f"+{diff:.2f}" if diff >= 0 else f"{diff:.2f}"
+    if s["effect"] == "buff_def":
+        # для защиты множитель уменьшается — рост снижения
+        pct_old = int((1 - old_mult) * 100)
+        pct_new = int((1 - new_mult) * 100)
+        delta_str = f"снижение урона {pct_old}% → {pct_new}%"
+        detail = f"×{old_mult:.2f} → ×{new_mult:.2f} ({delta_str})"
+    else:
+        detail = f"×{old_mult:.2f} → ×{new_mult:.2f} ({delta_str})"
+
     await c.answer(f"✅ {s['name']} → ур.{learned[code]}")
+    try:
+        await c.message.answer(
+            f"⬆️ <b>{s['name']}</b> улучшен!\n\n"
+            f"🎯 Уровень: <b>{cur} → {learned[code]}</b> (макс. {MAX_SKILL_LEVEL})\n"
+            f"📊 Множитель: <b>{detail}</b>",
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+    # Обновляем меню
     await skills_upgrade_cb(c)
+
+
+# ================= ИНФО О СКИЛЛЕ (опционально) =================
+@router.callback_query(F.data.startswith("skills_show_"))
+async def skills_show_detail(c: CallbackQuery):
+    """Показать подробно скилл (уровень, множитель, следующий)."""
+    code = c.data.replace("skills_show_", "")
+    u = await g.db.get_user(c.from_user.id)
+    info = get_skill_info(u, code)
+    if not info:
+        await c.answer("Скилл не найден"); return
+
+    s = info["skill"]
+    text = (f"✨ <b>{s['name']}</b>\n\n"
+            f"<i>{s.get('desc', '')}</i>\n\n"
+            f"🎯 Уровень: <b>{info['level']}/{info['max_level']}</b>\n"
+            f"💧 MP-стоимость: <b>{s['mp_cost']}</b>\n"
+            f"📊 Множитель: <b>×{info['current_mult']:.2f}</b>\n")
+    if info["can_upgrade"] and info["next_mult"] is not None:
+        diff = info["next_mult"] - info["current_mult"]
+        text += (f"\n📈 После улучшения: <b>×{info['next_mult']:.2f}</b> "
+                 f"({'+' if diff >= 0 else ''}{diff:.2f})\n"
+                 f"💰 Стоимость: <b>{info['cost']}</b> очко умений")
+    elif info["is_max"]:
+        text += "\n✅ <b>Максимальный уровень</b>"
+    elif info["is_passive"]:
+        text += "\n<i>Пассивный — улучшение недоступно</i>"
+
+    rows = []
+    if info["can_upgrade"]:
+        rows.append([InlineKeyboardButton(
+            text="⬆️ Улучшить (1 очко)",
+            callback_data=f"skills_up_{code}")])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад",
+                                       callback_data="skills_upgrade")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    try:
+        await c.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+    await c.answer()
