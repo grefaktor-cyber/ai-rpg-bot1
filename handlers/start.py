@@ -95,11 +95,17 @@ async def consent_no(c: CallbackQuery):
 @router.message(Command("newchar"))
 async def newchar_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
-    if not u["char_name"]:
-        await m.answer("У тебя ещё нет героя. Начни через /start."); return
+
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ Сначала закончи бой!"); return
 
+    # Если героя ещё нет (или он не создан до конца) — просто показать расы
+    if not u["char_name"]:
+        await g.db.reset_character(m.from_user.id)
+        await show_race_selection(m)
+        return
+
+    # Если герой есть — подтверждение
     warn = (f"⚠️ <b>Создать нового героя?</b>\n\n"
             f"Текущий герой: <b>{u['char_name']}</b> "
             f"({RACES.get(u['race'], {}).get('name', '?')}, "
@@ -113,6 +119,7 @@ async def newchar_cmd(m: Message):
             f"<b>Что сохранится:</b>\n"
             f"• Энергия и её максимум\n"
             f"• Премиум\n"
+            f"• Премиум-расы и классы (купленные)\n"
             f"• Рефералы\n\n"
             f"<i>Это действие нельзя отменить!</i>")
 
@@ -209,7 +216,6 @@ async def show_class_selection(m, race_code):
             text=f"{cl['name']} — {cl['desc']}",
             callback_data=f"class_{code}"
         )])
-    # ⬅️ Кнопка назад к выбору расы
     rows.append([InlineKeyboardButton(
         text="⬅️ Назад к расам",
         callback_data="back_to_races"
@@ -221,7 +227,6 @@ async def show_class_selection(m, race_code):
 
 @router.callback_query(F.data == "back_to_races")
 async def back_to_races(c: CallbackQuery):
-    """Вернуться к выбору расы, сбросив класс."""
     await g.db.set_class(c.from_user.id, "")
     try:
         await c.message.delete()
@@ -258,14 +263,12 @@ async def on_class(c: CallbackQuery):
 
 
 async def show_faction_selection(m):
-    # Строим клавиатуру вручную — с кнопкой Назад
     rows = []
     for code, f in FACTIONS.items():
         rows.append([InlineKeyboardButton(
             text=f"{f['name']} — {f['desc']}",
             callback_data=f"faction_{code}"
         )])
-    # ⬅️ Кнопка назад к выбору класса
     rows.append([InlineKeyboardButton(
         text="⬅️ Назад к классам",
         callback_data="back_to_classes"
@@ -277,7 +280,6 @@ async def show_faction_selection(m):
 
 @router.callback_query(F.data == "back_to_classes")
 async def back_to_classes(c: CallbackQuery):
-    """Вернуться к выбору класса, сбросив фракцию."""
     await g.db.set_faction(c.from_user.id, "")
     u = await g.db.get_user(c.from_user.id)
     try:
