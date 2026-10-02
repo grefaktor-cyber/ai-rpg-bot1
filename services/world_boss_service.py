@@ -37,6 +37,15 @@ def _now_msk():
     return datetime.now(timezone.utc) + timedelta(hours=3)
 
 
+def _parse_dt(dt):
+    """Приводит naive datetime из БД к aware UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def should_spawn_now():
     now_msk = _now_msk()
     return now_msk.hour in SPAWN_HOURS_MSK
@@ -52,7 +61,8 @@ async def try_spawn_boss():
 
     last = await g.db.get_last_boss_spawn_time()
     if last:
-        delta = datetime.now(timezone.utc) - last
+        last_aware = _parse_dt(last)  # ⬅️ ФИКС naive/aware
+        delta = datetime.now(timezone.utc) - last_aware
         if delta.total_seconds() < 60 * 60 * 5:
             return None
 
@@ -111,7 +121,6 @@ async def attack_boss(uid):
 
     boss_data = WORLD_BOSSES.get(boss["boss_code"], {})
 
-    # Урон игрока
     eff = effective_stats(u)
     my_dmg = calc_damage(u)
     crit_chance = eff["dex"] + racial_crit_bonus(u) + get_crit_bonus(u)
@@ -121,7 +130,6 @@ async def attack_boss(uid):
     if is_crit:
         my_dmg = int(my_dmg * 2)
 
-    # Ответный урон босса с учётом P.Def/M.Def игрока
     boss_atk = calc_boss_damage_to_player(u, boss_data, phase_mult=1.0)
 
     new_hp = max(0, u["hp"] - boss_atk)
