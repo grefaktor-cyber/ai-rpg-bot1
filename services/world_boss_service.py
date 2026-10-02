@@ -52,6 +52,7 @@ def should_spawn_now():
 
 
 async def try_spawn_boss():
+    """Плановая проверка спавна (раз в 5 мин из _cleanup_loop)."""
     if not should_spawn_now():
         return None
 
@@ -61,7 +62,7 @@ async def try_spawn_boss():
 
     last = await g.db.get_last_boss_spawn_time()
     if last:
-        last_aware = _parse_dt(last)  # ⬅️ ФИКС naive/aware
+        last_aware = _parse_dt(last)
         delta = datetime.now(timezone.utc) - last_aware
         if delta.total_seconds() < 60 * 60 * 5:
             return None
@@ -97,6 +98,75 @@ async def try_spawn_boss():
     return {"boss_id": boss_id, "boss_code": boss_code,
             "location_code": loc_code, "location_name": loc_name,
             "boss_name": boss_data["name"]}
+
+
+# ================= ФОРС-СПАВН ДЛЯ ТЕСТА =================
+async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
+    """Форс-спавн босса. Игнорирует расписание и лимит 5 часов.
+    
+    Args:
+        boss_code: код босса (None = случайный)
+        location_code: код локации (None = случайная из доступных боссу)
+        notify: рассылать ли всем игрокам (по умолчанию False)
+    """
+    # Удаляем старых мёртвых/истёкших, чтобы не мешали
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM world_bosses WHERE killed=1 OR expires_at < NOW()"
+        )
+
+    # Выбираем босса
+    if boss_code is None:
+        boss_code = random.choice(list(WORLD_BOSSES.keys()))
+    boss_data = WORLD_BOSSES.get(boss_code)
+    if not boss_data:
+        return {"error": f"boss '{boss_code}' не найден",
+                "available": list(WORLD_BOSSES.keys())}
+
+    # Выбираем локацию
+    if location_code is None:
+        location_code = random.choice(boss_data["locations"])
+    if location_code not in W.LOCATIONS:
+        return {"error": f"локация '{location_code}' не найдена",
+                "available": list(W.LOCATIONS.keys())}
+
+    # Спавним
+    boss_id = await g.db.spawn_world_boss(
+        boss_code, location_code, boss_data["hp"]
+    )
+    loc_name = W.get_location(location_code).get("name", "?")
+
+    # Рассылка (опционально)
+    if notify:
+        async with g.db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT user_id FROM users WHERE char_name!=''"
+            )
+        for r in rows:
+            try:
+                await g.bot.send_message(
+                    r["user_id"],
+                    f"🐉 <b>МИРОВОЙ БОСС!</b>\n\n"
+                    f"<b>{boss_data['name']}</b> в «{loc_name}»!\n"
+                    f"HP: <b>{boss_data['hp']}</b>\n"
+                    f"⚔️ Урон: ~{boss_data['attack_dmg']} ({boss_data['dmg_type']})\n\n"
+                    f"⚠️ <i>{boss_data['desc']}</i>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+
+    return {
+        "boss_id": boss_id,
+        "boss_code": boss_code,
+        "boss_name": boss_data["name"],
+        "boss_level": boss_data["level"],
+        "location_code": location_code,
+        "location_name": loc_name,
+        "hp": boss_data["hp"],
+        "attack_dmg": boss_data["attack_dmg"],
+        "dmg_type": boss_data["dmg_type"],
+    }
 
 
 async def attack_boss(uid):
