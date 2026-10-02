@@ -10,7 +10,10 @@ from aiogram.enums import ParseMode
 from core import globals as g
 from core.game_data import RACES, CLASSES, FACTIONS, ACHIEVEMENTS
 from core.equipment import SLOTS, SLOT_NAMES, get_set_bonus
-from core.formulas import calc_p_def, calc_m_def, get_role, get_dmg_type
+from core.formulas import (
+    calc_p_def, calc_m_def, get_role, get_dmg_type,
+    effective_stats,
+)
 from core.keyboards import main_kb, profile_tabs_kb
 from services.ui import send_menu, close_menu
 
@@ -30,11 +33,8 @@ def _back_close_kb():
 
 def _stats_text(u):
     need = u["level"] * u["level"] * 100
-    eff = {
-        "str": u.get("stat_str", 5), "dex": u.get("stat_dex", 5),
-        "con": u.get("stat_con", 5), "int": u.get("stat_int", 5),
-        "wit": u.get("stat_wit", 5), "men": u.get("stat_men", 5),
-    }
+    # ⬅️ ФИКС: со всеми бонусами от экипировки, питомца, сетов
+    eff = effective_stats(u)
     faction_name = FACTIONS.get(u["faction"], {}).get("name", "—")
     race_name = RACES.get(u["race"], {}).get("name", "?")
     class_name = CLASSES.get(u["class"], {}).get("name", "?")
