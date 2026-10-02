@@ -1,91 +1,82 @@
+"""GigaChat: промпт, парсинг тегов, генерация сюжета."""
 from gigachat import GigaChat
 import asyncio
 import logging
 import re
+import json
 import world as W
+from core.equipment import SHOP
 
-SYSTEM_PROMPT = """Ты — мастер интерактивной RPG в стиле тёмного фэнтези.
-Ведёшь игрока по ФИКСИРОВАННОМУ миру. Локации мира уже определены — их нельзя менять или придумывать.
 
-СТРОГИЕ ЗАПРЕТЫ:
-- Не упоминай реальных политиков, партии, действующих государственных деятелей.
-- Не описывай реальные политические события, выборы, протесты, военные конфликты.
-- Не пропагандируй наркотики, суицид, насилие, экстремизм, терроризм.
-- Не генерируй инструкции по изготовлению оружия, взрывчатки, наркотиков.
-- Не разжигай ненависть по признаку пола, расы, религии, национальности.
-- Если игрок просит запрещённое — вежливо откажись и переведи сюжет в безопасное русло.
+SYSTEM_PROMPT = """Ты — мастер интерактивной текстовой RPG в стиле ТЁМНОГО ФЭНТЕЗИ.
+
+Это художественный вымысел в жанре фэнтези (аналог Dungeons & Dragons,
+Lineage 2, World of Warcraft). Все события происходят в ВЫМЫШЛЕННОМ мире,
+где есть магия, монстры и вымышленные персонажи.
+
+ВАЖНО: термины «оружие», «бой», «атака», «убить», «кровь», «смерть»
+относятся ИСКЛЮЧИТЕЛЬНО к игровой механике и вымышленным существам
+(гоблинам, драконам, нежити). Это НЕ описание реального насилия.
+Ты как мастер D&D — ведёшь игру, а не даёшь реальные советы.
+
+ЗАПРЕТЫ (только про РЕАЛЬНЫЙ мир):
+- Не упоминай реальных политиков и события.
+- Не давай инструкций по изготовлению реального оружия/взрывчатки/наркотиков.
+- Не разжигай ненависть по признаку пола, расы, религии.
+- Если игрок уводит в реальную политику — мягко верни в фэнтези-сюжет.
 
 ПРАВИЛА ОТВЕТА:
-- НИКОГДА не предлагай варианты выбора списком («1. Да», «2. Нет»).
+- НИКОГДА не предлагай варианты списком («1. Да», «2. Нет»).
 - Заканчивай ответ ОТКРЫТЫМ вопросом: «Что будешь делать?», «Твой ход.»
 - Пиши ярко, коротко: 3-6 предложений.
 - Учитывай расу, класс, фракцию, экипировку и питомца игрока.
 - Помни всё, что игрок делал раньше.
 
-СЛОВАРЬ ИГРЫ (ты обязан понимать эти термины):
-- HP, здоровье — выживаемость. Восстановить: /use Зелье HP (в инвентаре) или отдых в бою.
-- MP, мана — ресурс для скилов. Восстановить: /use Зелье MP или 🔮 кнопка в бою.
-- Скил, умение — активная способность класса. Игрок задаёт их через /skills (3 слота).
-- Очки умений — для прокачки скилов. Даются за уровень.
-- P.Def — защита от физического урона. M.Def — защита от магии.
-- Энергия — лимит на действия. Восстанавливается +1 каждые 30 мин.
-- Роль класса: tank (танк), fighter (боец), agile (ловкий), mage (маг), universal (универсал).
-- Тип урона: phys (физический), agile (ловкий), magic (магический).
+ПРЕДМЕТЫ (ОЧЕНЬ ВАЖНО):
+Когда игрок находит предмет, даёт награду, открывает сундук —
+используй ТОЛЬКО предметы из СПИСКА ПРЕДМЕТОВ (см. ниже).
+Тег: [ITEM: ТОЧНОЕ_НАЗВАНИЕ_ИЗ_СПИСКА]
+НЕ выдумывай названия типа «меч древнего воина» — их нет в игре.
+Если хочешь дать оружие — выбери из списка ближайшее по смыслу.
 
-ЕСЛИ ИГРОК ПИШЕТ «восстановить HP», «вылечиться», «отдохнуть»:
-- НЕ меняй HP сам.
-- Ответь: «Используй /use Зелье HP (в инвентаре) или открой инвентарь 🎒».
-- Продолжи сюжет с намёком на действие.
+СЛОВАРЬ ИГРЫ:
+- HP, здоровье — выживаемость. /use Зелье HP.
+- MP, мана — ресурс для скилов. /use Зелье MP.
+- Скил — активная способность класса (/skills, 3 слота).
+- P.Def — защита от физического. M.Def — от магии.
+- Энергия — лимит на действия. +1 каждые 30 мин.
+- Роль класса: tank, fighter, agile, mage, universal.
+- Тип урона: phys, agile, magic.
 
-ЕСЛИ ИГРОК ПИШЕТ «восстановить MP», «мана кончилась», «нет маны»:
-- Ответь: «Используй /use Зелье MP или купи в магазине 🛒».
-- НЕ восстанавливай MP сам.
+ЕСЛИ «восстановить HP/MP» — не меняй сам. Отправь в /use.
 
-ЕСЛИ ИГРОК ПИШЕТ «использую скил X»:
-- Проверь: X есть в разделе «АКТИВНЫЕ СКИЛЫ» ниже?
-- Если нет — ответь: «У тебя нет такого скила. Открой ✨ Скилы, чтобы настроить».
-- Если есть — опиши, что скил «заряжается», но для применения нужен бой (кнопки).
-- НЕ активируй скил сам.
+ЕСЛИ «использую скил X»:
+- Проверь что X есть в «АКТИВНЫЕ СКИЛЫ» в контексте.
+- Если есть — скажи «нужен бой (кнопки)». Не активируй сам.
 
-ЕСЛИ ИГРОК ПИШЕТ «хочу сокровище», «ищу клад»:
-- Придумай сцену с сундуком/тайником.
-- Вознагради РЕАЛЬНЫМ предметом через тег [ITEM: название].
+ЕСЛИ «ищу сокровище/клад»:
+- Опиши сцену с сундуком/тайником.
+- Вознагради РЕАЛЬНЫМ предметом: [ITEM: название из списка].
 
-ЕСЛИ ИГРОК УПОМИНАЕТ ДРУГОГО ИГРОКА:
-- Воспринимай как реального персонажа в мире.
-- Не выдумывай других игроков — используй только тех, кто рядом.
+ЛОКАЦИИ:
+- Игрок в конкретной локации (см. контекст).
+- Описывай ТОЛЬКО её. Не придумывай новые.
+- Переход — через кнопку «🚶 Идти». НЕ ставь [LOCATION:] сам.
 
-ЕСЛИ ИГРОК ПРОСИТ ЧТО-ТО КУПИТЬ/ПРОДАТЬ:
-- Ответь: «Используй 🛒 Магазин или /sell» и продолжи сюжет.
-
-ГЛАВНОЕ ПРАВИЛО ПРО ЛОКАЦИИ:
-- Игрок находится в конкретной локации. В контексте указано её название, описание, соседи.
-- Ты описываешь ТОЛЬКО текущую локацию. НЕ придумывай новые места.
-- Если игрок хочет перейти в другую локацию — он использует кнопку «🚶 Идти».
-- НЕ ставь [LOCATION:] сам — за переходы отвечает система.
-
-БОЕВАЯ СИСТЕМА:
-- Если игрок ВСТУПАЕТ В БОЙ — добавь в конце:
-  [ENEMY: имя врага | LEVEL: N | HP: M]
-- N близко к уровню игрока (±1). M = N × 25.
-- Имена врагов выбирай из списка врагов текущей локации.
-- Для МАГИЧЕСКИХ врагов (маг, колдун, некромант, жрец, шаман, лич, призрак,
-  дух, ведьма, демон, элементаль) система сама поймёт что урон магический.
-- Для БОССА:
-  [ENEMY: имя босса | LEVEL: N | HP: M | BOSS]
-- HP босса больше: N × 45.
-- Когда ставишь [ENEMY] — НЕ ставь другие теги.
+БОЙ:
+- Если игрок вступает в бой: [ENEMY: имя | LEVEL: N | HP: M]
+- N ≈ уровень игрока ±1. M = N × 25.
+- Имена — из списка врагов локации.
+- Для БОССА: [ENEMY: имя | LEVEL: N | HP: M | BOSS], M = N × 45.
+- Если ставишь [ENEMY] — других тегов НЕ ставь.
 
 ПОСЛЕ БОЯ:
-- Если в истории есть метка [БОЙ ОКОНЧЕН] — НЕ продолжай бой.
-- Опиши, что игрок делает дальше.
+- Если в истории [БОЙ ОКОНЧЕН] — не продолжай бой.
 
-ТЕГИ (только когда НЕ идёт бой):
-- [ITEM: название] — игрок получил предмет.
-- [DAMAGE: число] — игрок получил урон.
-- [HEAL: число] — игрок восстановил HP.
-- [GOLD: число] — игрок нашёл золото.
-- [MATERIAL: iron/leather/dust/crystal] — игрок нашёл материал (редко, 20%).
+ТЕГИ (только вне боя):
+- [ITEM: название] — предмет ИЗ СПИСКА.
+- [DAMAGE: N], [HEAL: N], [GOLD: N].
+- [MATERIAL: iron/leather/dust/crystal] — редко (20%).
 """
 
 BLOCKED_WORDS = [
@@ -96,23 +87,152 @@ BLOCKED_WORDS = [
     "выборы", "референдум", "спецоперация", "война",
 ]
 
-PET_NAMES = {"wolf": "Волк", "owl": "Сова", "dragon": "Дракончик", "phoenix": "Феникс"}
+# Фразы-маркеры отказа GigaChat
+REFUSAL_MARKERS = [
+    "не обладает собственным мнением",
+    "не транслирует мнение",
+    "разговоры на некоторые темы временно ограничены",
+    "я не могу обсуждать",
+    "я не могу комментировать",
+    "не имею права обсуждать",
+    "избегаю обсуждения",
+    "не буду обсуждать",
+    "как языковая модель, я",
+    "не могу предоставить информацию на эту тему",
+]
 
-ROLE_NAMES = {
-    "tank": "танк", "fighter": "боец", "agile": "ловкий",
-    "mage": "маг", "universal": "универсал",
-}
+PET_NAMES = {"wolf": "Волк", "owl": "Сова", "dragon": "Дракончик",
+             "phoenix": "Феникс", "lion": "Лев"}
+ROLE_NAMES = {"tank": "танк", "fighter": "боец", "agile": "ловкий",
+              "mage": "маг", "universal": "универсал"}
 DMG_NAMES = {"phys": "физический", "agile": "ловкий", "magic": "магический"}
 
+# ================= КЭШ СПИСКА ПРЕДМЕТОВ =================
+_shop_names_cache = None
+
+
+def _get_item_names():
+    """Список всех предметов для промпта — из SHOP."""
+    global _shop_names_cache
+    if _shop_names_cache is not None:
+        return _shop_names_cache
+    names = []
+    for name, data in SHOP.items():
+        if data.get("premium"):
+            continue
+        price = data.get("price", 0)
+        itype = data.get("type", "?")
+        names.append(f"{name} ({itype}, {price}💰)")
+    _shop_names_cache = names
+    return names
+
+
+def _build_items_block():
+    """Блок со списком предметов для промпта."""
+    names = _get_item_names()
+    if not names:
+        return ""
+    # Ограничим до 40 чтобы не раздувать промпт
+    chunk = names[:40]
+    return ("\n\nСПИСОК ПРЕДМЕТОВ (используй ТОЧНЫЕ названия):\n" +
+            "\n".join(f"  • {n}" for n in chunk) +
+            "\n\nЕсли хочешь дать что-то другое — используй один из этих предметов.\n")
+
+
+# ================= SANITIZE ПРОМПТА =================
+_SANITIZE_MAP = {
+    "убить": "победить",
+    "убийство": "победа",
+    "убей": "победи",
+    "оружие": "снаряжение",
+    "оружием": "снаряжением",
+    "бой": "схватка",
+    "бою": "схватке",
+    "боя": "схватки",
+    "кровь": "энергия",
+    "крови": "энергии",
+    "убиваю": "сражаюсь",
+    "атака": "удар",
+    "атакую": "наношу удар",
+    "стреляю": "бью",
+    "выстрел": "удар",
+}
+
+
+def _sanitize_text(text):
+    """Заменяет триггерные слова перед отправкой в GigaChat."""
+    if not text:
+        return text
+    result = text
+    for bad, good in _SANITIZE_MAP.items():
+        # Заменяем только целые слова (регистронезависимо)
+        pattern = re.compile(r"\b" + re.escape(bad) + r"\b", re.IGNORECASE)
+        result = pattern.sub(good, result)
+    return result
+
+
+def _is_refusal(text):
+    """Проверяет, отказался ли GigaChat отвечать."""
+    if not text:
+        return False
+    low = text.lower()
+    return any(marker in low for marker in REFUSAL_MARKERS)
+
+
+# ================= FALLBACK ОТВЕТЫ =================
+_FALLBACKS = {
+    "combat": (
+        "Ты бросаешься в схватку. Твой удар достигает цели, враг отшатывается, "
+        "но тут же контратакует. Между вами мелькают искры — клинок звенит о клинок. "
+        "Позиция пока равная. Что будешь делать?"
+    ),
+    "search": (
+        "Ты внимательно осматриваешь окрестности. Под старым камнем что-то блеснуло. "
+        "Наклонившись, ты видишь небольшой тайник — внутри лежит что-то ценное. "
+        "Ты осторожно достаёшь находку. Что будешь делать дальше?"
+    ),
+    "talk": (
+        "Ты обращаешься к собеседнику. Он внимательно слушает, кивая в такт твоим словам. "
+        "В его глазах мелькает интерес — кажется, твои слова нашли отклик. "
+        "Он готов продолжить разговор. Что спросишь?"
+    ),
+    "move": (
+        "Ты делаешь несколько шагов вперёд. Земля под ногами мягко пружинит, "
+        "воздух наполнен запахами травы и влажной земли. Впереди виднеется "
+        "что-то интересное. Продолжаешь путь?"
+    ),
+    "default": (
+        "Ты совершаешь задуманное. Вокруг всё остаётся спокойным, но ты чувствуешь — "
+        "мир реагирует на твои действия. Где-то вдалеке раздаётся тихий звук. "
+        "Что будешь делать дальше?"
+    ),
+}
+
+
+def _fallback_response(action):
+    """Генерирует игровой ответ при отказе GigaChat."""
+    low = action.lower()
+    if any(w in low for w in ("атак", "бой", "бью", "удар", "драт", "сраж")):
+        return _FALLBACKS["combat"]
+    if any(w in low for w in ("ищу", "осмотр", "кладо", "сокровищ", "тайник", "обыск")):
+        return _FALLBACKS["search"]
+    if any(w in low for w in ("говор", "спрашив", "бесед", "болта", "отвеч")):
+        return _FALLBACKS["talk"]
+    if any(w in low for w in ("иду", "двига", "переход", "шага")):
+        return _FALLBACKS["move"]
+    return _FALLBACKS["default"]
+
+
+# ================= КЛИЕНТ =================
 import time
 
 _client = None
 _last_call = 0
 
+
 def _get_client():
     global _client, _last_call
     now = time.time()
-    # Сбрасываем клиент если прошло больше 10 минут (экономия RAM)
     if _client is None or (now - _last_call) > 600:
         from config import GIGACHAT_CREDENTIALS
         _client = GigaChat(credentials=GIGACHAT_CREDENTIALS,
@@ -126,6 +246,7 @@ def _is_blocked(text):
     return any(w in low for w in BLOCKED_WORDS)
 
 
+# ================= КОНТЕКСТ ПЕРСОНАЖА =================
 def _build_char_context(user, event=None, location_owner=None):
     if not user.get("race"):
         return ""
@@ -145,7 +266,6 @@ def _build_char_context(user, event=None, location_owner=None):
     elif user.get("faction") == "dark":
         lines.append("Фракция: Тёмное Братство")
 
-    # Роль и тип урона
     try:
         from core.formulas import get_role, get_dmg_type, calc_p_def, calc_m_def
         role = get_role(user)
@@ -178,9 +298,7 @@ def _build_char_context(user, event=None, location_owner=None):
         pn = PET_NAMES.get(user.get("pet_type"), "Питомец")
         lines.append(f"Питомец: {user.get('pet_name')} ({pn}, ур. {user.get('pet_level', 1)})")
 
-    # Активные скилы
     try:
-        import json
         active = json.loads(user.get("active_skills") or "[]")
         active = [x for x in active if x][:3]
         if active:
@@ -194,19 +312,11 @@ def _build_char_context(user, event=None, location_owner=None):
                 lines.append(f"\nАКТИВНЫЕ СКИЛЫ (3 слота):")
                 for n in names:
                     lines.append(f"  • {n}")
-            lines.append("ВАЖНО: если игрок просит применить скил вне боя — объясни, что нужен бой.")
     except Exception:
         pass
 
-    # Инвентарь — краткая сводка
-    inv_raw = user.get("inventory_summary")
-    if inv_raw:
-        lines.append(f"\nИНВЕНТАРЬ (кратко): {inv_raw}")
-
-    # Дневник (последние события)
+    # Дневник
     try:
-        import asyncio
-        # Но в этой функции нет await — поэтому дневник передаём через user
         journal = user.get("journal_entries") or []
         if journal:
             lines.append("\n\nДНЕВНИК ИГРОКА (ключевые события):")
@@ -214,11 +324,9 @@ def _build_char_context(user, event=None, location_owner=None):
                 from core.journal import EVENT_ICONS
                 icon = EVENT_ICONS.get(e.get("entry_type", "event"), "•")
                 lines.append(f"  {icon} {e.get('entry_text', '')}")
-            lines.append("Используй эти события в сюжете, ссылайся на них.")
     except Exception:
         pass
 
-    # Локация
     # Память локации
     try:
         loc_events = user.get("location_events") or []
@@ -237,11 +345,9 @@ def _build_char_context(user, event=None, location_owner=None):
     lines.append(f"Тип: {loc.get('type', 'wild')}")
     lines.append(f"Уровень входа: {loc.get('level_req', 1)}+")
     if neighbors:
-        lines.append("Соседние локации (отсюда можно пойти только туда):")
+        lines.append("Соседние локации:")
         for code, info in neighbors:
             lines.append(f"  • {info['name']} (код {code}, ур.{info['level_req']}+)")
-    else:
-        lines.append("Соседних локаций нет (тупик).")
     if npcs_here:
         lines.append("NPC в этой локации:")
         for code, info in npcs_here:
@@ -250,16 +356,15 @@ def _build_char_context(user, event=None, location_owner=None):
         lines.append(f"Обычные враги здесь: {', '.join(loc['enemies'])}")
     if loc.get("boss"):
         lines.append(f"БОСС локации: {loc['boss']['name']} (ур. {loc['boss']['level']})")
-
     if location_owner:
         lines.append(f"\nВладелец локации: гильдия «{location_owner.get('guild_name', '?')}»")
-
     if event:
         lines.append(f"\n⚠️ АКТИВНОЕ СОБЫТИЕ: {event.get('event_name')} — {event.get('event_desc')}")
 
     return "\n".join(lines)
 
 
+# ================= ПАРСИНГ =================
 def _strip_all_tags(text):
     return re.sub(
         r"\[[^\[\]]*?(?:ENEMY|ITEM|LOCATION|BOSS|DAMAGE|HEAL|GOLD|MATERIAL)[^\[\]]*?\]",
@@ -309,6 +414,26 @@ def _extract_int(text, tag):
     return value, text.strip()
 
 
+def _validate_item(item_name):
+    """Проверяет есть ли предмет в SHOP. Возвращает точное имя или None."""
+    if not item_name:
+        return None
+    # Точное совпадение
+    if item_name in SHOP:
+        return item_name
+    # Регистр
+    low = item_name.lower()
+    for name in SHOP.keys():
+        if name.lower() == low:
+            return name
+    # Частичное совпадение (содержит)
+    for name in SHOP.keys():
+        if low in name.lower() or name.lower() in low:
+            return name
+    return None
+
+
+# ================= ГЛАВНАЯ ФУНКЦИЯ =================
 async def generate(story, user_action, arc=1, user=None, event=None, location_owner=None):
     if _is_blocked(user_action):
         return {"text": "🚫 Этот запрос нарушает правила игры.",
@@ -323,7 +448,13 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
                     f"[ENEMY: имя босса | LEVEL: N | HP: M | BOSS]")
 
     char_ctx = _build_char_context(user, event, location_owner) if user else ""
-    context = f"ПРЕДЫДУЩАЯ ИСТОРИЯ:\n{story}{char_ctx}\n\nИГРОК: {user_action}\n\nМАСТЕР:{arc_note}"
+    items_block = _build_items_block()
+
+    # Санитизируем action перед отправкой
+    safe_action = _sanitize_text(user_action)
+
+    context = (f"ПРЕДЫДУЩАЯ ИСТОРИЯ:\n{story}{char_ctx}"
+               f"{items_block}\n\nИГРОК: {safe_action}\n\nМАСТЕР:{arc_note}")
 
     def _sync_call():
         client = _get_client()
@@ -349,6 +480,11 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
                 "item": None, "location": None, "enemy": None,
                 "material": None, "damage": 0, "heal": 0, "gold": 0}
 
+    # === ОБРАБОТКА ОТКАЗА GIGACHAT ===
+    if _is_refusal(text):
+        logging.warning(f"GigaChat refusal on action: {user_action[:100]}")
+        text = _fallback_response(user_action)
+
     result = {"text": text, "item": None, "location": None, "enemy": None,
               "material": None, "damage": 0, "heal": 0, "gold": 0}
 
@@ -356,15 +492,25 @@ async def generate(story, user_action, arc=1, user=None, event=None, location_ow
     if enemy:
         result["enemy"] = enemy
     else:
-        for tag, key in [("ITEM", "item"), ("LOCATION", "location")]:
-            val, text = _extract_simple(text, tag)
-            if val:
-                result[key] = val
+        # Валидация предмета — только из SHOP
+        item_val, text = _extract_simple(text, "ITEM")
+        if item_val:
+            validated = _validate_item(item_val)
+            if validated:
+                result["item"] = validated
+            else:
+                logging.info(f"GigaChat выдумал предмет «{item_val}» — отброшен")
+
+        loc_val, text = _extract_simple(text, "LOCATION")
+        if loc_val:
+            result["location"] = loc_val
+
         mat, text = _extract_simple(text, "MATERIAL")
         if mat:
             mat = mat.lower().strip()
             if mat in ("iron", "leather", "dust", "crystal"):
                 result["material"] = mat
+
         for tag, key in [("DAMAGE", "damage"), ("HEAL", "heal"), ("GOLD", "gold")]:
             val, text = _extract_int(text, tag)
             if val:
