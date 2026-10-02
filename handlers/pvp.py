@@ -869,7 +869,15 @@ async def pvp_end(winner_id, loser_id, stake):
                                           parse_mode=ParseMode.HTML)
             except Exception:
                 pass
-    await g.db.progress_quest(winner_id, "win_duels", 1)
+                
+# Старый NPC-зачёт
+await g.db.progress_quest(winner_id, "win_duels", 1)
+# Новый — timed_quest_progress (то что в /quests)
+try:
+    from handlers.quests import progress_quest as quest_progress
+    await quest_progress(winner_id, "win_duels", 1)
+except Exception:
+    pass
 
     summary_winner = (
         f"━━━━━━━━━━━━━━━━━━━\n"
