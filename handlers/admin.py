@@ -7,7 +7,7 @@ from aiogram.types import Message
 from aiogram.enums import ParseMode
 
 from core import globals as g
-from core.formulas import calc_max_hp
+from core.formulas import calc_max_hp, calc_max_mp
 from core.texts import ADMIN_HELP_TEXT
 from config import ADMIN_IDS
 import world as W
@@ -69,17 +69,75 @@ async def admin_hp(m: Message):
     await m.answer(f"🛠 HP: {nm}/{nm}")
 
 
+# ================= УРОВЕНЬ + ОЧКИ УМЕНИЙ =================
 @router.message(Command("admin_levelup"))
 async def admin_levelup(m: Message):
+    """+1 уровень и +1 очко умений."""
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
-    await g.db.add_xp(m.from_user.id, 999999)
-    u = await g.db.get_user(m.from_user.id)
+    uid = m.from_user.id
+    u = await g.db.get_user(uid)
+    new_level = u["level"] + 1
+
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET level=$1, xp=0, skill_points=skill_points+1 "
+            "WHERE user_id=$2",
+            new_level, uid
+        )
+
+    u2 = await g.db.get_user(uid)
+    nm = calc_max_hp(u2)
+    nmp = calc_max_mp(u2)
+    await g.db.update_hp_max(uid, nm, nm)
+    await g.db.update_mp(uid, nmp)
+
+    await m.answer(
+        f"🛠 <b>Уровень {new_level}</b>\n"
+        f"HP: {nm}/{nm} · MP: {nmp}/{nmp}\n"
+        f"🎯 Очки умений: <b>{u2['skill_points']}</b>",
+        parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_setlevel"))
+async def admin_setlevel(m: Message):
+    """Установить конкретный уровень и выдать столько же очков умений."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+    parts = m.text.split()
+    if len(parts) < 2:
+        await m.answer("Использование: <code>/admin_setlevel 20</code>",
+                       parse_mode=ParseMode.HTML)
+        return
+    try:
+        lvl = int(parts[1])
+    except ValueError:
+        await m.answer("Число нужно."); return
+    if lvl < 1 or lvl > 100:
+        await m.answer("От 1 до 100."); return
+
+    uid = m.from_user.id
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET level=$1, xp=0, skill_points=$1 "
+            "WHERE user_id=$2",
+            lvl, uid
+        )
+
+    u = await g.db.get_user(uid)
     nm = calc_max_hp(u)
-    await g.db.update_hp_max(m.from_user.id, nm, nm)
-    await m.answer(f"🛠 Ур.: {u['level']}. HP: {nm}/{nm}")
+    nmp = calc_max_mp(u)
+    await g.db.update_hp_max(uid, nm, nm)
+    await g.db.update_mp(uid, nmp)
+
+    await m.answer(
+        f"🛠 <b>Уровень установлен: {lvl}</b>\n"
+        f"HP: {nm}/{nm} · MP: {nmp}/{nmp}\n"
+        f"🎯 Очки умений: <b>{u['skill_points']}</b>",
+        parse_mode=ParseMode.HTML)
 
 
+# ================= ОСТАЛЬНЫЕ =================
 @router.message(Command("admin_endcombat"))
 async def admin_endcombat(m: Message):
     if not _is_admin(m.from_user.id):
@@ -104,7 +162,6 @@ async def admin_stats(m: Message):
     if not _is_admin(m.from_user.id):
         await m.answer("❌"); return
     u = await g.db.get_user(m.from_user.id)
-    # Обрезаем чтобы не превысить лимит Telegram
     items = list(u.items())
     text = "\n".join(f"<code>{k}</code> = {v}" for k, v in items)
     if len(text) > 3800:
@@ -252,7 +309,6 @@ async def admin_set_races(m: Message):
     classes = list(EXCLUSIVE_CLASSES.keys())
 
     async with g.db.pool.acquire() as conn:
-        # Проверяем что строка есть
         row = await conn.fetchrow(
             "SELECT user_id FROM users WHERE user_id=$1", m.from_user.id
         )
@@ -341,7 +397,6 @@ async def admin_unlock_all(m: Message):
 
     uid = m.from_user.id
 
-    # Проверяем что строка есть — если нет, не падаем
     async with g.db.pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT user_id FROM users WHERE user_id=$1", uid
@@ -350,33 +405,27 @@ async def admin_unlock_all(m: Message):
             await m.answer("❌ Сначала /start — создай игрока.")
             return
 
-    # Расы
     races_ok = 0
     for code in EXCLUSIVE_RACES:
         if await g.db.unlock_premium_race(uid, code):
             races_ok += 1
 
-    # Классы
     classes_ok = 0
     for code in EXCLUSIVE_CLASSES:
         if await g.db.unlock_premium_class(uid, code):
             classes_ok += 1
 
-    # Предметы
     for code in EXCLUSIVE_ITEMS:
         await g.db.add_item(uid, code)
 
-    # Питомцы
     for code, pet in EXCLUSIVE_PETS.items():
         try:
             await g.db.add_pet(uid, code, pet.get("name", code))
         except Exception:
             pass
 
-    # Премиум навсегда
     await g.db.set_premium(uid, 1)
 
-    # Проверяем что записалось
     async with g.db.pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT unlocked_premium_races, unlocked_premium_classes "
