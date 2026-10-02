@@ -319,6 +319,14 @@ class DB:
                     is_active INTEGER DEFAULT 1
                 )
             """)
+            # === ОЧЕРЕДЬ ДЕЙСТВИЙ ПРОТИВ МИРОВОГО БОССА ===
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS boss_pending (
+                    user_id BIGINT PRIMARY KEY,
+                    boss_id INTEGER,
+                    actions TEXT DEFAULT '[]'
+                )
+            """)
 
             migrations = [
                 "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS item_level INTEGER DEFAULT 0",
@@ -714,6 +722,7 @@ class DB:
             await c.execute("DELETE FROM tutorial_progress WHERE user_id=$1", uid)
             await c.execute("DELETE FROM active_combat WHERE user_id=$1", uid)
             await c.execute("DELETE FROM guild_members WHERE user_id=$1", uid)
+            await c.execute("DELETE FROM boss_pending WHERE user_id=$1", uid)
             await c.execute("""UPDATE users SET
                 race='', class='', faction='', char_name='',
                 story='', arc=1, action_count=0,
@@ -1914,6 +1923,27 @@ class DB:
                 "UPDATE active_combat SET pending_actions='[]' WHERE user_id=$1",
                 uid
             )
+
+    # ================= ОЧЕРЕДЬ ДЕЙСТВИЙ ПРОТИВ БОССА =================
+    async def set_boss_pending(self, uid, boss_id, actions_json):
+        async with self.pool.acquire() as c:
+            await c.execute("""
+                INSERT INTO boss_pending (user_id, boss_id, actions)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id) DO UPDATE
+                SET boss_id = EXCLUDED.boss_id, actions = EXCLUDED.actions
+            """, uid, boss_id, actions_json)
+
+    async def get_boss_pending(self, uid):
+        async with self.pool.acquire() as c:
+            row = await c.fetchrow(
+                "SELECT * FROM boss_pending WHERE user_id=$1", uid
+            )
+            return dict(row) if row else None
+
+    async def clear_boss_pending(self, uid):
+        async with self.pool.acquire() as c:
+            await c.execute("DELETE FROM boss_pending WHERE user_id=$1", uid)
 
     async def set_my_ready(self, uid, ready=1):
         async with self.pool.acquire() as c:
