@@ -1,4 +1,11 @@
-"""Скилы: классовые + расовые + скрытые (из книг)."""
+"""Скилы: классовые + расовые + скрытые (из книг).
+
+Новые механики у скиллов:
+- pierce: True       — игнорирует P.Def/M.Def врага
+- execute: 1.5       — множитель урона если HP врага < 20%
+- double: True       — двойной удар (урон ×2)
+- lifesteal: 0.5     — возвращает 50% нанесённого урона как HP
+"""
 
 CLASS_SKILLS = {
     "warrior": [
@@ -34,12 +41,12 @@ CLASS_SKILLS = {
     "archer": [
         {"code": "arc_1", "name": "Точный выстрел", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.2, "desc": "×2.2 урона"},
         {"code": "arc_2", "name": "Отравленная стрела", "req_level": 3, "mp_cost": 20, "effect": "damage", "mult": 1.8, "desc": "×1.8 + яд"},
-        {"code": "arc_3", "name": "Двойной выстрел", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 2.0, "desc": "2 атаки по ×2"},
-        {"code": "arc_4", "name": "Снайпер", "req_level": 7, "mp_cost": 30, "effect": "damage", "mult": 3.0, "desc": "×3 урона"},
+        {"code": "arc_3", "name": "Двойной выстрел", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 1.6, "double": True, "desc": "2 выстрела по ×1.6"},
+        {"code": "arc_4", "name": "Снайпер", "req_level": 7, "mp_cost": 30, "effect": "damage", "mult": 2.0, "pierce": True, "desc": "×2, игнорирует броню"},
         {"code": "arc_5", "name": "Взрывная стрела", "req_level": 10, "mp_cost": 35, "effect": "damage", "mult": 2.5, "desc": "×2.5 урона"},
         {"code": "arc_6", "name": "Ливень стрел", "req_level": 15, "mp_cost": 45, "effect": "damage", "mult": 3.5, "desc": "×3.5 урона"},
         {"code": "arc_7", "name": "Град стрел", "req_level": 20, "mp_cost": 50, "effect": "damage", "mult": 4.5, "desc": "×4.5 урона", "source": "book"},
-        {"code": "arc_8", "name": "Снайперский выстрел", "req_level": 25, "mp_cost": 60, "effect": "damage", "mult": 5.5, "desc": "×5.5 урона", "source": "book"},
+        {"code": "arc_8", "name": "Снайперский выстрел", "req_level": 25, "mp_cost": 60, "effect": "damage", "mult": 3.5, "pierce": True, "desc": "×3.5, игнор брони", "source": "book"},
     ],
     "guardian": [
         {"code": "grd_1", "name": "Удар копьём", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.0, "desc": "×2 урона"},
@@ -68,22 +75,22 @@ CLASS_SKILLS = {
         {"code": "asn_4", "name": "Кровавый клинок", "req_level": 7, "mp_cost": 25, "effect": "damage", "mult": 2.5, "desc": "×2.5 + кровотечение"},
         {"code": "asn_5", "name": "Двойной клинок", "req_level": 10, "mp_cost": 30, "effect": "damage", "mult": 3.0, "desc": "×3 урона"},
         {"code": "asn_6", "name": "Смертельный удар", "req_level": 15, "mp_cost": 45, "effect": "damage", "mult": 4.0, "desc": "×4 урона"},
-        {"code": "asn_7", "name": "Казнь", "req_level": 20, "mp_cost": 50, "effect": "damage", "mult": 5.0, "desc": "×5 урона", "source": "book"},
+        {"code": "asn_7", "name": "Казнь", "req_level": 20, "mp_cost": 50, "effect": "damage", "mult": 3.5, "execute": 2.0, "desc": "×3.5 (×7 при HP врага < 20%)", "source": "book"},
         {"code": "asn_8", "name": "Танец теней", "req_level": 25, "mp_cost": 55, "effect": "damage", "mult": 6.0, "desc": "×6 урона", "source": "book"},
     ],
     "necro": [
         {"code": "nec_1", "name": "Тёмная стрела", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.0, "desc": "×2 маг. урона"},
         {"code": "nec_2", "name": "Проклятие", "req_level": 3, "mp_cost": 20, "effect": "debuff", "mult": 0.75, "desc": "−25% урона врага"},
-        {"code": "nec_3", "name": "Похищение", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 1.5, "desc": "×1.5 урона + лечение 50%"},
+        {"code": "nec_3", "name": "Похищение", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 1.5, "lifesteal": 0.5, "desc": "×1.5 + лечение 50%"},
         {"code": "nec_4", "name": "Ужас", "req_level": 7, "mp_cost": 25, "effect": "stun", "mult": 1.0, "desc": "Оглушение на 1 раунд"},
         {"code": "nec_5", "name": "Чумной взрыв", "req_level": 10, "mp_cost": 35, "effect": "damage", "mult": 2.5, "desc": "×2.5 + яд"},
-        {"code": "nec_6", "name": "Армия тьмы", "req_level": 15, "mp_cost": 50, "effect": "damage", "mult": 3.5, "desc": "×3.5 маг. урона"},
+        {"code": "nec_6", "name": "Армия тьмы", "req_level": 15, "mp_cost": 50, "effect": "damage", "mult": 3.5, "lifesteal": 0.3, "desc": "×3.5 маг. урона + вампиризм 30%"},
         {"code": "nec_7", "name": "Смертельный холод", "req_level": 20, "mp_cost": 55, "effect": "damage", "mult": 4.5, "desc": "×4.5 маг. урона", "source": "book"},
-        {"code": "nec_8", "name": "Армия мёртвых", "req_level": 25, "mp_cost": 65, "effect": "damage", "mult": 5.5, "desc": "×5.5 маг. урона", "source": "book"},
+        {"code": "nec_8", "name": "Армия мёртвых", "req_level": 25, "mp_cost": 65, "effect": "damage", "mult": 4.5, "lifesteal": 0.4, "desc": "×4.5 + вампиризм 40%", "source": "book"},
     ],
     "dancer": [
         {"code": "dnc_1", "name": "Вихрь", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.0, "desc": "×2 урона"},
-        {"code": "dnc_2", "name": "Двойное вращение", "req_level": 3, "mp_cost": 20, "effect": "damage", "mult": 2.2, "desc": "×2.2 урона"},
+        {"code": "dnc_2", "name": "Двойное вращение", "req_level": 3, "mp_cost": 20, "effect": "damage", "mult": 1.4, "double": True, "desc": "2 удара по ×1.4"},
         {"code": "dnc_3", "name": "Танец тени", "req_level": 5, "mp_cost": 20, "effect": "buff_def", "mult": 0.50, "desc": "−50% урона на 2 раунда"},
         {"code": "dnc_4", "name": "Режущий ветер", "req_level": 7, "mp_cost": 25, "effect": "damage", "mult": 2.5, "desc": "×2.5 + рана"},
         {"code": "dnc_5", "name": "Парный удар", "req_level": 10, "mp_cost": 30, "effect": "damage", "mult": 3.0, "desc": "×3 урона"},
@@ -99,22 +106,22 @@ CLASS_SKILLS = {
         {"code": "dst_5", "name": "Землетрясение", "req_level": 10, "mp_cost": 35, "effect": "damage", "mult": 3.2, "desc": "×3.2 + оглушение"},
         {"code": "dst_6", "name": "Армагеддон", "req_level": 15, "mp_cost": 50, "effect": "damage", "mult": 4.5, "desc": "×4.5 урона"},
         {"code": "dst_7", "name": "Армагеддон II", "req_level": 20, "mp_cost": 55, "effect": "damage", "mult": 5.5, "desc": "×5.5 урона", "source": "book"},
-        {"code": "dst_8", "name": "Разрушение миров", "req_level": 25, "mp_cost": 70, "effect": "damage", "mult": 7.0, "desc": "×7 урона", "source": "book"},
+        {"code": "dst_8", "name": "Разрушение миров", "req_level": 25, "mp_cost": 70, "effect": "damage", "mult": 5.0, "execute": 2.0, "desc": "×5 (×10 при HP врага < 20%)", "source": "book"},
     ],
     "tyrant": [
         {"code": "tyr_1", "name": "Быстрый удар", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.0, "desc": "×2 урона"},
-        {"code": "tyr_2", "name": "Серия ударов", "req_level": 3, "mp_cost": 20, "effect": "damage", "mult": 2.3, "desc": "×2.3 урона"},
+        {"code": "tyr_2", "name": "Серия ударов", "req_level": 3, "mp_cost": 20, "effect": "damage", "mult": 1.4, "double": True, "desc": "2 удара по ×1.4"},
         {"code": "tyr_3", "name": "Кулак бури", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 2.5, "desc": "×2.5 урона"},
         {"code": "tyr_4", "name": "Ускорение", "req_level": 7, "mp_cost": 20, "effect": "buff_atk", "mult": 1.30, "desc": "+30% урона на 3 раунда"},
         {"code": "tyr_5", "name": "Смертельный удар", "req_level": 10, "mp_cost": 35, "effect": "damage", "mult": 3.5, "desc": "×3.5 урона"},
         {"code": "tyr_6", "name": "Ярость тигра", "req_level": 15, "mp_cost": 45, "effect": "damage", "mult": 4.0, "desc": "×4 урона"},
-        {"code": "tyr_7", "name": "Серия смерти", "req_level": 20, "mp_cost": 50, "effect": "damage", "mult": 5.0, "desc": "×5 урона", "source": "book"},
+        {"code": "tyr_7", "name": "Серия смерти", "req_level": 20, "mp_cost": 50, "effect": "damage", "mult": 3.0, "double": True, "desc": "2 удара по ×3", "source": "book"},
         {"code": "tyr_8", "name": "Кулак дракона", "req_level": 25, "mp_cost": 60, "effect": "damage", "mult": 6.0, "desc": "×6 урона", "source": "book"},
     ],
     "overlord": [
         {"code": "ovl_1", "name": "Тёмный удар", "req_level": 1, "mp_cost": 15, "effect": "damage", "mult": 2.0, "desc": "×2 маг. урона"},
         {"code": "ovl_2", "name": "Печать", "req_level": 3, "mp_cost": 20, "effect": "debuff", "mult": 0.70, "desc": "−30% урона врага"},
-        {"code": "ovl_3", "name": "Забрать жизнь", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 2.0, "desc": "×2 урона + лечение 50%"},
+        {"code": "ovl_3", "name": "Забрать жизнь", "req_level": 5, "mp_cost": 25, "effect": "damage", "mult": 2.0, "lifesteal": 0.5, "desc": "×2 + лечение 50%"},
         {"code": "ovl_4", "name": "Война душ", "req_level": 7, "mp_cost": 30, "effect": "damage", "mult": 2.5, "desc": "×2.5 урона"},
         {"code": "ovl_5", "name": "Разлом", "req_level": 10, "mp_cost": 40, "effect": "damage", "mult": 3.0, "desc": "×3 маг. урона"},
         {"code": "ovl_6", "name": "Апокалипсис", "req_level": 15, "mp_cost": 50, "effect": "damage", "mult": 4.0, "desc": "×4 маг. урона"},
@@ -138,22 +145,21 @@ RACIAL_SKILLS = {
     "human": {"code": "rac_human", "name": "Воля", "req_level": 5, "mp_cost": 0,
               "effect": "passive", "mult": 0.20, "desc": "Пассив: +20% урона при HP < 30%"},
     "elf": {"code": "rac_elf", "name": "Глаз ястреба", "req_level": 5, "mp_cost": 0,
-            "effect": "passive", "mult": 0.15, "desc": "Пассив: +15% крита"},
+            "effect": "passive", "mult": 0.15, "desc": "Пассив: +15% маг. урона"},
     "dark_elf": {"code": "rac_dark", "name": "Тень", "req_level": 5, "mp_cost": 0,
-                 "effect": "passive", "mult": 0.10, "desc": "Пассив: +10% маг. урона"},
+                 "effect": "passive", "mult": 0.10, "desc": "Пассив: +10% маг. урона, +8% крита"},
     "orc": {"code": "rac_orc", "name": "Берсерк", "req_level": 5, "mp_cost": 0,
-            "effect": "passive", "mult": 0.15, "desc": "Пассив: +15% max HP"},
+            "effect": "passive", "mult": 0.15, "desc": "Пассив: +10% урона"},
     "demon": {"code": "rac_demon", "name": "Адское пламя", "req_level": 5, "mp_cost": 0,
-              "effect": "passive", "mult": 0.15, "desc": "Пассив: +15% маг. урона"},
+              "effect": "passive", "mult": 0.15, "desc": "Пассив: ярость, вампиризм 15%"},
     "angel": {"code": "rac_angel", "name": "Небесный щит", "req_level": 5, "mp_cost": 0,
-              "effect": "passive", "mult": 0.20, "desc": "Пассив: +20% лечения"},
+              "effect": "passive", "mult": 0.20, "desc": "Пассив: +30% лечения"},
     "prit": {"code": "rac_prit", "name": "Из тени", "req_level": 5, "mp_cost": 0,
-             "effect": "passive", "mult": 0.15, "desc": "Пассив: +15% крита, +10% золота"},
+             "effect": "passive", "mult": 0.15, "desc": "Пассив: +12% крита, +15% уклонения"},
 }
 
 
 def available_skills(user, extra_learned=None):
-    """Доступные скиллы: базовые (по уровню) + выученные из книг."""
     cls = user.get("class", "")
     race = user.get("race", "")
     lvl = user.get("level", 1)
