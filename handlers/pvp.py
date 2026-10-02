@@ -276,15 +276,21 @@ async def pvp_add_defend(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("pvp_add_skill_"))
 async def pvp_add_skill(c: CallbackQuery):
-    """Добавляет скилл в очередь БЕЗ проверки MP — что положил, то и делается."""
+    """Добавляет скилл в очередь БЕЗ проверки MP.
+
+    Даже если сейчас MP не хватает — скилл добавится. Сработает,
+    если к моменту его хода в очереди будет достаточно MP
+    (например, если раньше стоит зелье MP).
+    """
     skill_code = c.data.replace("pvp_add_skill_", "")
     s = get_skill(skill_code)
     if not s:
         await c.answer("Не найден"); return
     ok, reason = await _queue_pvp_action(c.from_user.id, f"skill_{skill_code}")
     if not ok:
-        await c.answer("Очередь полна", show_alert=True); return
-    await c.answer(f"✨ +{s['name']}")
+        await c.answer("Очередь полна" if reason == "full" else "Нельзя добавить",
+                       show_alert=True); return
+    await c.answer(f"✨ +{s['name']} ({s['mp_cost']} MP)")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
                           await g.db.get_combat(c.from_user.id),
@@ -293,11 +299,15 @@ async def pvp_add_skill(c: CallbackQuery):
 
 @router.callback_query(F.data == "pvp_add_potion_hp")
 async def pvp_add_potion_hp(c: CallbackQuery):
-    """Добавляет зелье HP в очередь БЕЗ проверки HP/золота."""
+    """Добавляет зелье HP в очередь БЕЗ проверки HP/золота.
+
+    Если при выполнении HP полное или нет золота — зелье не сработает,
+    но в очереди оно будет.
+    """
     ok, reason = await _queue_pvp_action(c.from_user.id, "potion_hp")
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
-    await c.answer("💚 +Зелье HP")
+    await c.answer(f"💚 +Зелье HP ({POTION_PRICE}💰)")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
                           await g.db.get_combat(c.from_user.id),
@@ -306,11 +316,15 @@ async def pvp_add_potion_hp(c: CallbackQuery):
 
 @router.callback_query(F.data == "pvp_add_potion_mp")
 async def pvp_add_potion_mp(c: CallbackQuery):
-    """Добавляет зелье MP в очередь БЕЗ проверки MP/золота."""
+    """Добавляет зелье MP в очередь БЕЗ проверки MP/золота.
+
+    Ключевой кейс: можно поставить зелье MP ПЕРВЫМ, а скилл ВТОРЫМ —
+    тогда скилл сработает даже если сейчас MP не хватает.
+    """
     ok, reason = await _queue_pvp_action(c.from_user.id, "potion_mp")
     if not ok:
         await c.answer("Ошибка", show_alert=True); return
-    await c.answer("🔮 +Зелье MP")
+    await c.answer(f"🔮 +Зелье MP ({MP_POTION_PRICE}💰)")
     await send_pvp_state(c.from_user.id,
                           await g.db.get_user(c.from_user.id),
                           await g.db.get_combat(c.from_user.id),
@@ -389,8 +403,8 @@ async def _resolve_pvp_round(uid_a, uid_b):
     except Exception:
         actions_b = []
 
-    log_a = []   # что делал A (видит A)
-    log_b = []   # что делал B (видит B)
+    log_a = []
+    log_b = []
 
     defends_a = sum(1 for x in actions_a if x == "defend")
     defends_b = sum(1 for x in actions_b if x == "defend")
@@ -411,7 +425,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
     dmg_a_to_b = 0
     dmg_b_to_a = 0
 
-    # ============ ОБРАБОТКА ОЧЕРЕДИ A (по порядку) ============
+    # ============ ОЧЕРЕДЬ A (строго по порядку) ============
     for action in actions_a:
         if action == "attack":
             eff_a = effective_stats(user_a)
@@ -441,8 +455,9 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_a.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
             else:
                 gold_a -= POTION_PRICE
+                before = new_hp_a
                 new_hp_a = min(max_hp_a, new_hp_a + POTION_HEAL)
-                log_a.append(f"💚 Зелье HP: +{POTION_HEAL}")
+                log_a.append(f"💚 Зелье HP: {before} → {new_hp_a} (+{new_hp_a - before})")
 
         elif action == "potion_mp":
             if new_mp_a >= max_mp_a:
@@ -451,17 +466,18 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_a.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
             else:
                 gold_a -= MP_POTION_PRICE
+                before = new_mp_a
                 new_mp_a = min(max_mp_a, new_mp_a + MP_POTION_RESTORE)
-                log_a.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+                log_a.append(f"🔮 Зелье MP: {before} → {new_mp_a} (+{new_mp_a - before})")
 
         elif action.startswith("skill_"):
             code = action.replace("skill_", "")
             s = get_skill(code)
             if not s:
                 continue
-            # Проверка MP — если не хватает, действие пропускается
+            # Проверка MP по ФАКТУ на момент хода (после предыдущих действий в очереди)
             if new_mp_a < s["mp_cost"]:
-                log_a.append(f"❌ Не хватило MP для «{s['name']}»")
+                log_a.append(f"❌ «{s['name']}» — не хватило MP ({new_mp_a}/{s['mp_cost']})")
                 continue
             new_mp_a -= s["mp_cost"]
             effect = s["effect"]
@@ -488,7 +504,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
             elif effect == "stun":
                 log_a.append(f"✨ {s['name']}: соперник оглушён")
 
-    # ============ ОБРАБОТКА ОЧЕРЕДИ B (по порядку) ============
+    # ============ ОЧЕРЕДЬ B (строго по порядку) ============
     for action in actions_b:
         if action == "attack":
             eff_b = effective_stats(user_b)
@@ -518,8 +534,9 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_b.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
             else:
                 gold_b -= POTION_PRICE
+                before = new_hp_b
                 new_hp_b = min(max_hp_b, new_hp_b + POTION_HEAL)
-                log_b.append(f"💚 Зелье HP: +{POTION_HEAL}")
+                log_b.append(f"💚 Зелье HP: {before} → {new_hp_b} (+{new_hp_b - before})")
 
         elif action == "potion_mp":
             if new_mp_b >= max_mp_b:
@@ -528,8 +545,9 @@ async def _resolve_pvp_round(uid_a, uid_b):
                 log_b.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
             else:
                 gold_b -= MP_POTION_PRICE
+                before = new_mp_b
                 new_mp_b = min(max_mp_b, new_mp_b + MP_POTION_RESTORE)
-                log_b.append(f"🔮 Зелье MP: +{MP_POTION_RESTORE}")
+                log_b.append(f"🔮 Зелье MP: {before} → {new_mp_b} (+{new_mp_b - before})")
 
         elif action.startswith("skill_"):
             code = action.replace("skill_", "")
@@ -537,7 +555,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
             if not s:
                 continue
             if new_mp_b < s["mp_cost"]:
-                log_b.append(f"❌ Не хватило MP для «{s['name']}»")
+                log_b.append(f"❌ «{s['name']}» — не хватило MP ({new_mp_b}/{s['mp_cost']})")
                 continue
             new_mp_b -= s["mp_cost"]
             effect = s["effect"]
@@ -577,7 +595,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
     if gold_b != user_b["gold"]:
         await g.db.set_gold(uid_b, gold_b)
 
-    # Учёт урона для итогов
     if dmg_a_to_b > 0:
         await g.db.incr_combat_dmg_dealt(uid_a, dmg_a_to_b)
         await g.db.incr_combat_dmg_taken(uid_b, dmg_a_to_b)
@@ -614,7 +631,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
             await pvp_end(winner_id=uid_b, loser_id=uid_a, stake=combat_a["stake"])
         return
 
-    # === Текст для A ===
     text_a = "<b>🗡 Твои действия:</b>\n"
     if log_a:
         text_a += "\n".join(f"  {x}" for x in log_a)
@@ -630,7 +646,6 @@ async def _resolve_pvp_round(uid_a, uid_b):
     if dmg_b_to_a > 0:
         text_a += f"\n💔 <b>Получил: {dmg_b_to_a}</b>"
 
-    # === Текст для B ===
     text_b = "<b>🗡 Твои действия:</b>\n"
     if log_b:
         text_b += "\n".join(f"  {x}" for x in log_b)
