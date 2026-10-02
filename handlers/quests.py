@@ -1,4 +1,4 @@
-"""Квесты: сюжетные, ежедневные, еженедельные. Зачёт из боя/travel/pvp."""
+"""Квесты: сюжетные, ежедневные, еженедельные. Автовыдача наград."""
 import json
 import logging
 import random
@@ -35,6 +35,7 @@ def _filter_name(code):
             "daily": "ежедневные", "weekly": "еженедельные"}.get(code, "все")
 
 
+# ================= КОМАНДА /quests =================
 @router.message(Command("quests"))
 @router.message(F.text == "📋 Квесты")
 async def quests_cmd(m: Message):
@@ -109,10 +110,6 @@ async def _show_quests(uid, filter_type="all", chat_id=None,
             text += f"{status} <b>{dq['quest_code']}</b> — {dq['progress']}/{dq['target']}\n"
             if desc:
                 text += f"   <i>{desc[:60]}</i>\n"
-            if not dq["completed"] and dq["progress"] >= dq["target"]:
-                complete_buttons.append([InlineKeyboardButton(
-                    text=f"✅ Сдать: {dq['quest_code'][:20]}",
-                    callback_data=f"quest_turn_{dq['id']}")])
         text += "\n"
 
     # --- ЕЖЕНЕДЕЛЬНЫЕ ---
@@ -130,16 +127,12 @@ async def _show_quests(uid, filter_type="all", chat_id=None,
             text += f"{status} <b>{wq['quest_code']}</b> — {wq['progress']}/{wq['target']}\n"
             if desc:
                 text += f"   <i>{desc[:60]}</i>\n"
-            if not wq["completed"] and wq["progress"] >= wq["target"]:
-                complete_buttons.append([InlineKeyboardButton(
-                    text=f"✅ Сдать: {wq['quest_code'][:20]}",
-                    callback_data=f"quest_turnw_{wq['id']}")])
 
     # === Клавиатура ===
     rows = []
 
     if complete_buttons:
-        rows.append([InlineKeyboardButton(text="— ГОТОВО К СДАЧЕ —",
+        rows.append([InlineKeyboardButton(text="— ДОСТУПНО —",
                                           callback_data="quest_noop")])
         for row in complete_buttons:
             rows.append(row)
@@ -204,6 +197,7 @@ async def quest_close_cb(c: CallbackQuery):
     await c.answer()
 
 
+# ================= СОЗДАНИЕ ЕЖЕДНЕВНЫХ / ЕЖЕНЕДЕЛЬНЫХ =================
 async def _ensure_daily_quests(uid):
     reset_date = get_daily_reset_date()
     existing = await g.db.get_timed_quests(uid, "daily", reset_date)
@@ -229,16 +223,195 @@ async def _ensure_weekly_quests(uid):
         )
 
 
-# ================= ОБЩИЙ ПРОГРЕСС ПО ВСЕМ ТИПАМ =================
+# ================= ВЫДАЧА НАГРАД =================
+def _find_pool_quest(title, pool):
+    for q in pool:
+        if q["title"] == title:
+            return q
+    return None
+
+
+async def _give_story_reward(uid, quest_code):
+    """Выдаёт награду за сюжетный квест если он завершён и не выдан."""
+    quest = STORY_QUESTS.get(quest_code)
+    if not quest:
+        return None
+    q = await g.db.get_story_quest(uid, quest_code)
+    if not q:
+        return None
+    if q["completed"]:
+        return None
+    if q["progress"] < quest["count"]:
+        return None
+
+    gold = quest.get("reward_gold", 0)
+    xp = quest.get("reward_xp", 0)
+    item = quest.get("reward_item")
+    qp = 10
+
+    if gold:
+        await g.db.add_gold(uid, gold)
+    if xp:
+        await g.db.add_xp(uid, xp)
+    if item:
+        await g.db.add_item(uid, item)
+    await g.db.add_quest_points(uid, qp)
+    await g.db.complete_story_quest(uid, quest_code)
+
+    await g.db.add_journal_entry(
+        uid, f"Завершил сюжетный квест «{quest['title']}»", "quest"
+    )
+
+    return {
+        "type": "story",
+        "title": quest["title"],
+        "gold": gold,
+        "xp": xp,
+        "item": item,
+        "qp": qp,
+        "next_quest": quest.get("next_quest"),
+    }
+
+
+async def _give_timed_reward(uid, quest_type, quest_code, reset_date):
+    """Выдаёт награду за daily/weekly квест если он завершён и не выдан."""
+    rows = await g.db.get_timed_quests(uid, quest_type, reset_date)
+    row = None
+    for r in rows:
+        if r["quest_code"] == quest_code:
+            row = r
+            break
+    if not row:
+        return None
+    if row["completed"]:
+        return None
+    if row["progress"] < row["target"]:
+        return None
+
+    pool = DAILY_QUEST_POOL if quest_type == "daily" else WEEKLY_QUESTS
+    pool_q = _find_pool_quest(quest_code, pool)
+    if not pool_q:
+        return None
+
+    gold = pool_q.get("reward_gold", 0)
+    xp = pool_q.get("reward_xp", 0)
+    qp = 5 if quest_type == "daily" else 15
+
+    if gold:
+        await g.db.add_gold(uid, gold)
+    if xp:
+        await g.db.add_xp(uid, xp)
+    await g.db.add_quest_points(uid, qp)
+
+    async with g.db.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE timed_quest_progress SET completed=1 WHERE id=$1",
+            row["id"]
+        )
+
+    return {
+        "type": quest_type,
+        "title": quest_code,
+        "gold": gold,
+        "xp": xp,
+        "item": None,
+        "qp": qp,
+    }
+
+
+def _format_reward_msg(rewards):
+    """Собирает одно сообщение со списком выданных наград."""
+    if not rewards:
+        return None
+    text = "🎉 <b>Квесты выполнены!</b>\n\n"
+    total_gold = 0
+    total_xp = 0
+    total_qp = 0
+    for r in rewards:
+        icon = {"story": "📜", "daily": "⚔️", "weekly": "🏆"}.get(r["type"], "🎯")
+        text += f"{icon} <b>{r['title']}</b>\n"
+        parts = []
+        if r["gold"]:
+            parts.append(f"+{r['gold']}💰")
+            total_gold += r["gold"]
+        if r["xp"]:
+            parts.append(f"+{r['xp']} XP")
+            total_xp += r["xp"]
+        if r.get("qp"):
+            parts.append(f"+{r['qp']}⭐")
+            total_qp += r["qp"]
+        if r.get("item"):
+            parts.append(f"🎁 {r['item']}")
+        text += "   " + " · ".join(parts) + "\n"
+
+    if len(rewards) > 1:
+        text += f"\n<b>Всего:</b> +{total_gold}💰 · +{total_xp} XP · +{total_qp}⭐"
+
+    story_rewards = [r for r in rewards if r["type"] == "story" and r.get("next_quest")]
+    if story_rewards:
+        nq_code = story_rewards[0]["next_quest"]
+        nq = STORY_QUESTS.get(nq_code)
+        if nq:
+            text += f"\n\n📜 <b>Новый квест доступен:</b>\n"
+            text += f"«{nq['title']}» — открой /quests"
+    return text
+
+
+async def _check_and_reward_all(uid):
+    """Проверяет все активные квесты и выдаёт награды за завершённые."""
+    rewarded = []
+
+    try:
+        active_story = await g.db.get_active_story_quests(uid)
+        for q in active_story:
+            r = await _give_story_reward(uid, q["quest_code"])
+            if r:
+                rewarded.append(r)
+    except Exception as e:
+        log.error(f"[REWARD story] {e}", exc_info=True)
+
+    try:
+        daily = await g.db.get_timed_quests(uid, "daily", get_daily_reset_date())
+        for dq in daily:
+            r = await _give_timed_reward(uid, "daily", dq["quest_code"],
+                                          get_daily_reset_date())
+            if r:
+                rewarded.append(r)
+    except Exception as e:
+        log.error(f"[REWARD daily] {e}", exc_info=True)
+
+    try:
+        weekly = await g.db.get_timed_quests(uid, "weekly", get_weekly_reset_date())
+        for wq in weekly:
+            r = await _give_timed_reward(uid, "weekly", wq["quest_code"],
+                                          get_weekly_reset_date())
+            if r:
+                rewarded.append(r)
+    except Exception as e:
+        log.error(f"[REWARD weekly] {e}", exc_info=True)
+
+    return rewarded
+
+
+async def _notify_rewards(uid, rewarded):
+    """Отправляет уведомление о наградах игроку."""
+    if not rewarded:
+        return
+    text = _format_reward_msg(rewarded)
+    if not text:
+        return
+    try:
+        await g.bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        log.error(f"[REWARD notify] {e}", exc_info=True)
+
+
+# ================= ПРОГРЕСС ПО ВСЕМ ТИПАМ КВЕСТОВ =================
 async def progress_quest(uid, quest_type, amount=1, target_name=None):
-    """Зачитывает прогресс по всем типам квестов.
+    """Зачитывает прогресс по всем типам квестов + автовыдача наград.
 
     Вызывается из боя (kill_enemies, kill_bosses),
     из travel (visit_locations), из pvp (win_duels).
-
-    - Сюжетные: story_quest_progress (только по target_name)
-    - Ежедневные: timed_quest_progress (по совпадению title)
-    - Еженедельные: timed_quest_progress
     """
     # === 1. СЮЖЕТНЫЕ ===
     try:
@@ -317,8 +490,15 @@ async def progress_quest(uid, quest_type, amount=1, target_name=None):
     except Exception as e:
         log.error(f"[QUEST] weekly error: {e}", exc_info=True)
 
+    # === 4. АВТОВЫДАЧА НАГРАД ===
+    try:
+        rewarded = await _check_and_reward_all(uid)
+        await _notify_rewards(uid, rewarded)
+    except Exception as e:
+        log.error(f"[QUEST] reward error: {e}", exc_info=True)
 
-# ================= СЮЖЕТНЫЕ =================
+
+# ================= СЮЖЕТНЫЕ — ВЗЯТЬ =================
 @router.callback_query(F.data.startswith("quest_take_"))
 async def quest_take_cb(c: CallbackQuery):
     code = c.data.replace("quest_take_", "")
@@ -344,9 +524,10 @@ async def quest_take_cb(c: CallbackQuery):
     await _show_quests(c.from_user.id, "story", edit_message=c.message)
 
 
-# ================= СДАЧА КВЕСТОВ =================
+# ================= СДАЧА ВРУЧНУЮ (запасной вариант) =================
 @router.callback_query(F.data.startswith("quest_turn_"))
 async def quest_turn_cb(c: CallbackQuery):
+    """Ручная сдача daily — если что-то не зачлось автоматически."""
     raw = c.data.replace("quest_turn_", "")
     try:
         qid = int(raw)
@@ -363,13 +544,13 @@ async def quest_turn_cb(c: CallbackQuery):
         await c.answer(f"Не готово: {row['progress']}/{row['target']}",
                        show_alert=True); return
 
+    await g.db.add_gold(c.from_user.id, row["reward_gold"])
+    await g.db.add_xp(c.from_user.id, row["reward_xp"])
+    await g.db.add_quest_points(c.from_user.id, 5)
     async with g.db.pool.acquire() as conn:
         await conn.execute(
             "UPDATE timed_quest_progress SET completed=1 WHERE id=$1", qid
         )
-    await g.db.add_gold(c.from_user.id, row["reward_gold"])
-    await g.db.add_xp(c.from_user.id, row["reward_xp"])
-    await g.db.add_quest_points(c.from_user.id, 5)
 
     await c.answer(f"✅ +{row['reward_gold']}💰 · +{row['reward_xp']} XP · +5⭐")
     await _show_quests(c.from_user.id, "daily", edit_message=c.message)
@@ -377,6 +558,7 @@ async def quest_turn_cb(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("quest_turnw_"))
 async def quest_turnw_cb(c: CallbackQuery):
+    """Ручная сдача weekly — если что-то не зачлось автоматически."""
     raw = c.data.replace("quest_turnw_", "")
     try:
         qid = int(raw)
@@ -393,13 +575,13 @@ async def quest_turnw_cb(c: CallbackQuery):
         await c.answer(f"Не готово: {row['progress']}/{row['target']}",
                        show_alert=True); return
 
+    await g.db.add_gold(c.from_user.id, row["reward_gold"])
+    await g.db.add_xp(c.from_user.id, row["reward_xp"])
+    await g.db.add_quest_points(c.from_user.id, 15)
     async with g.db.pool.acquire() as conn:
         await conn.execute(
             "UPDATE timed_quest_progress SET completed=1 WHERE id=$1", qid
         )
-    await g.db.add_gold(c.from_user.id, row["reward_gold"])
-    await g.db.add_xp(c.from_user.id, row["reward_xp"])
-    await g.db.add_quest_points(c.from_user.id, 15)
 
     await c.answer(f"✅ +{row['reward_gold']}💰 · +{row['reward_xp']} XP · +15⭐")
     await _show_quests(c.from_user.id, "weekly", edit_message=c.message)
