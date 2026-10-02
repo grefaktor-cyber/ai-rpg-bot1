@@ -27,35 +27,70 @@ from core.skills import get_skill, skill_multiplier
 import world as W
 
 
-# ================= РЕЙД-БОССЫ (СБАЛАНСИРОВАНО) =================
+# ================= РЕЙД-БОССЫ (4 уровня сложности) =================
 RAID_BOSSES = {
-    "abyss_lord": {
-        "name": "👹 Повелитель Бездны",
-        "level": 45,
-        "hp": 40000,
-        "attack_dmg": 240,
-        "dmg_type": "magic",
-        "locations": ["cave", "mountains", "ruins"],
-        "desc": ("Требует МИНИМУМ 2 игрока. "
-                 "Каждые 5 атак восстанавливает 500 HP."),
+    # ============ ЛЁГКИЙ (2 игрока 25-35 ур.) ============
+    "dragon_cub": {
+        "name": "🐲 Дракончик",
+        "level": 30,
+        "hp": 10000,
+        "attack_dmg": 120,
+        "dmg_type": "phys",
+        "locations": ["cave", "mountains", "glade"],
+        "desc": ("Лёгкий рейд для 2 игроков 25-35 ур. "
+                 "Каждые 6 атак восстанавливает 200 HP."),
         "raid": True,
         "min_players": 2,
-        "heal_amount": 500,
-        "heal_every_n": 5,
+        "heal_amount": 200,
+        "heal_every_n": 6,
     },
-    "world_devourer": {
-        "name": "🐲 Пожиратель Миров",
-        "level": 50,
-        "hp": 70000,
-        "attack_dmg": 300,
+
+    # ============ СРЕДНИЙ (2 игрока 35-45 ур.) ============
+    "abyss_lord": {
+        "name": "👹 Повелитель Бездны",
+        "level": 40,
+        "hp": 22000,
+        "attack_dmg": 160,
+        "dmg_type": "magic",
+        "locations": ["cave", "ruins", "mountains"],
+        "desc": ("Средний рейд для 2 игроков 35-45 ур. "
+                 "Каждые 6 атак восстанавливает 300 HP."),
+        "raid": True,
+        "min_players": 2,
+        "heal_amount": 300,
+        "heal_every_n": 6,
+    },
+
+    # ============ СЛОЖНЫЙ (3 игрока 40+ ур.) ============
+    "forest_king": {
+        "name": "🌳 Лесной Король",
+        "level": 45,
+        "hp": 40000,
+        "attack_dmg": 200,
         "dmg_type": "phys",
-        "locations": ["mountains", "ruins", "swamp"],
-        "desc": ("Требует МИНИМУМ 3 игрока. "
-                 "Каждые 5 атак восстанавливает 700 HP."),
+        "locations": ["forest", "glade", "swamp"],
+        "desc": ("Сложный рейд для 3 игроков 40+ ур. "
+                 "Каждые 6 атак восстанавливает 500 HP."),
         "raid": True,
         "min_players": 3,
+        "heal_amount": 500,
+        "heal_every_n": 6,
+    },
+
+    # ============ ХАРДКОР (4 игрока 45+ ур.) ============
+    "world_devourer": {
+        "name": "🐲 Пожиратель Миров",
+        "level": 55,
+        "hp": 70000,
+        "attack_dmg": 280,
+        "dmg_type": "magic",
+        "locations": ["ruins", "mountains", "swamp"],
+        "desc": ("Хардкор-рейд для 4 игроков 45+ ур. "
+                 "Каждые 6 атак восстанавливает 700 HP."),
+        "raid": True,
+        "min_players": 4,
         "heal_amount": 700,
-        "heal_every_n": 5,
+        "heal_every_n": 6,
     },
 }
 
@@ -215,7 +250,7 @@ async def force_spawn_boss(boss_code=None, location_code=None, notify=False):
     }
 
 
-# ================= АТАКА (старая, оставлена для совместимости) =================
+# ================= АТАКА (старая, для совместимости) =================
 async def attack_boss(uid):
     u = await g.db.get_user(uid)
     if not u["char_name"]:
@@ -311,7 +346,7 @@ async def attack_boss(uid):
     }
 
 
-# ================= ОЧЕРЕДЬ ДЕЙСТВИЙ (НОВОЕ) =================
+# ================= ОЧЕРЕДЬ ДЕЙСТВИЙ =================
 async def execute_boss_actions(uid, actions):
     """Прогоняет очередь действий игрока против мирового босса.
 
@@ -472,7 +507,7 @@ async def execute_boss_actions(uid, actions):
     # === РЕГЕНЕРАЦИЯ РЕЙД-БОССА (раз в N атак) ===
     heal_amount = 0
     if is_raid and updated and updated["current_hp"] > 0:
-        n = boss_data.get("heal_every_n", 5)
+        n = boss_data.get("heal_every_n", 6)
         attacks = await g.db.get_boss_attacks_count(boss["id"])
         if attacks > 0 and attacks % n == 0:
             heal_amount = boss_data.get("heal_amount", 0)
