@@ -655,3 +655,199 @@ async def admin_spawn_raid(m: Message):
         f"3. В боте напиши <code>/boss</code>\n"
         f"4. Жми «⚔️ Атаковать»",
         parse_mode=ParseMode.HTML)
+
+
+# ================= АНАЛИТИКА ИСТОЧНИКОВ ТРАФИКА =================
+@router.message(Command("admin_sources"))
+async def admin_sources(m: Message):
+    """Откуда приходят игроки (метки ?start=...)."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    async with g.db.pool.acquire() as conn:
+        sources = await conn.fetch("""
+            SELECT source, COUNT(*) as total,
+                   COUNT(*) FILTER (WHERE char_name != '') as created,
+                   COUNT(*) FILTER (WHERE level >= 5) as lvl5,
+                   COUNT(*) FILTER (WHERE is_premium = 1) as premium
+            FROM users
+            GROUP BY source
+            ORDER BY total DESC
+            LIMIT 30
+        """)
+
+    if not sources:
+        await m.answer("Нет данных.")
+        return
+
+    total_all = sum(r["total"] for r in sources)
+    text = f"📊 <b>Источники трафика</b>\n"
+    text += f"<i>Всего записей: {total_all}</i>\n\n"
+    text += "<b>Источник | Всего | Создали | 5+ | Премиум</b>\n"
+
+    for s in sources:
+        src = (s["source"] or "—")[:20]
+        text += (f"<code>{src:20}</code> | "
+                 f"{s['total']} | {s['created']} | "
+                 f"{s['lvl5']} | {s['premium']}\n")
+
+    if len(text) > 3800:
+        text = text[:3800] + "\n<i>...обрезано</i>"
+    await m.answer(text, parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_users"))
+async def admin_users(m: Message):
+    """Список последних игроков. /admin_users [N]"""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    parts = m.text.split()
+    limit = 30
+    if len(parts) >= 2:
+        try:
+            limit = min(int(parts[1]), 100)
+        except ValueError:
+            pass
+
+    async with g.db.pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT user_id, username, char_name, level, race, class,
+                   location_code, gold, bosses_defeated, pvp_wins,
+                   source, created_at, last_seen
+            FROM users
+            WHERE char_name != ''
+            ORDER BY user_id DESC
+            LIMIT $1
+        """, limit)
+
+    if not rows:
+        await m.answer("Нет игроков.")
+        return
+
+    text = f"👥 <b>Последние {len(rows)} игроков:</b>\n\n"
+    for r in rows:
+        text += (
+            f"<b>{r['char_name']}</b> (ур.{r['level']}) "
+            f"<code>{r['user_id']}</code>\n"
+            f"  {r['race']}/{r['class']} · {r['location_code']}\n"
+            f"  💰{r['gold']} · 🐉{r['bosses_defeated']} · ⚔️{r['pvp_wins']}\n"
+            f"  📍 source: <code>{r['source'] or '—'}</code>\n\n"
+        )
+    if len(text) > 3800:
+        text = text[:3800] + "\n<i>...обрезано</i>"
+    await m.answer(text, parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_online"))
+async def admin_online(m: Message):
+    """Кто сейчас онлайн и активность за сутки."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    async with g.db.pool.acquire() as conn:
+        online = await conn.fetch("""
+            SELECT char_name, level, location_code, source,
+                   EXTRACT(EPOCH FROM (NOW() - last_seen))::int AS sec
+            FROM users
+            WHERE char_name != ''
+              AND last_seen > NOW() - INTERVAL '10 minutes'
+            ORDER BY last_seen DESC
+        """)
+        active_24h = await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE char_name != '' AND last_seen > NOW() - INTERVAL '24 hours'
+        """)
+        new_24h = await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE char_name != '' AND created_at > NOW() - INTERVAL '24 hours'
+        """)
+
+    text = f"🟢 <b>Онлайн сейчас (10 мин):</b> {len(online)}\n"
+    text += f"📊 Активны за 24ч: <b>{active_24h}</b>\n"
+    text += f"🆕 Новых за 24ч: <b>{new_24h}</b>\n\n"
+
+    if online:
+        text += "<b>Список онлайн:</b>\n"
+        for r in online[:25]:
+            mins = r["sec"] // 60
+            src = f" · {r['source']}" if r["source"] else ""
+            text += (f"• <b>{r['char_name']}</b> (ур.{r['level']}) · "
+                     f"{r['location_code']}{src} · {mins}м\n")
+        if len(online) > 25:
+            text += f"\n<i>...и ещё {len(online) - 25}</i>"
+    else:
+        text += "<i>Никого нет онлайн.</i>"
+
+    await m.answer(text, parse_mode=ParseMode.HTML)
+
+
+@router.message(Command("admin_stats_full"))
+async def admin_stats_full(m: Message):
+    """Общая статистика игры."""
+    if not _is_admin(m.from_user.id):
+        await m.answer("❌"); return
+
+    async with g.db.pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM users")
+        players = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE char_name != ''"
+        )
+        today = await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE char_name != '' AND last_reset = CURRENT_DATE::text
+        """)
+        premium = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE is_premium = 1"
+        )
+        avg_level = await conn.fetchval("""
+            SELECT ROUND(AVG(level)::numeric, 1)
+            FROM users WHERE char_name != ''
+        """)
+        max_level = await conn.fetchval("""
+            SELECT MAX(level) FROM users WHERE char_name != ''
+        """)
+        active_24h = await conn.fetchval("""
+            SELECT COUNT(*) FROM users
+            WHERE char_name != '' AND last_seen > NOW() - INTERVAL '24 hours'
+        """)
+
+        races = await conn.fetch("""
+            SELECT race, COUNT(*) as cnt FROM users
+            WHERE char_name != '' GROUP BY race
+            ORDER BY cnt DESC
+        """)
+        locations = await conn.fetch("""
+            SELECT location_code, COUNT(*) as cnt FROM users
+            WHERE char_name != '' GROUP BY location_code
+            ORDER BY cnt DESC LIMIT 5
+        """)
+        top = await conn.fetch("""
+            SELECT char_name, level FROM users
+            WHERE char_name != '' ORDER BY level DESC LIMIT 3
+        """)
+
+    text = (
+        f"📊 <b>Статистика игры</b>\n\n"
+        f"👤 Всего в БД: <b>{total}</b>\n"
+        f"🎮 Создали персонажа: <b>{players}</b>\n"
+        f"🆕 Заходили сегодня: <b>{today}</b>\n"
+        f"⚡ Активны за 24ч: <b>{active_24h}</b>\n"
+        f"💎 Премиум: <b>{premium}</b>\n\n"
+        f"⭐ Средний уровень: <b>{avg_level}</b>\n"
+        f"👑 Максимальный: <b>{max_level}</b>\n\n"
+        f"<b>Топ-3 игрока:</b>\n"
+    )
+    medals = ["🥇", "🥈", "🥉"]
+    for i, t in enumerate(top):
+        text += f"{medals[i]} {t['char_name']} — ур.{t['level']}\n"
+
+    text += "\n<b>Расы:</b>\n"
+    for r in races:
+        text += f"• {r['race'] or '?':12} — {r['cnt']}\n"
+
+    text += "\n<b>Топ локаций:</b>\n"
+    for l in locations:
+        text += f"• {l['location_code']:12} — {l['cnt']}\n"
+
+    await m.answer(text, parse_mode=ParseMode.HTML)
