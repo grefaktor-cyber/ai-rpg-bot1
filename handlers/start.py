@@ -1,4 +1,4 @@
-"""Старт: /start, согласие, создание героя, главное меню, /newchar."""
+"""Старт: /start, согласие, создание героя, главное меню, /newchar. + source tracking."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
@@ -30,15 +30,35 @@ def _consent_kb():
 
 @router.message(Command("start"))
 async def start(m: Message):
-    args = m.text.split()
+    args = (m.text or "").split()
     referrer_id = 0
-    if len(args) > 1 and args[1].startswith("ref_"):
-        try:
-            referrer_id = int(args[1].replace("ref_", ""))
-        except ValueError:
-            pass
+    source = "direct"
+
+    if len(args) > 1:
+        payload = args[1].strip()
+        if payload.startswith("ref_"):
+            try:
+                referrer_id = int(payload.replace("ref_", ""))
+                source = "referral"
+            except ValueError:
+                pass
+        else:
+            # Обрезаем до 50 символов (защита от мусора)
+            source = payload[:50] or "direct"
 
     user = await g.db.get_user(m.from_user.id, m.from_user.username or "")
+
+    # Сохраняем источник — только при первом входе
+    if not user.get("source"):
+        try:
+            async with g.db.pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE users SET source=$1 WHERE user_id=$2",
+                    source, m.from_user.id
+                )
+        except Exception as e:
+            import logging
+            logging.error(f"[SOURCE] {e}", exc_info=True)
 
     if referrer_id and user["referred_by"] == 0:
         if await g.db.set_referrer(m.from_user.id, referrer_id):
@@ -99,13 +119,11 @@ async def newchar_cmd(m: Message):
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ Сначала закончи бой!"); return
 
-    # Если героя ещё нет (или он не создан до конца) — просто показать расы
     if not u["char_name"]:
         await g.db.reset_character(m.from_user.id)
         await show_race_selection(m)
         return
 
-    # Если герой есть — подтверждение
     warn = (f"⚠️ <b>Создать нового героя?</b>\n\n"
             f"Текущий герой: <b>{u['char_name']}</b> "
             f"({RACES.get(u['race'], {}).get('name', '?')}, "
@@ -175,7 +193,6 @@ async def show_race_selection(m):
     else:
         hint = ""
 
-    # Удаляем предыдущее сообщение бота, если есть (чтобы не плодить)
     try:
         await g.bot.delete_message(m.chat.id, m.message_id)
     except Exception:
