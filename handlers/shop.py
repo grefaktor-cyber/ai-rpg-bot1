@@ -1,4 +1,4 @@
-"""Магазин: категории, покупка. Фильтр по уровню игрока (кроме зелий)."""
+"""Магазин: категории, покупка. Фильтр по уровню игрока (кроме зелий и щитов)."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -57,8 +57,8 @@ CATEGORIES = {
 def _get_items(user_class, player_level, shop_mult, category):
     """Возвращает доступные предметы, скрывая устаревшие (на 2+ тира ниже).
 
-    ⚠️ ЗЕЛЬЯ не скрываются по грейду — они актуальны на любом уровне.
-    Для зелий работает только level_req (например, Большой эликсир с 20 ур.).
+    ⚠️ ЗЕЛЬЯ и ЩИТЫ не скрываются по грейду — их мало и они не устаревают.
+    Для них работает только level_req.
     """
     groups = {"common": [], "D": [], "C": [], "B": []}
     player_rank = _player_grade_rank(player_level)
@@ -78,8 +78,8 @@ def _get_items(user_class, player_level, shop_mult, category):
             continue
         grade = data.get("grade", "common")
         item_rank = GRADE_RANK.get(grade, 0)
-        # ⚠️ Зелья не скрываем — они не устаревают
-        if data["type"] != "potion":
+        # ⚠️ Зелья и щиты не скрываем — их мало, и они не «устаревают»
+        if data["type"] not in ("potion", "shield"):
             # Скрываем предметы, которые на 2+ тира ниже игрока
             # Пример: игрок 35 lvl (rank 2) — скрываем common (rank 0)
             # Но показываем D (rank 1) как «предыдущий»
@@ -118,7 +118,7 @@ def _shop_menu_text(u, shop_mult, counts):
         else:
             text += f"• {label} — <i>нет</i>\n"
     text += "\n⚪ Обычный · 🔷 D (15+) · 🔶 C (30+) · 💎 B (45+)"
-    text += "\n<i>Показываются только актуальные для уровня предметы (кроме зелий).</i>"
+    text += "\n<i>Показываются только актуальные для уровня предметы (кроме зелий и щитов).</i>"
     return text
 
 
