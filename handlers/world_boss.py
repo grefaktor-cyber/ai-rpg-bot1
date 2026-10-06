@@ -1,4 +1,9 @@
-"""Хендлеры мировых боссов с очередью действий (как в PvP)."""
+"""Хендлеры мировых боссов с очередью действий (как в PvP).
+
+ВАЖНО: c.answer() вызывается ПЕРВЫМ делом в каждом callback —
+иначе Telegram инвалидирует callback через 30 сек и падает
+с 'query is too old'.
+"""
 import json
 import logging
 from html import escape
@@ -40,7 +45,6 @@ ACTION_ICONS = {
 
 
 def _safe(v):
-    """Экранирует HTML-теги, чтобы Telegram не падал."""
     if v is None:
         return "?"
     return escape(str(v), quote=False)
@@ -125,11 +129,7 @@ def _boss_text(boss, damage_list, u, pending):
 
 
 def _boss_kb(u, pending):
-    """Клавиатура с очередью действий.
-
-    ВАЖНО: скиллы и зелья показываются ВСЕГДА, даже если MP/HP полное.
-    Это позволяет ставить в очередь «зелье MP → скилл» и «зелье HP → атака».
-    """
+    """Клавиатура с очередью. Скиллы и зелья показываются ВСЕГДА."""
     try:
         active = json.loads(u.get("active_skills") or "[]")
     except Exception:
@@ -141,13 +141,11 @@ def _boss_kb(u, pending):
 
     rows = []
 
-    # Ряд 1: атака + защита
     rows.append([
         InlineKeyboardButton(text="⚔️ Атака", callback_data="wb_add_attack"),
         InlineKeyboardButton(text="🛡 Защита", callback_data="wb_add_defend"),
     ])
 
-    # Ряд 2: скиллы (ВСЕГДА показываем, независимо от MP)
     if active:
         skill_row = []
         for code in active:
@@ -157,7 +155,6 @@ def _boss_kb(u, pending):
             label = f"✨ {s['name']}"
             if len(label) > 18:
                 label = label[:17] + "…"
-            # ⚠️ маркер что MP не хватает сейчас — но кнопка всё равно активна
             if mp < s["mp_cost"]:
                 label = f"⚠️ {label}"
             skill_row.append(InlineKeyboardButton(
@@ -166,7 +163,6 @@ def _boss_kb(u, pending):
         if skill_row:
             rows.append(skill_row)
 
-    # Ряд 3: зелья (ВСЕГДА показываем оба)
     rows.append([
         InlineKeyboardButton(
             text=f"💚 HP ({POTION_PRICE}💰)", callback_data="wb_add_potion_hp"),
@@ -174,7 +170,6 @@ def _boss_kb(u, pending):
             text=f"🔮 MP ({MP_POTION_PRICE}💰)", callback_data="wb_add_potion_mp"),
     ])
 
-    # Ряд 4: выполнить + отмена
     action_row = []
     if pending:
         action_row.append(InlineKeyboardButton(
@@ -186,7 +181,6 @@ def _boss_kb(u, pending):
     if action_row:
         rows.append(action_row)
 
-    # Ряд 5: обновить
     rows.append([
         InlineKeyboardButton(text="🔄 Обновить", callback_data="wb_refresh"),
     ])
@@ -257,6 +251,7 @@ async def boss_cmd(m: Message):
 
 # ================= ОБНОВЛЕНИЕ =================
 async def _refresh_boss_view(c, uid):
+    """Только правит сообщение. НЕ отвечает на callback."""
     u = await g.db.get_user(uid)
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
@@ -269,148 +264,173 @@ async def _refresh_boss_view(c, uid):
         await c.message.edit_text(text, reply_markup=_boss_kb(u, pending),
                                    parse_mode=ParseMode.HTML)
     except Exception as e:
-        log.error(f"[BOSS] refresh error: {e}")
+        log.debug(f"[BOSS] refresh edit skipped: {e}")
 
 
 @router.callback_query(F.data == "wb_refresh")
 async def wb_refresh_cb(c: CallbackQuery):
+    # ✅ answer ПЕРВЫМ — до долгих операций
+    try:
+        await c.answer("🔄")
+    except Exception:
+        pass
     await _refresh_boss_view(c, c.from_user.id)
-    await c.answer("🔄")
 
 
 @router.callback_query(F.data == "boss_refresh")
 async def boss_refresh_cb(c: CallbackQuery):
-    await wb_refresh_cb(c)
+    # Редирект — но без двойного answer
+    try:
+        await c.answer("🔄")
+    except Exception:
+        pass
+    await _refresh_boss_view(c, c.from_user.id)
 
 
 # ================= ЗАКРЫТИЕ =================
 @router.callback_query(F.data == "wb_close")
 async def wb_close_cb(c: CallbackQuery):
+    try:
+        await c.answer()
+    except Exception:
+        pass
     await close_menu(c)
-    await c.answer()
 
 
 @router.callback_query(F.data == "boss_close")
 async def boss_close_cb(c: CallbackQuery):
-    await wb_close_cb(c)
+    try:
+        await c.answer()
+    except Exception:
+        pass
+    await close_menu(c)
 
 
 # ================= ДОБАВЛЕНИЕ В ОЧЕРЕДЬ =================
-async def _add_action(c, action):
+async def _add_action(c, action, ack_text="✅"):
+    """Общий хелпер. c.answer — ПЕРВЫМ делом."""
+    # ✅ Первое — ответ на callback
+    try:
+        await c.answer(ack_text)
+    except Exception:
+        pass
+
     uid = c.from_user.id
     u = await g.db.get_user(uid)
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
     if not boss:
-        await c.answer("Босс больше не активен", show_alert=True)
         return
 
     pending = await _get_pending(uid, boss["id"])
     if len(pending) >= MAX_ACTIONS:
-        await c.answer(f"Очередь полна ({MAX_ACTIONS})", show_alert=True)
         return
 
     pending.append(action)
     await _save_pending(uid, boss["id"], pending)
     await _refresh_boss_view(c, uid)
-    await c.answer("✅")
 
 
 @router.callback_query(F.data == "wb_add_attack")
 async def wb_add_attack(c: CallbackQuery):
-    await _add_action(c, "attack")
+    await _add_action(c, "attack", "⚔️ +Атака")
 
 
 @router.callback_query(F.data == "wb_add_defend")
 async def wb_add_defend(c: CallbackQuery):
-    await _add_action(c, "defend")
+    await _add_action(c, "defend", "🛡 +Защита")
 
 
 @router.callback_query(F.data.startswith("wb_add_skill_"))
 async def wb_add_skill(c: CallbackQuery):
-    """Добавляет скилл в очередь БЕЗ проверки MP.
-
-    Скилл сработает, только если в момент его хода хватает MP
-    (например, если раньше в очереди стоит зелье MP).
-    """
+    """БЕЗ проверки MP — скилл сработает, если хватит MP в момент хода."""
     code = c.data.replace("wb_add_skill_", "")
     s = get_skill(code)
     if not s:
-        await c.answer("Скилл не найден", show_alert=True); return
-    log.info(f"[BOSS] add_skill uid={c.from_user.id} code={code}")
-    await _add_action(c, f"skill_{code}")
+        try:
+            await c.answer("Скилл не найден", show_alert=True)
+        except Exception:
+            pass
+        return
+    await _add_action(c, f"skill_{code}", f"✨ +{s['name']}")
 
 
 @router.callback_query(F.data == "wb_add_potion_hp")
 async def wb_add_potion_hp(c: CallbackQuery):
-    """Добавляет зелье HP БЕЗ проверки HP/золота."""
-    await _add_action(c, "potion_hp")
+    await _add_action(c, "potion_hp", f"💚 +HP ({POTION_PRICE}💰)")
 
 
 @router.callback_query(F.data == "wb_add_potion_mp")
 async def wb_add_potion_mp(c: CallbackQuery):
-    """Добавляет зелье MP БЕЗ проверки MP/золота.
-
-    Ключевой кейс: поставить зелье MP ПЕРВЫМ, а скилл ВТОРЫМ — тогда
-    скилл сработает, даже если сейчас MP не хватает.
-    """
-    await _add_action(c, "potion_mp")
+    await _add_action(c, "potion_mp", f"🔮 +MP ({MP_POTION_PRICE}💰)")
 
 
 # ================= ОТМЕНА =================
 @router.callback_query(F.data == "wb_undo")
 async def wb_undo_cb(c: CallbackQuery):
+    try:
+        await c.answer("↩️")
+    except Exception:
+        pass
+
     uid = c.from_user.id
     u = await g.db.get_user(uid)
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
     if not boss:
-        await c.answer("Босс больше не активен", show_alert=True); return
+        return
 
     pending = await _get_pending(uid, boss["id"])
     if not pending:
-        await c.answer("Очередь пуста", show_alert=True); return
+        return
     pending.pop()
     await _save_pending(uid, boss["id"], pending)
     await _refresh_boss_view(c, uid)
-    await c.answer("↩️")
 
 
 # ================= ВЫПОЛНИТЬ РАУНД =================
 @router.callback_query(F.data == "wb_execute")
 async def wb_execute_cb(c: CallbackQuery):
+    # ✅ ОТВЕТ ПЕРВЫМ — иначе при долгом execute_boss_actions будет timeout
+    try:
+        await c.answer("⚡ Выполняю...")
+    except Exception:
+        pass
+
     uid = c.from_user.id
     u = await g.db.get_user(uid)
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
     if not boss:
-        await c.answer("Босс больше не активен", show_alert=True); return
+        return
 
     pending = await _get_pending(uid, boss["id"])
     if not pending:
-        await c.answer("Очередь пуста", show_alert=True); return
+        return
 
     ok, info = await execute_boss_actions(uid, pending)
     await g.db.clear_boss_pending(uid)
 
     if not ok:
         err = info.get("error")
+        # Второй c.answer уже не сработает — используем send_message
+        text = None
         if err == "cooldown":
-            await c.answer(f"⏳ Кулдаун: {info['seconds']}с", show_alert=True)
+            text = f"⏳ Кулдаун: {info['seconds']}с"
         elif err == "low_hp":
-            await c.answer(
-                f"⚠️ HP {info['hp']}/{info['max_hp']} "
-                f"(нужно {info['pct']}%). Подлечись!",
-                show_alert=True)
+            text = (f"⚠️ HP {info['hp']}/{info['max_hp']} "
+                    f"(нужно {info['pct']}%). Подлечись!")
         elif err == "no_boss":
-            await c.answer("Босс больше не активен", show_alert=True)
+            text = "❌ Босс больше не активен"
         elif err == "not_enough_players":
-            await c.answer(
-                f"❌ Нужно {info['min_players']}+ игроков "
-                f"(сейчас {info['current']})",
-                show_alert=True)
+            text = (f"❌ Нужно {info['min_players']}+ игроков "
+                    f"(сейчас {info['current']})")
         else:
-            await c.answer("Ошибка", show_alert=True)
+            text = "Ошибка"
+        try:
+            await c.message.answer(text)
+        except Exception:
+            pass
         return
 
     log_text = "\n".join(f"  {_safe(x)}" for x in info.get("log", []))
@@ -419,9 +439,6 @@ async def wb_execute_cb(c: CallbackQuery):
               f"💔 Получил: <b>{info['boss_atk']}</b>")
     if info.get("boss_heal", 0) > 0:
         header += f"\n💚 Босс восстановил: +{info['boss_heal']}"
-
-    await c.answer(f"⚔️ {info['my_damage']} / 💔 {info['boss_atk']}",
-                   show_alert=False)
 
     if info.get("player_died"):
         try:
@@ -461,4 +478,4 @@ async def wb_execute_cb(c: CallbackQuery):
             await c.message.edit_text(text, reply_markup=_boss_kb(u, []),
                                        parse_mode=ParseMode.HTML)
         except Exception as e:
-            log.error(f"[BOSS] execute edit error: {e}")
+            log.debug(f"[BOSS] execute edit skipped: {e}")
