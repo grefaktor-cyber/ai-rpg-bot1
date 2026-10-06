@@ -32,7 +32,10 @@ class DB:
                     daily_streak INTEGER DEFAULT 0,
                     arc INTEGER DEFAULT 1,
                     action_count INTEGER DEFAULT 0,
-                    location TEXT DEFAULT 'Начальная деревня'
+                    location TEXT DEFAULT 'Начальная деревня',
+                    source TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    last_seen TIMESTAMP DEFAULT NOW()
                 )
             """)
             await conn.execute("""
@@ -404,6 +407,10 @@ class DB:
                 "ALTER TABLE active_combat ADD COLUMN IF NOT EXISTS total_dmg_taken INTEGER DEFAULT 0",
                 # === Рейд-боссы: счётчик атак ===
                 "ALTER TABLE world_bosses ADD COLUMN IF NOT EXISTS attacks_count INTEGER DEFAULT 0",
+                # === Аналитика источников ===
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS source TEXT DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT NOW()",
             ]
             for sql in migrations:
                 try:
@@ -480,15 +487,24 @@ class DB:
             row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
             if not row:
                 await conn.execute(
-                    "INSERT INTO users (user_id, username, last_reset, last_energy_regen) "
-                    "VALUES ($1,$2,$3,NOW())",
+                    "INSERT INTO users (user_id, username, last_reset, last_energy_regen, last_seen) "
+                    "VALUES ($1,$2,$3,NOW(),NOW())",
                     user_id, username, today
                 )
-            elif row["last_reset"] != today:
-                await conn.execute(
-                    "UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2",
-                    today, user_id
-                )
+            else:
+                # Обновляем last_seen при каждом обращении к пользователю
+                try:
+                    await conn.execute(
+                        "UPDATE users SET last_seen = NOW() WHERE user_id=$1",
+                        user_id
+                    )
+                except Exception:
+                    pass
+                if row["last_reset"] != today:
+                    await conn.execute(
+                        "UPDATE users SET requests_today=0, last_reset=$1 WHERE user_id=$2",
+                        today, user_id
+                    )
         await self._refresh_energy(user_id)
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
@@ -527,6 +543,7 @@ class DB:
             "rare_materials": "{}",
             "season_xp": 0, "season_number": 0, "season_titles": "[]",
             "unlocked_premium_races": "[]",
+            "source": "", "created_at": None, "last_seen": None,
         }
 
     async def give_consent(self, uid):
