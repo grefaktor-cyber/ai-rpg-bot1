@@ -1,5 +1,6 @@
 """Логика подземелий: спавн врагов, регенерация, завершение."""
 import json
+import logging
 
 from aiogram.enums import ParseMode
 
@@ -7,6 +8,8 @@ from core import globals as g
 from core.game_data import DUNGEONS
 from core.formulas import calc_enemy_hp, regen_between_rooms
 from services.combat_service import send_combat_state
+
+log = logging.getLogger(__name__)
 
 
 async def spawn_dungeon_enemy(chat_id, uid, dungeon_id, room):
@@ -27,8 +30,17 @@ async def spawn_dungeon_enemy(chat_id, uid, dungeon_id, room):
         await g.db.update_mp(uid, new_mp)
         u = await g.db.get_user(uid)
 
+    log.info(f"[DUNGEON] spawn uid={uid} room={room} enemy={enemy_name} "
+             f"lvl={enemy_level} hp={enemy_hp} boss={is_boss}")
+
     await g.db.start_combat(uid, enemy_name, enemy_level, enemy_hp,
                             boss=is_boss, dungeon=1)
+    # ⚠️ Явный сброс очереди — на случай если start_combat не сбросил
+    try:
+        await g.db.clear_pending_actions(uid)
+    except Exception as e:
+        log.warning(f"[DUNGEON] clear_pending_actions failed: {e}")
+
     u = await g.db.get_user(uid)
     combat = await g.db.get_combat(uid)
     label = "🐉 БОСС" if is_boss else f"Комната {room}/{d['rooms']}"
