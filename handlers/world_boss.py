@@ -1,8 +1,7 @@
-"""Хендлеры мировых боссов с очередью действий (как в PvP).
+"""Хендлеры мировых боссов с очередью действий.
 
-ВАЖНО: c.answer() вызывается ПЕРВЫМ делом в каждом callback —
-иначе Telegram инвалидирует callback через 30 сек и падает
-с 'query is too old'.
+HP < 30% больше НЕ блокирует действия — только предупреждение.
+c.answer() вызывается ПЕРВЫМ — защита от 'query is too old'.
 """
 import json
 import logging
@@ -111,8 +110,9 @@ def _boss_text(boss, damage_list, u, pending):
     max_mp = u.get("max_mp", 0)
     mp_line = f" · 💧 MP: {mp}/{max_mp}" if max_mp else ""
     text += f"❤️ Твой HP: <b>{u['hp']}/{u['max_hp']}</b> ({hp_pct}%){mp_line}\n"
+    # ⚠️ НЕ блокируем — только предупреждаем
     if hp_pct < int(MIN_HP_PCT * 100):
-        text += f"⚠️ <b>HP < {int(MIN_HP_PCT*100)}% — атака заблокирована!</b>\n"
+        text += f"⚠️ <i>HP критически низкое — рискуешь погибнуть!</i>\n"
     text += "\n"
 
     text += f"<b>Топ по урону:</b>\n"
@@ -129,7 +129,7 @@ def _boss_text(boss, damage_list, u, pending):
 
 
 def _boss_kb(u, pending):
-    """Клавиатура с очередью. Скиллы и зелья показываются ВСЕГДА."""
+    """Скиллы и зелья показываются ВСЕГДА, независимо от MP/HP."""
     try:
         active = json.loads(u.get("active_skills") or "[]")
     except Exception:
@@ -137,7 +137,6 @@ def _boss_kb(u, pending):
     active = [x for x in active if x][:3]
 
     mp = u.get("mp", 0)
-    max_mp = u.get("max_mp", 0)
 
     rows = []
 
@@ -251,7 +250,6 @@ async def boss_cmd(m: Message):
 
 # ================= ОБНОВЛЕНИЕ =================
 async def _refresh_boss_view(c, uid):
-    """Только правит сообщение. НЕ отвечает на callback."""
     u = await g.db.get_user(uid)
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
@@ -269,7 +267,6 @@ async def _refresh_boss_view(c, uid):
 
 @router.callback_query(F.data == "wb_refresh")
 async def wb_refresh_cb(c: CallbackQuery):
-    # ✅ answer ПЕРВЫМ — до долгих операций
     try:
         await c.answer("🔄")
     except Exception:
@@ -279,7 +276,6 @@ async def wb_refresh_cb(c: CallbackQuery):
 
 @router.callback_query(F.data == "boss_refresh")
 async def boss_refresh_cb(c: CallbackQuery):
-    # Редирект — но без двойного answer
     try:
         await c.answer("🔄")
     except Exception:
@@ -308,8 +304,7 @@ async def boss_close_cb(c: CallbackQuery):
 
 # ================= ДОБАВЛЕНИЕ В ОЧЕРЕДЬ =================
 async def _add_action(c, action, ack_text="✅"):
-    """Общий хелпер. c.answer — ПЕРВЫМ делом."""
-    # ✅ Первое — ответ на callback
+    # ✅ answer ПЕРВЫМ
     try:
         await c.answer(ack_text)
     except Exception:
@@ -343,7 +338,6 @@ async def wb_add_defend(c: CallbackQuery):
 
 @router.callback_query(F.data.startswith("wb_add_skill_"))
 async def wb_add_skill(c: CallbackQuery):
-    """БЕЗ проверки MP — скилл сработает, если хватит MP в момент хода."""
     code = c.data.replace("wb_add_skill_", "")
     s = get_skill(code)
     if not s:
@@ -391,7 +385,7 @@ async def wb_undo_cb(c: CallbackQuery):
 # ================= ВЫПОЛНИТЬ РАУНД =================
 @router.callback_query(F.data == "wb_execute")
 async def wb_execute_cb(c: CallbackQuery):
-    # ✅ ОТВЕТ ПЕРВЫМ — иначе при долгом execute_boss_actions будет timeout
+    # ✅ ОТВЕТ ПЕРВЫМ — защита от timeout
     try:
         await c.answer("⚡ Выполняю...")
     except Exception:
@@ -413,13 +407,9 @@ async def wb_execute_cb(c: CallbackQuery):
 
     if not ok:
         err = info.get("error")
-        # Второй c.answer уже не сработает — используем send_message
         text = None
         if err == "cooldown":
             text = f"⏳ Кулдаун: {info['seconds']}с"
-        elif err == "low_hp":
-            text = (f"⚠️ HP {info['hp']}/{info['max_hp']} "
-                    f"(нужно {info['pct']}%). Подлечись!")
         elif err == "no_boss":
             text = "❌ Босс больше не активен"
         elif err == "not_enough_players":
