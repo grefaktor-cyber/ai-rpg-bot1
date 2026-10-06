@@ -1,4 +1,4 @@
-"""Магазин: категории, покупка. Фильтр по уровню игрока."""
+"""Магазин: категории, покупка. Фильтр по уровню игрока (кроме зелий)."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -55,7 +55,11 @@ CATEGORIES = {
 
 
 def _get_items(user_class, player_level, shop_mult, category):
-    """Возвращает доступные предметы, скрывая устаревшие (на 2+ тира ниже)."""
+    """Возвращает доступные предметы, скрывая устаревшие (на 2+ тира ниже).
+
+    ⚠️ ЗЕЛЬЯ не скрываются по грейду — они актуальны на любом уровне.
+    Для зелий работает только level_req (например, Большой эликсир с 20 ур.).
+    """
     groups = {"common": [], "D": [], "C": [], "B": []}
     player_rank = _player_grade_rank(player_level)
     for name, data in SHOP.items():
@@ -74,11 +78,13 @@ def _get_items(user_class, player_level, shop_mult, category):
             continue
         grade = data.get("grade", "common")
         item_rank = GRADE_RANK.get(grade, 0)
-        # Скрываем предметы, которые на 2+ тира ниже игрока
-        # Пример: игрок 35 lvl (rank 2) — скрываем common (rank 0)
-        # Но показываем D (rank 1) как «предыдущий»
-        if item_rank < player_rank - 1:
-            continue
+        # ⚠️ Зелья не скрываем — они не устаревают
+        if data["type"] != "potion":
+            # Скрываем предметы, которые на 2+ тира ниже игрока
+            # Пример: игрок 35 lvl (rank 2) — скрываем common (rank 0)
+            # Но показываем D (rank 1) как «предыдущий»
+            if item_rank < player_rank - 1:
+                continue
         price = int(data["price"] * shop_mult)
         groups[grade].append((name, data, price))
     return groups
@@ -112,7 +118,7 @@ def _shop_menu_text(u, shop_mult, counts):
         else:
             text += f"• {label} — <i>нет</i>\n"
     text += "\n⚪ Обычный · 🔷 D (15+) · 🔶 C (30+) · 💎 B (45+)"
-    text += "\n<i>Показываются только актуальные для уровня предметы.</i>"
+    text += "\n<i>Показываются только актуальные для уровня предметы (кроме зелий).</i>"
     return text
 
 
