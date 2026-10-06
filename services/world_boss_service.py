@@ -248,12 +248,6 @@ async def attack_boss(uid):
     if not ok_cd:
         return False, {"error": "cooldown", "seconds": sec_left}
 
-    hp_pct = u["hp"] / max(1, u["max_hp"])
-    if hp_pct < MIN_HP_PCT:
-        return False, {"error": "low_hp",
-                       "hp": u["hp"], "max_hp": u["max_hp"],
-                       "pct": int(MIN_HP_PCT * 100)}
-
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
     if not boss:
@@ -339,12 +333,6 @@ async def execute_boss_actions(uid, actions):
     ok_cd, sec_left = check_cooldown(uid)
     if not ok_cd:
         return False, {"error": "cooldown", "seconds": sec_left}
-
-    hp_pct = u["hp"] / max(1, u["max_hp"])
-    if hp_pct < MIN_HP_PCT:
-        return False, {"error": "low_hp",
-                       "hp": u["hp"], "max_hp": u["max_hp"],
-                       "pct": int(MIN_HP_PCT * 100)}
 
     loc_code = u.get("location_code", "village")
     boss = await g.db.get_active_world_boss(loc_code)
