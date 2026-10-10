@@ -1,4 +1,4 @@
-"""Все клавиатуры бота. UI-1: категории в главном меню."""
+"""Все клавиатуры бота. UI-1: категории в главном меню + единый стиль."""
 from aiogram.types import (InlineKeyboardMarkup, InlineKeyboardButton,
                            ReplyKeyboardMarkup, KeyboardButton)
 
@@ -156,8 +156,6 @@ def combat_kb(active_skills=None, mp=0, pending=None,
                 "debuff": "🌀", "stun": "💫",
             }.get(s["effect"], "✨")
             short = s["name"][:10]
-            # ⚠️ — маркер что MP не хватает СЕЙЧАС, но кнопка всё равно активна.
-            # (можно добавить зелье MP первым в очередь — тогда скилл сработает)
             if mp < s["mp_cost"]:
                 text = f"{icon} {short} ⚠️{s['mp_cost']}mp"
             else:
@@ -213,11 +211,7 @@ def combat_kb(active_skills=None, mp=0, pending=None,
 
 
 def combat_pending_text(pending, max_actions=4):
-    """Визуальные слоты очереди.
-
-    Если скилл в очереди требует больше MP, чем сейчас есть — показываем ⚠️,
-    но НЕ блокируем: при выполнении может хватить, если раньше стоит зелье MP.
-    """
+    """Визуальные слоты очереди."""
     from core.skills import get_skill
 
     action_icons = {
@@ -436,11 +430,10 @@ def skills_back_kb():
 
 
 def skills_slot_choice_kb(available, slot_num):
-    """Показываем уровень скилла рядом с названием."""
     rows = []
     for s in available:
         src = " 📖" if s.get("source") == "book" else ""
-        lvl = s.get("_level", 1)  # опционально передаём уровень из хендлера
+        lvl = s.get("_level", 1)
         lvl_str = f" ур.{lvl}" if lvl and lvl > 1 else ""
         rows.append([InlineKeyboardButton(
             text=f"{s['name']}{src}{lvl_str} · {s['mp_cost']} MP",
@@ -451,11 +444,6 @@ def skills_slot_choice_kb(available, slot_num):
 
 
 def skills_upgrade_kb(available, learned):
-    """Кнопки улучшения скиллов. Максимум — 5 уровень.
-
-    available — список словарей скиллов (из available_skills).
-    learned — dict {code: level} (из user['learned_skills']).
-    """
     from core.skills import MAX_SKILL_LEVEL
     rows = []
     for s in available:
