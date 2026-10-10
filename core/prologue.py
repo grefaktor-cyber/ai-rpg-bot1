@@ -14,6 +14,9 @@ from core import globals as g
 from core.game_data import RACES, CLASSES, FACTIONS
 
 
+# 🛡 Защита от параллельных вызовов (race condition)
+_IN_PROGRESS = set()
+
 # Сцены: (код локации, подпись снизу)
 SCENE_LOCATIONS = [
     ("village", "🏘 Начальная деревня, рассвет"),
@@ -22,7 +25,6 @@ SCENE_LOCATIONS = [
 ]
 
 
-# ============ FALLBACK ТЕКСТЫ ============
 FALLBACKS = [
     [
         "Ты открываешь глаза на жёсткой соломенной постели. За окном брезжит рассвет, "
@@ -70,7 +72,6 @@ WEAPON_HINTS = {
 
 
 def _clean_name(name):
-    """Убирает эмодзи и лишние пробелы из имени расы."""
     if not name:
         return "герой"
     parts = name.strip().split(maxsplit=1)
@@ -118,7 +119,6 @@ def _build_user_prompt(user):
 
 
 async def _call_gigachat(user):
-    """Прямой вызов GigaChat через клиент из ai.py."""
     try:
         import ai
     except Exception as e:
@@ -154,7 +154,6 @@ async def _call_gigachat(user):
     if not text:
         return None
 
-    # Проверка на отказ
     low = text.lower()
     for marker in ("не обладаю собственным мнением",
                    "не могу", "не буду", "как языковая модель"):
@@ -162,10 +161,8 @@ async def _call_gigachat(user):
             logging.warning("[PROLOGUE] отказ GigaChat")
             return None
 
-    # Чистка
     text = text.replace("**", "").replace("*", "").replace("#", "").strip()
 
-    # Разбиваем на абзацы
     parts = [p.strip() for p in text.split("\n\n") if p.strip()]
     if len(parts) < 3:
         parts = [p.strip() for p in text.split("\n") if len(p.strip()) > 40]
@@ -219,10 +216,15 @@ async def _send_scene(chat_id, loc_code, caption, num, total):
 
 
 async def maybe_show_prologue(chat_id, user):
-    """Показывает пролог, если ещё не показан. Возвращает True если показал."""
+    """Показывает пролог один раз. Защита от race condition через _IN_PROGRESS."""
     uid = user["user_id"]
 
-    # Уже показывали?
+    # 🛡 Защита №1: этот же uid уже показывает пролог прямо сейчас
+    if uid in _IN_PROGRESS:
+        logging.warning(f"[PROLOGUE] Уже в процессе для {uid} — пропуск")
+        return False
+
+    # Проверяем флаг
     try:
         step, finished = await g.db.get_tutorial_step(uid)
     except Exception as e:
@@ -232,40 +234,41 @@ async def maybe_show_prologue(chat_id, user):
     if finished:
         return False
 
-    # Ставим флаг СРАЗУ — защита от двойного вызова
+    # 🛡 Защита №2: ставим и в памяти, и в БД ДО тяжёлой работы
+    _IN_PROGRESS.add(uid)
     try:
-        await g.db.set_tutorial_step(uid, 1, finished=True)
-    except Exception as e:
-        logging.warning(f"[PROLOGUE] set_tutorial_step: {e}")
+        try:
+            await g.db.set_tutorial_step(uid, 1, finished=True)
+        except Exception as e:
+            logging.warning(f"[PROLOGUE] set_tutorial_step: {e}")
 
-    logging.warning(f"[PROLOGUE] Показываю пролог для {uid} ({user.get('char_name')})")
+        logging.warning(f"[PROLOGUE] Показываю пролог для {uid} ({user.get('char_name')})")
 
-    # Текст
-    parts = await _call_gigachat(user)
-    source = "GigaChat"
-    if not parts:
-        parts = _fallback(user)
-        source = "fallback"
-    logging.warning(f"[PROLOGUE] Источник: {source}")
+        parts = await _call_gigachat(user)
+        source = "GigaChat"
+        if not parts:
+            parts = _fallback(user)
+            source = "fallback"
+        logging.warning(f"[PROLOGUE] Источник: {source}")
 
-    # Сцены
-    total = len(SCENE_LOCATIONS)
-    for i, (loc_code, scene_label) in enumerate(SCENE_LOCATIONS):
-        text = parts[i] if i < len(parts) else "..."
-        caption = f"{scene_label}\n\n<i>{text}</i>"
-        await _send_scene(chat_id, loc_code, caption, i + 1, total)
-        if i < total - 1:
-            await asyncio.sleep(2)
+        total = len(SCENE_LOCATIONS)
+        for i, (loc_code, scene_label) in enumerate(SCENE_LOCATIONS):
+            text = parts[i] if i < len(parts) else "..."
+            caption = f"{scene_label}\n\n<i>{text}</i>"
+            await _send_scene(chat_id, loc_code, caption, i + 1, total)
+            if i < total - 1:
+                await asyncio.sleep(2)
 
-    # Финал
-    try:
-        await g.bot.send_message(
-            chat_id,
-            "✨ <b>Твоё приключение начинается.</b>\n\n"
-            "💡 <i>Опиши действие текстом или жми кнопки ниже.</i>",
-            parse_mode=ParseMode.HTML,
-        )
-    except Exception:
-        pass
+        try:
+            await g.bot.send_message(
+                chat_id,
+                "✨ <b>Твоё приключение начинается.</b>\n\n"
+                "💡 <i>Опиши действие текстом или жми кнопки ниже.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
 
-    return True
+        return True
+    finally:
+        _IN_PROGRESS.discard(uid)
