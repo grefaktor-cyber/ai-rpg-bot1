@@ -2,7 +2,7 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup,
-                           InlineKeyboardButton)
+                           InlineKeyboardButton, FSInputFile)
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -20,6 +20,7 @@ from core.ui_graphics import (
 from core.texts import CONSENT_TEXT
 from config import ADMIN_IDS
 import world as W
+import logging
 
 
 router = Router()
@@ -30,6 +31,49 @@ def _consent_kb():
         InlineKeyboardButton(text="✅ Согласен (18+)", callback_data="consent_yes"),
         InlineKeyboardButton(text="❌ Отказаться", callback_data="consent_no"),
     ]])
+
+
+# ================= ФОТО РАСЫ / КЛАССА =================
+async def _send_race_photo(chat_id, race_code, caption):
+    """Отправляет фото расы по коду. True если ушло."""
+    from core.race_class_art import get_race_image_path
+    path = get_race_image_path(race_code)
+    if not path:
+        logging.warning(f"[RACE PHOTO] Нет картинки для '{race_code}'")
+        return False
+    logging.warning(f"[RACE PHOTO] Отправляю '{race_code}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:1000],
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[RACE PHOTO] ОШИБКА '{race_code}': {e}")
+        return False
+
+
+async def _send_class_photo(chat_id, class_code, caption):
+    """Отправляет фото класса по коду. True если ушло."""
+    from core.race_class_art import get_class_image_path
+    path = get_class_image_path(class_code)
+    if not path:
+        logging.warning(f"[CLASS PHOTO] Нет картинки для '{class_code}'")
+        return False
+    logging.warning(f"[CLASS PHOTO] Отправляю '{class_code}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:1000],
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[CLASS PHOTO] ОШИБКА '{class_code}': {e}")
+        return False
 
 
 @router.message(Command("start"))
@@ -59,7 +103,6 @@ async def start(m: Message):
                     source, m.from_user.id
                 )
         except Exception as e:
-            import logging
             logging.error(f"[SOURCE] {e}", exc_info=True)
 
     if referrer_id and user["referred_by"] == 0:
@@ -230,14 +273,13 @@ async def on_race(c: CallbackQuery):
     except Exception:
         pass
 
-    # 🎨 Фото расы
-    from services.ui import send_race_photo_by_name
+    # 🎨 Фото расы — ПО КОДУ
     caption = f"{race_ico} <b>{race_name}</b>"
     if race_desc:
         caption += f"\n<i>{race_desc}</i>"
     caption += "\n\n✅ <b>Раса выбрана</b>"
 
-    sent = await send_race_photo_by_name(c.from_user.id, race_name, caption)
+    sent = await _send_race_photo(c.from_user.id, code, caption)
     if not sent:
         try:
             await g.bot.send_message(c.from_user.id, caption,
@@ -311,14 +353,13 @@ async def on_class(c: CallbackQuery):
     except Exception:
         pass
 
-    # 🎨 Фото класса
-    from services.ui import send_class_photo_by_name
+    # 🎨 Фото класса — ПО КОДУ
     caption = f"{class_ico} <b>{class_name}</b>"
     if class_desc:
         caption += f"\n<i>{class_desc}</i>"
     caption += f"\n\n❤️ HP: {hp} · 💧 MP: {mp}\n✅ <b>Класс выбран</b>"
 
-    sent = await send_class_photo_by_name(c.from_user.id, class_name, caption)
+    sent = await _send_class_photo(c.from_user.id, code, caption)
     if not sent:
         try:
             await g.bot.send_message(c.from_user.id, caption,
