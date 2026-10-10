@@ -1,50 +1,81 @@
-"""Картинки локаций и боссов.
+"""Картинки локаций и боссов — локальные файлы в assets/.
 
-Источник: LoremFlickr (не требует ключа, стабильный)
-    https://loremflickr.com/800/500/forest,fog
-
-Позже можно заменить на свои URL — просто подмени словари.
+Как добавить новую:
+1. Положи файл в assets/loc/ или assets/boss/
+2. Добавь название в словарь ниже
+3. Всё — бот сам подгрузит
 """
 
-# Ключевые слова для тематических картинок
-LOCATION_QUERIES = {
-    "village":    "medieval,village",
-    "tavern":     "tavern,fireplace",
-    "road":       "road,landscape",
-    "forest":     "forest,fog",
-    "glade":      "forest,sunbeams",
-    "swamp":      "swamp,marsh",
-    "ruins":      "ruins,ancient",
-    "mountains":  "mountains,snow",
-    "cave":       "cave,rocks",
-    "port":       "harbor,ships",
-    "sea":        "sea,storm",
-    "island":     "island,palm",
-    "crypt":      "crypt,dark",
-    "abyss":      "canyon,dark",
-}
+import os
 
-BOSS_QUERIES = {
-    "ancient_dragon": "dragon,art",
-    "lich_king":      "skeleton,dark",
-    "forest_titan":   "tree,giant",
-    "sea_kraken":     "octopus,sea",
-    "dragon_cub":     "dragon,small",
-    "abyss_lord":     "demon,dark",
-    "forest_king":    "forest,king",
-    "world_devourer": "monster,dark",
+# Базовая папка проекта (там где main.py)
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+# ================= ЛОКАЦИИ =================
+LOCATION_FILES = {
+    "village":   "assets/loc/village.jpg",
+    "tavern":    "assets/loc/tavern.jpg",
+    "road":      "assets/loc/road.jpg",
+    "forest":    "assets/loc/forest.jpg",
+    "glade":     "assets/loc/glade.jpg",
+    "swamp":     "assets/loc/swamp.jpg",
+    "ruins":     "assets/loc/ruins.jpg",
+    "mountains": "assets/loc/mountains.jpg",
+    "cave":      "assets/loc/cave.jpg",
+    "port":      "assets/loc/port.jpg",
+    "sea":       "assets/loc/sea.jpg",
+    "island":    "assets/loc/island.jpg",
+    "crypt":     "assets/loc/crypt.jpg",
+    "abyss":     "assets/loc/abyss.jpg",
 }
 
 
-def get_location_image(loc_code, width=800, height=500):
-    q = LOCATION_QUERIES.get(loc_code)
-    if not q:
-        return None
-    return f"https://loremflickr.com/{width}/{height}/{q}"
+# ================= БОССЫ =================
+BOSS_FILES = {
+    "ancient_dragon": "assets/boss/ancient_dragon.jpg",
+    "lich_king":      "assets/boss/lich_king.jpg",
+    "forest_titan":   "assets/boss/forest_titan.jpg",
+    "sea_kraken":     "assets/boss/sea_kraken.jpg",
+    "dragon_cub":     "assets/boss/dragon_cub.jpg",
+    "abyss_lord":     "assets/boss/abyss_lord.jpg",
+    "forest_king":    "assets/boss/forest_king.jpg",
+    "world_devourer": "assets/boss/world_devourer.jpg",
+}
 
 
-def get_boss_image(boss_code, width=800, height=500):
-    q = BOSS_QUERIES.get(boss_code)
-    if not q:
+def get_location_image_path(loc_code):
+    """Возвращает абсолютный путь к файлу локации или None.
+
+    Проверяет что файл реально существует.
+    """
+    rel = LOCATION_FILES.get(loc_code)
+    if not rel:
         return None
-    return f"https://loremflickr.com/{width}/{height}/{q}"
+    full = os.path.join(_BASE, rel)
+    if os.path.exists(full):
+        return full
+    return None
+
+
+def get_boss_image_path(boss_code):
+    """Возвращает абсолютный путь к файлу босса или None."""
+    rel = BOSS_FILES.get(boss_code)
+    if not rel:
+        return None
+    full = os.path.join(_BASE, rel)
+    if os.path.exists(full):
+        return full
+    return None
+
+
+def list_missing_locations():
+    """Хелпер — возвращает список локаций без файла (для диагностики)."""
+    return [code for code in LOCATION_FILES
+            if get_location_image_path(code) is None]
+
+
+def list_missing_bosses():
+    """Хелпер — возвращает список боссов без файла."""
+    return [code for code in BOSS_FILES
+            if get_boss_image_path(code) is None]
