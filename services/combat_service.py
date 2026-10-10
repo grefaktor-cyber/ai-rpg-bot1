@@ -1,4 +1,4 @@
-"""Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал, картинки боссов."""
+"""Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал, анимации."""
 import json
 import random
 import logging
@@ -33,6 +33,10 @@ from core.ui_graphics import (
     class_icon,
     race_icon,
     hp_status,
+)
+from core.combat_animations import (
+    animate_attack, animate_hp_drop, animate_loot,
+    animate_death, animate_victory_kill, extract_dmg,
 )
 from services.notifications import (
     notify_item, notify_achievement, notify_boss, notify_quest,
@@ -88,7 +92,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if not combat:
         return
 
-    # === ОТЛАДКА: WARNING чтобы точно было видно в Render ===
     logging.warning(
         f"[COMBAT] round={combat.get('round_num')} "
         f"is_boss={combat.get('is_boss')!r} "
@@ -97,7 +100,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         f"edit={edit_message is not None}"
     )
 
-    # === КАРТОЧКА БОЯ С ПРОГРЕСС-БАРАМИ ===
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
     boss_label = " 🐉 <b>БОСС</b>" if combat["is_boss"] else ""
 
@@ -107,7 +109,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     phase = get_boss_phase(combat)
     phase_label = f" [{phase['name']}]" if phase else ""
 
-    # Враг
     enemy_hp = combat["enemy_hp"]
     enemy_max = combat["enemy_max_hp"]
     enemy_danger = hp_status(enemy_hp, enemy_max)[0]
@@ -123,7 +124,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         f"{enemy_hp}/{enemy_max}"
     )
 
-    # Игрок
     class_ico = class_icon(user.get("class", ""))
     race_ico = race_icon(user.get("race", ""))
 
@@ -182,8 +182,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
 
     # ========================================================
     # 🎨 ФОТО БОССА — при САМОМ ПЕРВОМ показе боя
-    # Условие: босс + ещё ни одного урона не нанесено (total_dmg_dealt == 0)
-    # (round_num не подходит — его incr идёт раньше)
     # ========================================================
     is_boss = bool(combat.get("is_boss"))
     total_dmg = combat.get("total_dmg_dealt") or 0
@@ -191,8 +189,7 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
 
     if is_boss and total_dmg == 0:
         logging.warning(
-            f"[BOSS PHOTO] Триггер! boss='{boss_name}' dmg={total_dmg} "
-            f"round={combat.get('round_num')} edit={edit_message is not None}"
+            f"[BOSS PHOTO] Триггер! boss='{boss_name}' dmg={total_dmg}"
         )
         try:
             from services.ui import send_boss_photo_by_name
@@ -200,7 +197,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
                 chat_id, boss_name, text, kb=kb
             )
             if sent:
-                # Удаляем старое сообщение (карточка босса) если было
                 if edit_message:
                     try:
                         await edit_message.delete()
@@ -210,7 +206,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         except Exception as e:
             logging.warning(f"[BOSS PHOTO START] {boss_name}: {e}")
 
-    # === Обычное обновление существующего сообщения ===
     if edit_message:
         try:
             await edit_message.edit_text(text, reply_markup=kb,
@@ -219,7 +214,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         except Exception:
             pass
 
-    # === Отправка нового сообщения (текстом) ===
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
 
@@ -513,7 +507,24 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
 
     await g.db.clear_pending_actions(user["user_id"])
 
+    # === 🎬 АНИМАЦИЯ АТАКИ ИГРОКА ===
+    if edit_message and player_log:
+        max_dmg = 0
+        has_crit = False
+        for ln in player_log:
+            d = extract_dmg(ln)
+            if d > max_dmg:
+                max_dmg = d
+            if "КРИТ" in ln:
+                has_crit = True
+        if max_dmg > 0:
+            await animate_attack(edit_message, max_dmg,
+                                  combat["enemy_name"], has_crit)
+
+    # === ПОБЕДА ===
     if new_enemy_hp <= 0:
+        if edit_message:
+            await animate_victory_kill(edit_message, combat["enemy_name"])
         await handle_victory(chat_id, user, combat, "\n".join(player_log))
         return False
 
@@ -521,6 +532,8 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
         pct = int((1 - def_mult) * 100)
         player_log.append(f"🛡 Защита ×{defends_count}: урон врага −{pct}%")
 
+    # === ХОД ВРАГА ===
+    hp_before = user["hp"]
     enemy_log = []
     if not enemy_skip:
         dead = await _exec_enemy_turn(chat_id, user, combat, enemy_log, def_mult)
@@ -528,6 +541,12 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
             return False
     else:
         enemy_log.append("💫 Враг пропускает ход")
+
+    # === 🎬 АНИМАЦИЯ УРОНА ПО ИГРОКУ ===
+    hp_after = user["hp"]
+    if edit_message and hp_after < hp_before:
+        await animate_hp_drop(edit_message, user["char_name"],
+                               hp_before, hp_after, user["max_hp"])
 
     if user.get("max_mp", 0) > 0:
         regen = max(1, int(user["max_mp"] * 0.05))
@@ -738,6 +757,18 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         boss_drops = await _roll_boss_drop(
             user["user_id"], enemy_name, combat["enemy_level"]
         )
+        # 🎬 АНИМАЦИЯ ОТКРЫТИЯ ДОБЫЧИ
+        if boss_drops:
+            loot_items = []
+            for cat, name in boss_drops:
+                if "Книга" in cat:
+                    loot_items.append(("📖", name))
+                elif "Рецепт" in cat:
+                    loot_items.append(("📜", name))
+                elif "Материал" in cat:
+                    loot_items.append(("💠", name))
+            if loot_items:
+                await animate_loot(chat_id, loot_items)
 
     # === ПОДЗЕМЕЛЬЕ ===
     if is_dungeon:
@@ -887,8 +918,13 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
 # ================= СМЕРТЬ =================
 async def handle_death(chat_id, user, combat):
-    if (user.get("pet_type") == "ephoenix"
-            and not combat.get("phoenix_used")):
+    # 💀 Анимация смерти (только если НЕ воскрешает Феникс)
+    _phoenix_save = (user.get("pet_type") == "ephoenix"
+                     and not combat.get("phoenix_used"))
+    if not _phoenix_save:
+        await animate_death(chat_id)
+
+    if _phoenix_save:
         await g.db.set_combat_phoenix_used(user["user_id"])
         new_hp = max(1, user["max_hp"] // 2)
         await g.db.update_hp(user["user_id"], new_hp)
