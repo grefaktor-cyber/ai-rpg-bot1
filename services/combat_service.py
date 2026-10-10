@@ -1,6 +1,7 @@
 """Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал, картинки боссов."""
 import json
 import random
+import logging
 
 from aiogram.enums import ParseMode
 
@@ -158,14 +159,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     kb = combat_kb(active, mp, pending, can_spoil=can_spoil,
                    spoil_used=spoil_used)
 
-    if edit_message:
-        try:
-            await edit_message.edit_text(text, reply_markup=kb,
-                                          parse_mode=ParseMode.HTML)
-            return
-        except Exception:
-            pass
-
     hints = []
     hp_pct = user["hp"] / max(1, user["max_hp"])
     if hp_pct < 0.30 and user["hp"] > 0:
@@ -179,7 +172,10 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if hints:
         text += "\n\n" + "\n".join(hints)
 
-    # 🎨 КАРТИНКА БОССА ПРИ СТАРТЕ БОЯ
+    # ========================================================
+    # 🎨 ФОТО БОССА ПРИ СТАРТЕ БОЯ — ВЫПОЛНЯЕТСЯ ПЕРВЫМ
+    # (до edit_message, чтобы фото не терялось)
+    # ========================================================
     is_first_round = combat.get("round_num", 1) == 1
     is_boss = bool(combat.get("is_boss"))
     boss_name = combat.get("enemy_name", "")
@@ -191,12 +187,26 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
                 chat_id, boss_name, text, kb=kb
             )
             if sent:
-                return  # фото ушло вместе с карточкой и кнопками
+                # Если было старое сообщение (карточка босса) — удаляем
+                if edit_message:
+                    try:
+                        await edit_message.delete()
+                    except Exception:
+                        pass
+                return
         except Exception as e:
-            import logging
             logging.warning(f"[BOSS PHOTO START] {boss_name}: {e}")
 
-    # Обычная отправка текстом
+    # === Обычное обновление существующего сообщения ===
+    if edit_message:
+        try:
+            await edit_message.edit_text(text, reply_markup=kb,
+                                          parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
+
+    # === Отправка нового сообщения (текстом) ===
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
 
@@ -578,7 +588,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
     enemy_name = combat["enemy_name"]
 
-    # NPC-квесты
     all_q = await g.db.get_user_quests(user["user_id"])
     for qrow in all_q:
         if qrow["completed"]:
@@ -591,7 +600,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if target_low in enemy_low or enemy_low in target_low:
             await g.db.incr_npc_quest(user["user_id"], qrow["quest_code"], 1)
 
-    # Все типы квестов
     try:
         from handlers.quests import progress_quest as quest_progress
         await quest_progress(user["user_id"], "kill_enemies", 1,
@@ -599,7 +607,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if combat["is_boss"]:
             await quest_progress(user["user_id"], "kill_bosses", 1)
     except Exception as _e:
-        import logging
         logging.error(f"[QUEST PROGRESS] {_e}", exc_info=True)
 
     # ============ ЗАЧЁТ ИСПЫТАНИЯ ДНЯ ============
@@ -671,7 +678,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                             new_progress, row["id"]
                         )
     except Exception as _e:
-        import logging
         logging.error(f"[CHALLENGE] {_e}", exc_info=True)
 
     q = await g.db.progress_quest(user["user_id"], "kill_enemies", 1)
