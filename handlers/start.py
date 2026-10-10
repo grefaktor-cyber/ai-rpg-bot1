@@ -216,13 +216,36 @@ async def on_race(c: CallbackQuery):
         ok = await g.db.has_premium_race(c.from_user.id, code)
         if not ok:
             await c.answer("💎 Купи расу в /premium", show_alert=True); return
+
     await g.db.set_race(c.from_user.id, code)
     await g.db.set_class(c.from_user.id, "")
+
+    race_name = RACES[code]['name']
+    race_desc = RACES[code].get('desc', '')
+    race_ico = race_icon(code)
+
+    # Удаляем меню выбора рас
     try:
-        await c.message.edit_text(f"✅ Раса: <b>{RACES[code]['name']}</b>",
-                                   parse_mode=ParseMode.HTML)
+        await c.message.delete()
     except Exception:
         pass
+
+    # 🎨 Фото расы
+    from services.ui import send_race_photo_by_name
+    caption = f"{race_ico} <b>{race_name}</b>"
+    if race_desc:
+        caption += f"\n<i>{race_desc}</i>"
+    caption += "\n\n✅ <b>Раса выбрана</b>"
+
+    sent = await send_race_photo_by_name(c.from_user.id, race_name, caption)
+    if not sent:
+        try:
+            await g.bot.send_message(c.from_user.id, caption,
+                                     parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+
+    await c.answer(f"✅ Раса: {race_name}")
     await show_class_selection(c.message, code)
 
 
@@ -267,6 +290,7 @@ async def on_class(c: CallbackQuery):
     if user["race"] not in CLASSES[code]["races"]:
         await c.answer("Этот класс недоступен твоей расе", show_alert=True)
         return
+
     await g.db.set_class(c.from_user.id, code)
     stats = calc_stats(user["race"], code)
     user_tmp = dict(user)
@@ -276,13 +300,33 @@ async def on_class(c: CallbackQuery):
     hp = calc_max_hp(user_tmp)
     mp = calc_max_mp(user_tmp)
     await g.db.update_stats(c.from_user.id, stats, hp, mp)
+
+    class_name = CLASSES[code]['name']
+    class_desc = CLASSES[code].get('desc', '')
+    class_ico = class_icon(code)
+
+    # Удаляем меню классов
     try:
-        await c.message.edit_text(
-            f"✅ Класс: <b>{CLASSES[code]['name']}</b>\n\n"
-            f"❤️ HP: {hp} · 💧 MP: {mp}",
-            parse_mode=ParseMode.HTML)
+        await c.message.delete()
     except Exception:
         pass
+
+    # 🎨 Фото класса
+    from services.ui import send_class_photo_by_name
+    caption = f"{class_ico} <b>{class_name}</b>"
+    if class_desc:
+        caption += f"\n<i>{class_desc}</i>"
+    caption += f"\n\n❤️ HP: {hp} · 💧 MP: {mp}\n✅ <b>Класс выбран</b>"
+
+    sent = await send_class_photo_by_name(c.from_user.id, class_name, caption)
+    if not sent:
+        try:
+            await g.bot.send_message(c.from_user.id, caption,
+                                     parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+
+    await c.answer(f"✅ Класс: {class_name}")
     await show_faction_selection(c.message)
 
 
@@ -345,17 +389,14 @@ async def show_main_menu(m, user):
     is_admin = user["user_id"] in ADMIN_IDS
     admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
 
-    # 🎨 ИКОНКИ
     class_ico = class_icon(user.get("class", ""))
     race_ico = race_icon(user.get("race", ""))
     faction_ico = faction_icon(user.get("faction", ""))
 
-    # Заголовок
     header = (f"🎮 <b>{user['char_name']}</b> {class_ico}{race_ico}{faction_ico}"
               f"{admin_tag}\n")
     header += f"⭐ Уровень <b>{user['level']}</b>\n\n"
 
-    # Прогресс-бары
     next_xp = user["level"] * user["level"] * 100
     header += xp_bar(user["xp"], next_xp, length=15) + "\n"
     header += hp_bar(user["hp"], user["max_hp"], length=15) + "\n"
@@ -366,26 +407,21 @@ async def show_main_menu(m, user):
     else:
         header += energy_bar(user.get("energy", 0), user.get("energy_max", 20), length=15) + "\n"
 
-    # Золото и локация
     header += f"\n💰 Золото: <b>{user['gold']}</b>\n"
     header += f"📍 <b>{loc.get('name', '?')}</b>"
     if owner:
         header += f" 🏴 [{owner.get('guild_tag', '?')}]"
     header += "\n"
 
-    # Питомец
     if user.get("pet_type"):
         header += f"🐾 {user.get('pet_name', '?')}\n"
 
-    # Событие
     if event:
         header += f"\n⚡ <b>{event['event_name']}</b>: <i>{event['event_desc']}</i>\n"
 
-    # 🎯 Испытание дня
     try:
         from core.daily_challenges import get_daily_challenge
         challenge = get_daily_challenge()
-        # прогресс
         today = str(__import__('datetime').date.today())
         async with g.db.pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -396,7 +432,6 @@ async def show_main_menu(m, user):
         progress = row["progress"] if row else 0
         completed = row["completed"] if row else 0
         target = challenge["target"]
-        # Мини-бар
         bar_len = 10
         filled = int((progress / target) * bar_len) if target > 0 else 0
         filled = min(filled, bar_len)
