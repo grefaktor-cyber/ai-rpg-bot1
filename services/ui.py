@@ -18,6 +18,9 @@ MAIN_MENU_BUTTONS = {
     "✨ Скилы", "🎁 Награда", "🏅 Рейтинг", "💎 Премиум",
 }
 
+# Telegram: caption максимум 1024 символа
+CAPTION_LIMIT = 1000
+
 
 class FakeMessage:
     def __init__(self, original_message, from_user, text=""):
@@ -98,7 +101,7 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
             await g.bot.send_photo(
                 chat_id,
                 photo=FSInputFile(path),
-                caption=caption,
+                caption=caption[:CAPTION_LIMIT],
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
@@ -126,7 +129,7 @@ async def send_boss_photo(chat_id, boss_code, caption, kb=None):
             await g.bot.send_photo(
                 chat_id,
                 photo=FSInputFile(path),
-                caption=caption,
+                caption=caption[:CAPTION_LIMIT],
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
@@ -144,24 +147,43 @@ async def send_boss_photo(chat_id, boss_code, caption, kb=None):
 
 
 async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
-    """Фото босса по имени (например, 'Древний Дракон')."""
+    """Фото босса по имени. Возвращает True если фото ушло."""
     from core.location_art import get_boss_image_path_by_name
 
+    # ВСЕ логи — WARNING, чтобы точно были видны в Render
     path = get_boss_image_path_by_name(boss_name)
+
     if not path:
-        logging.info(f"[BOSS PHOTO] Нет картинки для '{boss_name}'")
+        logging.warning(f"[BOSS PHOTO] Нет картинки для '{boss_name}'")
         return False
 
-    logging.info(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
+    logging.warning(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
+
+    # Обрезаем caption до лимита Telegram
+    short = caption[:CAPTION_LIMIT]
+
     try:
         await g.bot.send_photo(
             chat_id,
             photo=FSInputFile(path),
-            caption=caption,
+            caption=short,
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
+        logging.warning(f"[BOSS PHOTO] УСПЕХ '{boss_name}'")
         return True
     except Exception as e:
-        logging.warning(f"[BOSS PHOTO] Ошибка отправки '{boss_name}': {e}")
+        logging.warning(f"[BOSS PHOTO] ОШИБКА '{boss_name}': {type(e).__name__}: {e}")
+
+    # Fallback: фото без caption + текстом
+    try:
+        await g.bot.send_photo(
+            chat_id, photo=FSInputFile(path),
+        )
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e2:
+        logging.warning(f"[BOSS PHOTO] Fallback тоже упал: {e2}")
         return False
