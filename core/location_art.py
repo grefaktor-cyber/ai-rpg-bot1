@@ -1,14 +1,7 @@
-"""Картинки локаций и боссов — локальные файлы в assets/.
-
-Как добавить новую:
-1. Положи файл в assets/loc/ или assets/boss/
-2. Добавь название в словарь ниже
-3. Всё — бот сам подгрузит
-"""
+"""Картинки локаций и боссов — локальные файлы в assets/."""
 
 import os
 
-# Базовая папка проекта (там где main.py)
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -44,38 +37,70 @@ BOSS_FILES = {
 }
 
 
-def get_location_image_path(loc_code):
-    """Возвращает абсолютный путь к файлу локации или None.
+# ================= МАППИНГ ИМЁН БОССОВ =================
+# Ключ — точное имя (как в world.py / world_bosses.py)
+# Значение — код картинки в BOSS_FILES
+BOSS_NAME_MAP = {
+    "Древний Дракон":       "ancient_dragon",
+    "Король Личей":         "lich_king",
+    "Лесной Титан":         "forest_titan",
+    "Морской Кракен":       "sea_kraken",
+    "Дракончик":            "dragon_cub",
+    "Повелитель Бездны":    "abyss_lord",
+    "Лесной Король":        "forest_king",
+    "Пожиратель Миров":     "world_devourer",
+    # Региональные боссы подземелий
+    "Вождь гоблинов":       "dragon_cub",
+    "Древний лич":          "lich_king",
+    "Король вампиров":      "lich_king",
+    "Владыка Бездны":       "abyss_lord",
+}
 
-    Проверяет что файл реально существует.
-    """
+
+def get_location_image_path(loc_code):
+    """Абсолютный путь к файлу локации или None."""
     rel = LOCATION_FILES.get(loc_code)
     if not rel:
         return None
     full = os.path.join(_BASE, rel)
-    if os.path.exists(full):
-        return full
-    return None
+    return full if os.path.exists(full) else None
 
 
 def get_boss_image_path(boss_code):
-    """Возвращает абсолютный путь к файлу босса или None."""
+    """Абсолютный путь к файлу босса или None."""
     rel = BOSS_FILES.get(boss_code)
     if not rel:
         return None
     full = os.path.join(_BASE, rel)
-    if os.path.exists(full):
-        return full
+    return full if os.path.exists(full) else None
+
+
+def find_boss_by_name(name):
+    """Ищет код босса по имени. Возвращает код или None."""
+    if not name:
+        return None
+    if name in BOSS_NAME_MAP:
+        return BOSS_NAME_MAP[name]
+    low = name.lower()
+    for full, code in BOSS_NAME_MAP.items():
+        if full.lower() in low or low in full.lower():
+            return code
+    return None
+
+
+def get_boss_image_path_by_name(name):
+    """Абсолютный путь к картинке босса по имени."""
+    code = find_boss_by_name(name)
+    if code:
+        return get_boss_image_path(code)
     return None
 
 
 def list_missing_locations():
-    """Хелпер — возвращает список локаций без файла (для диагностики)."""
-    return [code for code in LOCATION_FILES
-            if get_location_image_path(code) is None]
+    """Хелпер — какие локации без файла."""
+    return [c for c in LOCATION_FILES if get_location_image_path(c) is None]
 
 
 def list_missing_bosses():
-    """Хелпер — возвращает список боссов без файла."""
-    return [code for code in BOSS_FILES
-            if get_boss_image_path(code) is None]
+    """Хелпер — какие боссы без файла."""
+    return [c for c in BOSS_FILES if get_boss_image_path(c) is None]
