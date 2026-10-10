@@ -65,9 +65,12 @@ def fake_message(c: CallbackQuery, text=""):
 
 # ================= ОТПРАВКА МЕНЮ =================
 async def send_menu(m, text, kb=None, uid=None):
+    """Отправляет inline-меню. НЕ удаляет ReplyKeyboard сообщение игрока —
+    это защищает нижнюю клавиатуру от пропадания."""
     uid = uid or m.from_user.id
     chat_id = m.chat.id
 
+    # Удаляем только предыдущее inline-меню (если было)
     prev_id = _last_menu.pop(uid, None)
     if prev_id:
         try:
@@ -75,12 +78,8 @@ async def send_menu(m, text, kb=None, uid=None):
         except Exception as e:
             logging.debug(f"Не удалось удалить меню {prev_id}: {e}")
 
-    text_btn = (getattr(m, "text", "") or "").strip()
-    if text_btn in MAIN_MENU_BUTTONS:
-        try:
-            await m.bot.delete_message(chat_id, m.message_id)
-        except Exception as e:
-            logging.debug(f"Не удалось удалить сообщение игрока: {e}")
+    # ❗ НЕ удаляем сообщение игрока — иначе ReplyKeyboard "уезжает"
+    # (это было главной причиной пропадания кнопок снизу)
 
     try:
         sent = await m.bot.send_message(
@@ -114,10 +113,7 @@ async def send_menu_from_chat(chat_id, uid, text, kb=None):
 
 
 async def send_banner(chat_id, uid, loc_code, caption):
-    """Отправляет/обновляет баннер локации сверху.
-
-    Если локация та же — не трогает. Если другая — удаляет старый, шлёт новый.
-    """
+    """Отправляет/обновляет баннер локации сверху."""
     from core.location_art import get_location_image_path
 
     existing = _last_banner.get(uid)
@@ -158,6 +154,7 @@ def forget_banner(uid):
 
 
 async def close_menu(c: CallbackQuery):
+    """Закрывает inline-меню. Восстановление ReplyKeyboard — на стороне вызывающего."""
     try:
         await c.message.delete()
         return True
