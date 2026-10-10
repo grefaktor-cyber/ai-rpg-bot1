@@ -2,6 +2,7 @@
 
 HP < 30% больше НЕ блокирует действия — только предупреждение.
 c.answer() вызывается ПЕРВЫМ — защита от 'query is too old'.
+При /boss показывается фото босса (если есть в assets/boss/).
 """
 import json
 import logging
@@ -9,7 +10,11 @@ from html import escape
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    FSInputFile,
+)
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -19,6 +24,7 @@ from core.game_data import (
     POTION_PRICE, POTION_HEAL, MP_POTION_PRICE, MP_POTION_RESTORE,
 )
 from core.skills import get_skill
+from core.location_art import get_boss_image_path_by_name
 from services.world_boss_service import execute_boss_actions
 from services.ui import send_menu, close_menu
 import world as W
@@ -110,7 +116,6 @@ def _boss_text(boss, damage_list, u, pending):
     max_mp = u.get("max_mp", 0)
     mp_line = f" · 💧 MP: {mp}/{max_mp}" if max_mp else ""
     text += f"❤️ Твой HP: <b>{u['hp']}/{u['max_hp']}</b> ({hp_pct}%){mp_line}\n"
-    # ⚠️ НЕ блокируем — только предупреждаем
     if hp_pct < int(MIN_HP_PCT * 100):
         text += f"⚠️ <i>HP критически низкое — рискуешь погибнуть!</i>\n"
     text += "\n"
@@ -205,6 +210,31 @@ async def _save_pending(uid, boss_id, pending):
     await g.db.set_boss_pending(uid, boss_id, json.dumps(pending))
 
 
+# ================= ФОТО БОССА (тизер) =================
+async def _send_boss_photo_if_any(m: Message, boss_code: str):
+    """Отправляет фото босса отдельным сообщением. Не ломает send_menu."""
+    boss_data = WORLD_BOSSES.get(boss_code, {})
+    boss_name = boss_data.get("name", "")
+    if not boss_name:
+        return
+
+    path = get_boss_image_path_by_name(boss_name)
+    if not path:
+        log.warning(f"[BOSS PHOTO] Нет картинки для '{boss_name}'")
+        return
+
+    log.warning(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
+    try:
+        await m.answer_photo(
+            FSInputFile(path),
+            caption=f"🐉 <b>{_safe(boss_name)}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        log.warning(f"[BOSS PHOTO] УСПЕХ '{boss_name}'")
+    except Exception as e:
+        log.warning(f"[BOSS PHOTO] ОШИБКА '{boss_name}': {type(e).__name__}: {e}")
+
+
 # ================= КОМАНДА /boss =================
 @router.message(Command("boss"))
 @router.message(F.text == "🐉 Боссы")
@@ -235,6 +265,9 @@ async def boss_cmd(m: Message):
             kb = InlineKeyboardMarkup(inline_keyboard=[_back_close_row()])
             await send_menu(m, text, kb)
             return
+
+        # 🎨 Фото босса как тизер — ПЕРЕД меню
+        await _send_boss_photo_if_any(m, boss["boss_code"])
 
         pending = await _get_pending(m.from_user.id, boss["id"])
         damage_list = await g.db.get_boss_damage_list(boss["id"], limit=5)
@@ -304,7 +337,6 @@ async def boss_close_cb(c: CallbackQuery):
 
 # ================= ДОБАВЛЕНИЕ В ОЧЕРЕДЬ =================
 async def _add_action(c, action, ack_text="✅"):
-    # ✅ answer ПЕРВЫМ
     try:
         await c.answer(ack_text)
     except Exception:
@@ -385,7 +417,6 @@ async def wb_undo_cb(c: CallbackQuery):
 # ================= ВЫПОЛНИТЬ РАУНД =================
 @router.callback_query(F.data == "wb_execute")
 async def wb_execute_cb(c: CallbackQuery):
-    # ✅ ОТВЕТ ПЕРВЫМ — защита от timeout
     try:
         await c.answer("⚡ Выполняю...")
     except Exception:
