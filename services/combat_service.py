@@ -88,8 +88,15 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if not combat:
         return
 
-    logging.warning(f"[COMBAT DEBUG] round={combat.get('round_num')} is_boss={combat.get('is_boss')} name='{combat.get('enemy_name')}' edit={edit_message is not None}")
-                                
+    # === ОТЛАДКА: WARNING чтобы точно было видно в Render ===
+    logging.warning(
+        f"[COMBAT] round={combat.get('round_num')} "
+        f"is_boss={combat.get('is_boss')!r} "
+        f"name='{combat.get('enemy_name')}' "
+        f"dmg_dealt={combat.get('total_dmg_dealt')!r} "
+        f"edit={edit_message is not None}"
+    )
+
     # === КАРТОЧКА БОЯ С ПРОГРЕСС-БАРАМИ ===
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
     boss_label = " 🐉 <b>БОСС</b>" if combat["is_boss"] else ""
@@ -103,7 +110,6 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     # Враг
     enemy_hp = combat["enemy_hp"]
     enemy_max = combat["enemy_max_hp"]
-    enemy_bar_str = ui_hp_bar(enemy_hp, enemy_max, length=15, show_pct=True)
     enemy_danger = hp_status(enemy_hp, enemy_max)[0]
 
     header = f"⚔️ <b>РАУНД {combat['round_num']}</b>"
@@ -175,21 +181,26 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
         text += "\n\n" + "\n".join(hints)
 
     # ========================================================
-    # 🎨 ФОТО БОССА ПРИ СТАРТЕ БОЯ — ВЫПОЛНЯЕТСЯ ПЕРВЫМ
-    # (до edit_message, чтобы фото не терялось)
+    # 🎨 ФОТО БОССА — при САМОМ ПЕРВОМ показе боя
+    # Условие: босс + ещё ни одного урона не нанесено (total_dmg_dealt == 0)
+    # (round_num не подходит — его incr идёт раньше)
     # ========================================================
-    is_first_round = combat.get("round_num", 1) == 1
     is_boss = bool(combat.get("is_boss"))
+    total_dmg = combat.get("total_dmg_dealt") or 0
     boss_name = combat.get("enemy_name", "")
 
-    if is_first_round and is_boss:
+    if is_boss and total_dmg == 0:
+        logging.warning(
+            f"[BOSS PHOTO] Триггер! boss='{boss_name}' dmg={total_dmg} "
+            f"round={combat.get('round_num')} edit={edit_message is not None}"
+        )
         try:
             from services.ui import send_boss_photo_by_name
             sent = await send_boss_photo_by_name(
                 chat_id, boss_name, text, kb=kb
             )
             if sent:
-                # Если было старое сообщение (карточка босса) — удаляем
+                # Удаляем старое сообщение (карточка босса) если было
                 if edit_message:
                     try:
                         await edit_message.delete()
