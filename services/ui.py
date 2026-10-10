@@ -20,7 +20,6 @@ MAIN_MENU_BUTTONS = {
 
 
 class FakeMessage:
-    """Обёртка для вызова xxx_cmd(m: Message) из callback."""
     def __init__(self, original_message, from_user, text=""):
         self.chat = original_message.chat
         self.from_user = from_user
@@ -88,13 +87,9 @@ def forget_menu(uid):
     _last_menu.pop(uid, None)
 
 
-# ================= КАРТИНКИ ИЗ ЛОКАЛЬНЫХ ФАЙЛОВ =================
+# ================= КАРТИНКИ =================
 async def send_location_photo(chat_id, loc_code, caption, kb=None):
-    """Отправляет фото локации из локального файла.
-
-    Если файл не найден или ошибка отправки — падает в send_message.
-    Никогда не роняет хендлер.
-    """
+    """Фото локации из локального файла. Fallback — текст."""
     from core.location_art import get_location_image_path
 
     path = get_location_image_path(loc_code)
@@ -111,7 +106,6 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
         except Exception as e:
             logging.warning(f"[LOC PHOTO] {loc_code} ({path}): {e}")
 
-    # Fallback — обычный текст
     try:
         await g.bot.send_message(
             chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
@@ -121,7 +115,7 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
 
 
 async def send_boss_photo(chat_id, boss_code, caption, kb=None):
-    """Отправляет фото босса из локального файла. Fallback — текст."""
+    """Фото босса по коду."""
     from core.location_art import get_boss_image_path
 
     path = get_boss_image_path(boss_code)
@@ -134,7 +128,7 @@ async def send_boss_photo(chat_id, boss_code, caption, kb=None):
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
-            return
+            return True
         except Exception as e:
             logging.warning(f"[BOSS PHOTO] {boss_code} ({path}): {e}")
 
@@ -144,3 +138,24 @@ async def send_boss_photo(chat_id, boss_code, caption, kb=None):
         )
     except Exception as e:
         logging.error(f"[BOSS PHOTO FALLBACK] {boss_code}: {e}")
+    return False
+
+
+async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
+    """Фото босса по имени (например, 'Древний Дракон')."""
+    from core.location_art import get_boss_image_path_by_name
+
+    path = get_boss_image_path_by_name(boss_name)
+    if path:
+        try:
+            await g.bot.send_photo(
+                chat_id,
+                photo=FSInputFile(path),
+                caption=caption,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        except Exception as e:
+            logging.warning(f"[BOSS PHOTO] {boss_name}: {e}")
+    return False
