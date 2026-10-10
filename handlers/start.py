@@ -140,6 +140,14 @@ async def start(m: Message):
             await send_combat_state(m.chat.id, user, combat, "Ты в бою!")
         return
 
+    # 🎬 Пролог — показывается один раз после создания героя
+    from core.prologue import maybe_show_prologue
+    showed = await maybe_show_prologue(m.chat.id, user)
+    if showed:
+        # После пролога всё равно показываем меню
+        await show_main_menu(m, user)
+        return
+
     await show_main_menu(m, user)
 
 
