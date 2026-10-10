@@ -9,7 +9,7 @@ from core import globals as g
 from core.game_data import RACES, CLASSES
 from core.keyboards import main_kb, travel_kb as build_travel_kb
 from services.broadcast import broadcast_to_location
-from services.ui import send_menu, close_menu, send_location_photo
+from services.ui import send_menu, close_menu, send_location_photo, typing
 import world as W
 
 router = Router()
@@ -69,7 +69,9 @@ async def map_cmd(m: Message):
     row8 = "                            │"
     row9 = "  ".join([" " * 22, "──", loc_icon("sea"), "──", loc_icon("island")])
 
-    text = "🗺 <b>Карта мира</b>\n\n"
+    text = "━━━━━━━━━━━━━━━━━━━\n"
+    text += "🗺 <b>Карта мира</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n\n"
     text += "<pre>"
     text += f"{row1}\n{row2}\n{row3}\n{row4}\n{row5}\n{row6}\n{row7}\n{row8}\n{row9}\n"
     text += "</pre>\n"
@@ -128,6 +130,10 @@ async def travel_cmd(m: Message):
     if await g.db.get_combat(m.from_user.id):
         await m.answer("⚔️ Сначала закончи бой!")
         return
+
+    # 🎬 «Печатает…»
+    await typing(m.chat.id)
+
     loc_code = u.get("location_code", "village")
     loc = W.get_location(loc_code)
     neighbors = W.get_neighbors(loc_code)
@@ -149,13 +155,13 @@ async def travel_cmd(m: Message):
     rows.append(_back_close_row("menu_game"))
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
-    await send_menu(
-        m,
-        f"🚶 <b>Куда идёшь?</b>\n\n"
-        f"📍 Сейчас ты в: <b>{loc['name']}</b>\n"
-        f"<i>{loc['desc']}</i>",
-        kb
-    )
+    text = "━━━━━━━━━━━━━━━━━━━\n"
+    text += "🚶 <b>Куда идёшь?</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n\n"
+    text += f"📍 Сейчас ты в: <b>{loc['name']}</b>\n"
+    text += f"<i>{loc['desc']}</i>"
+
+    await send_menu(m, text, kb)
 
 
 @router.callback_query(F.data.startswith("travel_to_"))
@@ -208,13 +214,19 @@ async def travel_do(c: CallbackQuery):
 
     await close_menu(c)
 
-    # === ТЕКСТ О ЛОКАЦИИ ===
+    # 🎬 «Печатает…» перед показом новой локации
+    await typing(c.from_user.id)
+
+    # === ТЕКСТ О ЛОКАЦИИ (со стилем) ===
     text = f"🚶 <i>{old_name} → {loc['name']}</i>\n\n"
-    text += f"📍 <b>{loc['name']}</b>\n<i>{loc['desc']}</i>\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n"
+    text += f"📍 <b>{loc['name']}</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n"
+    text += f"<i>{loc['desc']}</i>\n"
     if owner:
         text += f"\n🏴 Владелец: <b>[{owner['guild_tag']}]</b> {owner['guild_name']}"
     if event:
-        text += f"\n\n{event['event_name']}: <i>{event['event_desc']}</i>"
+        text += f"\n\n⚡ {event['event_name']}: <i>{event['event_desc']}</i>"
     npcs = W.get_npcs_in_location(code)
     if npcs:
         text += "\n\n👤 <b>Здесь есть:</b>"
@@ -225,7 +237,6 @@ async def travel_do(c: CallbackQuery):
     if first_visit:
         text += "\n\n🆕 <b>Новая локация открыта!</b>"
 
-    # 🎨 Отправляем с картинкой локации
     await send_location_photo(
         c.from_user.id, code, text, kb=main_kb()
     )
@@ -257,6 +268,9 @@ async def who_cmd(m: Message):
     if not u["char_name"]:
         await m.answer("Сначала создай героя.")
         return
+
+    await typing(m.chat.id)
+
     code = u.get("location_code", "village")
     players = await g.db.get_players_at_location(code, u["user_id"])
     loc_name = W.get_location(code).get("name", "?")
