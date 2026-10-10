@@ -1,4 +1,4 @@
-"""Inline-меню категорий + Назад + Социум: Обмен/Дуэль."""
+"""Inline-меню категорий + Назад + Социум: Обмен/Дуэль. + анимации."""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
@@ -9,7 +9,7 @@ from core import globals as g
 from core.keyboards import (
     menu_game_kb, menu_social_kb, menu_progress_kb, menu_root_kb,
 )
-from services.ui import send_menu, fake_message
+from services.ui import send_menu, fake_message, typing
 
 router = Router()
 
@@ -19,13 +19,33 @@ class SocialStates(StatesGroup):
     duel_waiting_name = State()
 
 
+# ================= СТИЛИЗОВАННЫЕ ЗАГОЛОВКИ =================
+def _header(title, subtitle, desc=""):
+    text = "━━━━━━━━━━━━━━━━━━━\n"
+    text += f"{title}\n"
+    text += f"<i>{subtitle}</i>\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n"
+    if desc:
+        text += f"\n{desc}\n"
+    return text
+
+
 # ================= REPLY-КНОПКИ КАТЕГОРИЙ =================
 @router.message(F.text == "🎮 Игра")
 async def menu_game(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "🎮 <b>Игра</b>\n\nВыбери раздел:", menu_game_kb())
+
+    await typing(m.chat.id)
+
+    text = _header(
+        "🎮 <b>Игра</b>",
+        "Приключения, бои, развитие",
+        "🎒 Инвентарь · 🛒 Магазин · ✨ Скилы · ⚒️ Кузница\n"
+        "📋 Квесты · 🏰 Подземелья · 🗺 Карта · 🚶 Идти"
+    )
+    await send_menu(m, text, menu_game_kb())
 
 
 @router.message(F.text == "👥 Социум")
@@ -33,7 +53,16 @@ async def menu_social(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "👥 <b>Социум</b>\n\nВыбери раздел:", menu_social_kb())
+
+    await typing(m.chat.id)
+
+    text = _header(
+        "👥 <b>Социум</b>",
+        "Другие игроки, гильдии, обмен",
+        "👥 Кто здесь · 🏛 Гильдия · 💬 Чат\n"
+        "🤝 Обмен · ⚔️ Дуэль"
+    )
+    await send_menu(m, text, menu_social_kb())
 
 
 @router.message(F.text == "📊 Прогресс")
@@ -41,7 +70,17 @@ async def menu_progress(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["char_name"]:
         await m.answer("Сначала создай героя через /start"); return
-    await send_menu(m, "📊 <b>Прогресс</b>\n\nВыбери раздел:", menu_progress_kb())
+
+    await typing(m.chat.id)
+
+    text = _header(
+        "📊 <b>Прогресс</b>",
+        "Твой герой, награды, статистика",
+        "⭐ Профиль · 🏆 Достижения · 🏅 Рейтинг\n"
+        "🎁 Награда · 🏆 Сезон · 📜 Дневник\n"
+        "💎 Премиум · 🐾 Питомец · 🏆 Титулы"
+    )
+    await send_menu(m, text, menu_progress_kb())
 
 
 # ================= CALLBACK'И КАТЕГОРИЙ =================
@@ -63,27 +102,51 @@ async def _edit_or_answer(c, text, kb):
 
 @router.callback_query(F.data == "menu_root")
 async def cb_root(c: CallbackQuery):
-    await _edit_or_answer(c,
-        "📂 <b>Категории</b>\n\nВыбери раздел:",
-        menu_root_kb())
+    text = _header(
+        "📂 <b>Категории</b>",
+        "Куда направимся?",
+        "🎮 <b>Игра</b> — приключения и развитие\n"
+        "👥 <b>Социум</b> — другие игроки\n"
+        "📊 <b>Прогресс</b> — твой герой и награды"
+    )
+    await _edit_or_answer(c, text, menu_root_kb())
     await c.answer()
 
 
 @router.callback_query(F.data == "menu_game")
 async def cb_game(c: CallbackQuery):
-    await _edit_or_answer(c, "🎮 <b>Игра</b>\n\nВыбери раздел:", menu_game_kb())
+    text = _header(
+        "🎮 <b>Игра</b>",
+        "Приключения, бои, развитие",
+        "🎒 Инвентарь · 🛒 Магазин · ✨ Скилы · ⚒️ Кузница\n"
+        "📋 Квесты · 🏰 Подземелья · 🗺 Карта · 🚶 Идти"
+    )
+    await _edit_or_answer(c, text, menu_game_kb())
     await c.answer()
 
 
 @router.callback_query(F.data == "menu_social")
 async def cb_social(c: CallbackQuery):
-    await _edit_or_answer(c, "👥 <b>Социум</b>\n\nВыбери раздел:", menu_social_kb())
+    text = _header(
+        "👥 <b>Социум</b>",
+        "Другие игроки, гильдии, обмен",
+        "👥 Кто здесь · 🏛 Гильдия · 💬 Чат\n"
+        "🤝 Обмен · ⚔️ Дуэль"
+    )
+    await _edit_or_answer(c, text, menu_social_kb())
     await c.answer()
 
 
 @router.callback_query(F.data == "menu_progress")
 async def cb_progress(c: CallbackQuery):
-    await _edit_or_answer(c, "📊 <b>Прогресс</b>\n\nВыбери раздел:", menu_progress_kb())
+    text = _header(
+        "📊 <b>Прогресс</b>",
+        "Твой герой, награды, статистика",
+        "⭐ Профиль · 🏆 Достижения · 🏅 Рейтинг\n"
+        "🎁 Награда · 🏆 Сезон · 📜 Дневник\n"
+        "💎 Премиум · 🐾 Питомец · 🏆 Титулы"
+    )
+    await _edit_or_answer(c, text, menu_progress_kb())
     await c.answer()
 
 
@@ -100,6 +163,9 @@ async def _run_cmd(c: CallbackQuery, module_name: str, func_name: str):
         except Exception:
             pass
     await c.answer()
+
+    # 🎬 «Печатает…» перед открытием раздела
+    await typing(c.from_user.id)
 
     msg = fake_message(c)
     try:
@@ -233,16 +299,19 @@ async def cb_trade(c: CallbackQuery):
     players = await g.db.get_players_at_location(code, c.from_user.id)
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    text = "🤝 <b>Обмен</b>\n\n"
+    text = _header(
+        "🤝 <b>Обмен</b>",
+        "Передай предметы или золото",
+    )
     rows = []
     if players:
-        text += "<b>Игроки рядом:</b>"
+        text += "\n<b>Игроки рядом:</b>\n"
         for p in players[:8]:
             rows.append([InlineKeyboardButton(
                 text=f"🤝 {_short(p['char_name'])} · Ур.{p['level']}",
                 callback_data=f"trade_to_{p['char_name']}")])
     else:
-        text += "<i>Рядом никого.</i>\n\n"
+        text += "\n<i>Рядом никого.</i>\n"
     text += "\n✍️ Или введи имя вручную."
     rows.append([InlineKeyboardButton(
         text="✍️ Ввести имя", callback_data="trade_manual")])
@@ -315,16 +384,20 @@ async def cb_duel(c: CallbackQuery):
     players = await g.db.get_players_at_location(code, c.from_user.id)
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    text = "⚔️ <b>Дуэль</b>\n\n"
+    text = _header(
+        "⚔️ <b>Дуэль</b>",
+        "PvP-сражение с другим игроком",
+        "🏆 Победитель получает золото из ставки"
+    )
     rows = []
     if players:
-        text += "<b>Игроки рядом:</b>"
+        text += "\n<b>Игроки рядом:</b>\n"
         for p in players[:8]:
             rows.append([InlineKeyboardButton(
                 text=f"⚔️ {_short(p['char_name'])} · Ур.{p['level']}",
                 callback_data=f"duel_to_{p['char_name']}")])
     else:
-        text += "<i>Рядом никого.</i>\n\n"
+        text += "\n<i>Рядом никого.</i>\n"
     text += "\n✍️ Или введи имя вручную."
     rows.append([InlineKeyboardButton(
         text="✍️ Ввести имя", callback_data="duel_manual")])
