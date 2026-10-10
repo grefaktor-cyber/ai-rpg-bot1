@@ -424,11 +424,14 @@ async def on_faction(c: CallbackQuery):
 
 # ================= ГЛАВНОЕ МЕНЮ =================
 async def show_main_menu(m, user):
+    """Главное меню с баннером локации и анимацией «печатает…»."""
+    uid = user["user_id"]
+    chat_id = m.chat.id
+
     # 🎬 Пролог — показывается ОДИН раз после создания героя.
-    # Флаг хранится в tutorial_progress.finished.
     try:
         from core.prologue import maybe_show_prologue
-        await maybe_show_prologue(m.chat.id, user)
+        await maybe_show_prologue(chat_id, user)
     except Exception as e:
         logging.warning(f"[PROLOGUE] hook error: {e}")
 
@@ -439,14 +442,33 @@ async def show_main_menu(m, user):
     is_admin = user["user_id"] in ADMIN_IDS
     admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
 
+    # 🖼 Баннер локации — отдельным сообщением (сверху)
+    try:
+        from services.ui import send_banner
+        loc_name = loc.get("name", "?")
+        loc_desc = loc.get("desc", "")
+        banner_caption = f"📍 <b>{loc_name}</b>"
+        if loc_desc:
+            banner_caption += f"\n<i>{loc_desc}</i>"
+        await send_banner(chat_id, uid, loc_code, banner_caption)
+    except Exception as e:
+        logging.warning(f"[BANNER] hook error: {e}")
+
+    # 🎨 Иконки
     class_ico = class_icon(user.get("class", ""))
     race_ico = race_icon(user.get("race", ""))
     faction_ico = faction_icon(user.get("faction", ""))
 
-    header = (f"🎮 <b>{user['char_name']}</b> {class_ico}{race_ico}{faction_ico}"
-              f"{admin_tag}\n")
-    header += f"⭐ Уровень <b>{user['level']}</b>\n\n"
+    # === ШАПКА ===
+    header = (
+        "━━━━━━━━━━━━━━━━━━━\n"
+        f"🎮 <b>{user['char_name']}</b> {class_ico}{race_ico}{faction_ico}"
+        f"{admin_tag}\n"
+        f"⭐ Уровень <b>{user['level']}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n\n"
+    )
 
+    # === ПРОГРЕСС-БАРЫ ===
     next_xp = user["level"] * user["level"] * 100
     header += xp_bar(user["xp"], next_xp, length=15) + "\n"
     header += hp_bar(user["hp"], user["max_hp"], length=15) + "\n"
@@ -455,9 +477,14 @@ async def show_main_menu(m, user):
     if user.get("is_premium"):
         header += "⚡ <b>∞ Безлимит энергии</b>\n"
     else:
-        header += energy_bar(user.get("energy", 0), user.get("energy_max", 20), length=15) + "\n"
+        header += energy_bar(user.get("energy", 0),
+                             user.get("energy_max", 20),
+                             length=15) + "\n"
 
-    header += f"\n💰 Золото: <b>{user['gold']}</b>\n"
+    header += "━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # === РЕСУРСЫ И ЛОКАЦИЯ ===
+    header += f"💰 Золото: <b>{user['gold']}</b>\n"
     header += f"📍 <b>{loc.get('name', '?')}</b>"
     if owner:
         header += f" 🏴 [{owner.get('guild_tag', '?')}]"
@@ -469,6 +496,7 @@ async def show_main_menu(m, user):
     if event:
         header += f"\n⚡ <b>{event['event_name']}</b>: <i>{event['event_desc']}</i>\n"
 
+    # === ИСПЫТАНИЕ ДНЯ ===
     try:
         from core.daily_challenges import get_daily_challenge
         challenge = get_daily_challenge()
@@ -495,5 +523,15 @@ async def show_main_menu(m, user):
     except Exception:
         pass
 
-    header += "\n\n<i>Опиши действие или жми кнопки 👇</i>"
-    await m.answer(header, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
+    header += "\n\n━━━━━━━━━━━━━━━━━━━\n"
+    header += "💡 <i>Опиши действие или жми кнопки 👇</i>"
+
+    # 🎬 Анимация «печатает…» перед отправкой
+    try:
+        from services.ui import typing, send_menu_from_chat
+        await typing(chat_id)
+        await send_menu_from_chat(chat_id, uid, header, kb=main_kb())
+    except Exception as e:
+        logging.error(f"[MENU] {e}")
+        # Fallback — обычная отправка
+        await m.answer(header, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
