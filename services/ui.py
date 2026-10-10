@@ -1,4 +1,4 @@
-"""Утилиты UI: автоочистка меню + FakeMessage + локальные картинки + баннеры."""
+"""Утилиты UI: автоочистка меню + FakeMessage + картинки + баннеры + анимации."""
 import asyncio
 import logging
 
@@ -114,20 +114,17 @@ async def send_menu_from_chat(chat_id, uid, text, kb=None):
 
 
 async def send_banner(chat_id, uid, loc_code, caption):
-    """Отправляет/обновляет баннер локации.
+    """Отправляет/обновляет баннер локации сверху.
 
     Если локация та же — не трогает. Если другая — удаляет старый, шлёт новый.
-    Возвращает message_id или None.
     """
     from core.location_art import get_location_image_path
 
     existing = _last_banner.get(uid)
 
-    # Локация та же — не пересылаем
     if existing and existing[1] == loc_code:
         return existing[0]
 
-    # Удалить старый баннер
     if existing:
         try:
             await g.bot.delete_message(chat_id, existing[0])
@@ -176,7 +173,148 @@ def forget_menu(uid):
     _last_menu.pop(uid, None)
 
 
-# ================= ПРОГРЕСС-БАР =================
+# ================= КАРТИНКИ =================
+async def send_location_photo(chat_id, loc_code, caption, kb=None):
+    """Фото локации из локального файла. Fallback — текст."""
+    from core.location_art import get_location_image_path
+
+    path = get_location_image_path(loc_code)
+    if path:
+        try:
+            await g.bot.send_photo(
+                chat_id,
+                photo=FSInputFile(path),
+                caption=caption[:CAPTION_LIMIT],
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        except Exception as e:
+            logging.warning(f"[LOC PHOTO] {loc_code} ({path}): {e}")
+
+    try:
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+        return False
+    except Exception as e:
+        logging.error(f"[LOC PHOTO FALLBACK] {loc_code}: {e}")
+        return False
+
+
+async def send_boss_photo(chat_id, boss_code, caption, kb=None):
+    """Фото босса по коду."""
+    from core.location_art import get_boss_image_path
+
+    path = get_boss_image_path(boss_code)
+    if path:
+        try:
+            await g.bot.send_photo(
+                chat_id,
+                photo=FSInputFile(path),
+                caption=caption[:CAPTION_LIMIT],
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+            return True
+        except Exception as e:
+            logging.warning(f"[BOSS PHOTO] {boss_code} ({path}): {e}")
+
+    try:
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.error(f"[BOSS PHOTO FALLBACK] {boss_code}: {e}")
+    return False
+
+
+async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
+    """Фото босса по имени. Возвращает True если фото ушло."""
+    from core.location_art import get_boss_image_path_by_name
+
+    path = get_boss_image_path_by_name(boss_name)
+
+    if not path:
+        logging.warning(f"[BOSS PHOTO] Нет картинки для '{boss_name}'")
+        return False
+
+    logging.warning(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
+
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:CAPTION_LIMIT],
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        logging.warning(f"[BOSS PHOTO] УСПЕХ '{boss_name}'")
+        return True
+    except Exception as e:
+        logging.warning(f"[BOSS PHOTO] ОШИБКА '{boss_name}': {type(e).__name__}: {e}")
+
+    try:
+        await g.bot.send_photo(chat_id, photo=FSInputFile(path))
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e2:
+        logging.warning(f"[BOSS PHOTO] Fallback тоже упал: {e2}")
+        return False
+
+
+# ================= РАСЫ И КЛАССЫ =================
+async def send_race_photo_by_name(chat_id, race_name, caption, kb=None):
+    """Фото расы по имени."""
+    from core.race_class_art import get_race_image_path_by_name
+
+    path = get_race_image_path_by_name(race_name)
+    if not path:
+        logging.warning(f"[RACE PHOTO] Нет картинки для '{race_name}'")
+        return False
+
+    logging.warning(f"[RACE PHOTO] Отправляю '{race_name}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:CAPTION_LIMIT],
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[RACE PHOTO] ОШИБКА '{race_name}': {e}")
+        return False
+
+
+async def send_class_photo_by_name(chat_id, class_name, caption, kb=None):
+    """Фото класса по имени."""
+    from core.race_class_art import get_class_image_path_by_name
+
+    path = get_class_image_path_by_name(class_name)
+    if not path:
+        logging.warning(f"[CLASS PHOTO] Нет картинки для '{class_name}'")
+        return False
+
+    logging.warning(f"[CLASS PHOTO] Отправляю '{class_name}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:CAPTION_LIMIT],
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[CLASS PHOTO] ОШИБКА '{class_name}': {e}")
+        return False
+
+
+# ================= ПРОГРЕСС-БАР И АНИМАЦИЯ XP =================
 def visual_bar(current, total, length=15, filled="█", empty="░"):
     """Текстовый прогресс-бар."""
     if total <= 0:
@@ -188,10 +326,7 @@ def visual_bar(current, total, length=15, filled="█", empty="░"):
 
 async def animate_xp_gain(chat_id, message_id, user_name, xp_before, xp_after,
                           next_xp, length=15):
-    """Анимация заполнения XP-бара при повышении уровня.
-
-    Плавно отрисовывает 5 кадров заполнения, редактируя сообщение.
-    """
+    """Анимация заполнения XP-бара при повышении уровня."""
     steps = 5
     for i in range(steps + 1):
         pct = i / steps
