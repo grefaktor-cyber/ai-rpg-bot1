@@ -1,4 +1,4 @@
-"""Ежедневная награда. Inline back+close. + ИИ-сон от GigaChat."""
+"""Ежедневная награда. Inline back+close. + ИИ-сон через ai.generate()."""
 import random
 
 from aiogram import Router, F
@@ -33,39 +33,52 @@ _DREAM_FALLBACKS = [
 
 
 async def _generate_dream(user):
-    """Короткий сон 2-3 предложения. Через GigaChat или fallback."""
-    race = user.get("race", "human")
-    cls = user.get("class", "warrior")
-    level = user.get("level", 1)
-    location = user.get("location_code", "village")
+    """Короткий сон 2-3 предложения через GigaChat.
 
+    Использует ai.generate() с пустой историей и специальной командой.
+    """
     try:
-        from ai import giga_chat
+        from ai import generate
     except Exception as e:
         import logging
-        logging.warning(f"[DREAM] ai.giga_chat not available: {e}")
+        logging.warning(f"[DREAM] ai.generate not available: {e}")
         return random.choice(_DREAM_FALLBACKS)
 
-    prompt = (
-        f"Ты — рассказчик в тёмном фэнтези. Герой — {race} {cls} "
-        f"{level} уровня, сейчас в локации {location}. "
-        f"Опиши его короткий сон — 2-3 предложения. "
-        f"Стиль: загадочный, атмосферный, лёгкая тревога. "
-        f"Без приветствий, без пояснений, только текст сна."
+    # Промпт-команда — акцент на сновидении
+    action = (
+        "опиши короткий сон моего героя (2-3 предложения). "
+        "Стиль: загадочный, атмосферный, тёмное фэнтези. "
+        "Без предметов, без боёв, без тегов. "
+        "Только описание сна."
     )
 
     try:
-        resp = await giga_chat(prompt)
-        if not resp or len(resp) < 10:
+        result = await generate(
+            story="",
+            user_action=action,
+            arc=1,
+            user=user,
+            event=None,
+            location_owner=None,
+        )
+        text = (result or {}).get("text", "")
+        if not text or len(text) < 15:
             return random.choice(_DREAM_FALLBACKS)
-        # Обрезаем до 400 символов
-        text = resp.strip()[:400]
-        # Срезаем кавычки если ИИ их поставил
+
+        # Срезаем префиксы вида "Мастер:" если ИИ их добавил
+        text = text.strip()
+        for prefix in ("Мастер:", "Мастер :", "Сон:", "Сновидение:"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+
+        # Обрезка до 400 символов
+        text = text[:400].strip()
+        # Срезаем кавычки
         text = text.strip('"').strip("«»").strip()
-        return text
+        return text if text else random.choice(_DREAM_FALLBACKS)
     except Exception as e:
         import logging
-        logging.warning(f"[DREAM] GigaChat error: {e}")
+        logging.warning(f"[DREAM] generate error: {e}")
         return random.choice(_DREAM_FALLBACKS)
 
 
@@ -79,14 +92,19 @@ async def daily(m: Message):
             "Возвращайся завтра!",
             reply_markup=_daily_kb(), parse_mode=ParseMode.HTML)
         return
+
     bonus = {1: 5, 2: 5, 3: 10, 4: 10, 5: 15, 6: 15, 7: 30}.get(streak, 10)
     gold_bonus = streak * 20
     await g.db.add_gold(m.from_user.id, gold_bonus)
     await g.db.add_material(m.from_user.id, "iron", 1)
     u = await g.db.get_user(m.from_user.id)
-    msg = (f"🎁 <b>Награда!</b>\n\nДень {streak}\n"
-           f"+{gold_bonus}💰 · +1 🔩\n"
+
+    msg = (f"🎁 <b>Награда!</b>\n\n"
+           f"📅 День <b>{streak}</b>\n"
+           f"💰 +{gold_bonus} золота\n"
+           f"🔩 +1 железо\n"
            f"⚡ Энергия: {u.get('energy', 0)}/{u.get('energy_max', 20)}")
+
     if streak == 7:
         await g.db.add_item(m.from_user.id, "Амулет мудреца")
         msg += "\n\n🏆 <b>Амулет мудреца!</b>"
