@@ -150,7 +150,6 @@ async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
     """Фото босса по имени. Возвращает True если фото ушло."""
     from core.location_art import get_boss_image_path_by_name
 
-    # ВСЕ логи — WARNING, чтобы точно были видны в Render
     path = get_boss_image_path_by_name(boss_name)
 
     if not path:
@@ -159,14 +158,11 @@ async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
 
     logging.warning(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
 
-    # Обрезаем caption до лимита Telegram
-    short = caption[:CAPTION_LIMIT]
-
     try:
         await g.bot.send_photo(
             chat_id,
             photo=FSInputFile(path),
-            caption=short,
+            caption=caption[:CAPTION_LIMIT],
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
@@ -175,15 +171,61 @@ async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
     except Exception as e:
         logging.warning(f"[BOSS PHOTO] ОШИБКА '{boss_name}': {type(e).__name__}: {e}")
 
-    # Fallback: фото без caption + текстом
     try:
-        await g.bot.send_photo(
-            chat_id, photo=FSInputFile(path),
-        )
+        await g.bot.send_photo(chat_id, photo=FSInputFile(path))
         await g.bot.send_message(
             chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
         )
         return True
     except Exception as e2:
         logging.warning(f"[BOSS PHOTO] Fallback тоже упал: {e2}")
+        return False
+
+
+# ================= РАСЫ И КЛАССЫ =================
+async def send_race_photo_by_name(chat_id, race_name, caption, kb=None):
+    """Фото расы по имени. Возвращает True если фото ушло."""
+    from core.race_class_art import get_race_image_path_by_name
+
+    path = get_race_image_path_by_name(race_name)
+    if not path:
+        logging.warning(f"[RACE PHOTO] Нет картинки для '{race_name}'")
+        return False
+
+    logging.warning(f"[RACE PHOTO] Отправляю '{race_name}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:CAPTION_LIMIT],
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[RACE PHOTO] ОШИБКА '{race_name}': {e}")
+        return False
+
+
+async def send_class_photo_by_name(chat_id, class_name, caption, kb=None):
+    """Фото класса по имени. Возвращает True если фото ушло."""
+    from core.race_class_art import get_class_image_path_by_name
+
+    path = get_class_image_path_by_name(class_name)
+    if not path:
+        logging.warning(f"[CLASS PHOTO] Нет картинки для '{class_name}'")
+        return False
+
+    logging.warning(f"[CLASS PHOTO] Отправляю '{class_name}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:CAPTION_LIMIT],
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[CLASS PHOTO] ОШИБКА '{class_name}': {e}")
         return False
