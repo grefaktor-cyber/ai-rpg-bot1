@@ -1,4 +1,8 @@
-"""PvP: одновременные раунды с очередью действий + расовые бонусы + квесты."""
+"""PvP: одновременные раунды с очередью действий + расовые бонусы + квесты.
+
+Добавлены анимации боя (не влияют на формулы).
+"""
+import asyncio
 import json
 import random
 
@@ -47,6 +51,45 @@ def _rage_mult(user):
         return 1.0
     hp_pct = user["hp"] / max(1, user["max_hp"])
     return 1.0 + (1.0 - hp_pct) * (rage_max - 1.0)
+
+
+# ================= АНИМАЦИЯ PVP УДАРА =================
+async def _animate_pvp_hit(uid, my_dmg, opp_dmg):
+    """Короткая анимация удара в PvP. Отдельное сообщение, удаляется."""
+    try:
+        msg = await g.bot.send_message(
+            uid, "⚔️ <i>Замах...</i>", parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        return
+
+    await asyncio.sleep(0.3)
+
+    if my_dmg > 0:
+        text = f"💥 Ты нанёс <b>{my_dmg}</b> урона!"
+    else:
+        text = "💨 Ты промахнулся."
+    try:
+        await msg.edit_text(text, parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
+    await asyncio.sleep(0.4)
+
+    if opp_dmg > 0:
+        try:
+            await msg.edit_text(
+                f"💔 Получил <b>{opp_dmg}</b> урона!",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(0.4)
+
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 
 # ================= ВЫЗОВ =================
@@ -443,7 +486,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
     dmg_a_to_b = 0
     dmg_b_to_a = 0
 
-    # ============ ОЧЕРЕДЬ A (по порядку) ============
+    # ============ ОЧЕРЕДЬ A ============
     for action in actions_a:
         if action == "attack":
             eff_a = effective_stats(user_a)
@@ -556,7 +599,7 @@ async def _resolve_pvp_round(uid_a, uid_b):
             elif effect == "stun":
                 log_a.append(f"✨ {s['name']}: соперник оглушён")
 
-    # ============ ОЧЕРЕДЬ B (по порядку) ============
+    # ============ ОЧЕРЕДЬ B ============
     for action in actions_b:
         if action == "attack":
             eff_b = effective_stats(user_b)
@@ -716,6 +759,18 @@ async def _resolve_pvp_round(uid_a, uid_b):
     await g.db.incr_combat_round(uid_a)
     await g.db.incr_combat_round(uid_b)
 
+    # ========================================================
+    # 🎬 АНИМАЦИЯ PVP-УДАРА (для каждого игрока)
+    # ========================================================
+    try:
+        await asyncio.gather(
+            _animate_pvp_hit(uid_a, dmg_a_to_b, dmg_b_to_a),
+            _animate_pvp_hit(uid_b, dmg_b_to_a, dmg_a_to_b),
+            return_exceptions=True,
+        )
+    except Exception:
+        pass
+
     a_dead = new_hp_a <= 0
     b_dead = new_hp_b <= 0
 
@@ -864,13 +919,10 @@ async def pvp_end(winner_id, loser_id, stake):
             except Exception:
                 pass
 
-    # ============ ЗАЧЁТ КВЕСТА «Гроза арены» (еженедельный) ============
-    # Старый NPC-зачёт (для npc_quest_progress, если где-то ещё используется)
     try:
         await g.db.progress_quest(winner_id, "win_duels", 1)
     except Exception:
         pass
-    # Новый — timed_quest_progress (то что показывается в /quests)
     try:
         from handlers.quests import progress_quest as quest_progress
         await quest_progress(winner_id, "win_duels", 1)
