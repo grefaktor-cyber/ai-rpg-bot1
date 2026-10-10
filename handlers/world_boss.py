@@ -3,6 +3,7 @@
 HP < 30% больше НЕ блокирует действия — только предупреждение.
 c.answer() вызывается ПЕРВЫМ — защита от 'query is too old'.
 При /boss показывается фото босса (если есть в assets/boss/).
+Анимации: атака, урон, смерть, добивание.
 """
 import json
 import logging
@@ -25,6 +26,9 @@ from core.game_data import (
 )
 from core.skills import get_skill
 from core.location_art import get_boss_image_path_by_name
+from core.combat_animations import (
+    animate_attack, animate_hp_drop, animate_death, animate_victory_kill,
+)
 from services.world_boss_service import execute_boss_actions
 from services.ui import send_menu, close_menu
 import world as W
@@ -417,6 +421,7 @@ async def wb_undo_cb(c: CallbackQuery):
 # ================= ВЫПОЛНИТЬ РАУНД =================
 @router.callback_query(F.data == "wb_execute")
 async def wb_execute_cb(c: CallbackQuery):
+    # ✅ answer ПЕРВЫМ — защита от timeout
     try:
         await c.answer("⚡ Выполняю...")
     except Exception:
@@ -432,6 +437,8 @@ async def wb_execute_cb(c: CallbackQuery):
     pending = await _get_pending(uid, boss["id"])
     if not pending:
         return
+
+    hp_before = u["hp"]
 
     ok, info = await execute_boss_actions(uid, pending)
     await g.db.clear_boss_pending(uid)
@@ -454,6 +461,49 @@ async def wb_execute_cb(c: CallbackQuery):
             pass
         return
 
+    # ========================================================
+    # 🎬 АНИМАЦИИ БОЯ (не влияют на формулы — только показ)
+    # ========================================================
+    my_dmg = info.get("my_damage", 0)
+    boss_atk = info.get("boss_atk", 0)
+
+    # 🎬 1) Анимация атаки игрока
+    if my_dmg > 0:
+        has_crit = "КРИТ" in " ".join(info.get("log", []))
+        try:
+            await animate_attack(c.message, my_dmg, boss["boss_code"], has_crit)
+        except Exception as e:
+            log.debug(f"[ANIM WB ATTACK] {e}")
+
+    # 🎬 2) Анимация урона по игроку
+    if boss_atk > 0 and not info.get("player_died"):
+        u_fresh = await g.db.get_user(uid)
+        hp_after = u_fresh["hp"]
+        if hp_after < hp_before:
+            try:
+                await animate_hp_drop(c.message, u_fresh["char_name"],
+                                       hp_before, hp_after, u_fresh["max_hp"])
+            except Exception as e:
+                log.debug(f"[ANIM WB HP] {e}")
+
+    # 🎬 3) Анимация смерти игрока
+    if info.get("player_died"):
+        try:
+            await animate_death(c.message.chat.id)
+        except Exception as e:
+            log.debug(f"[ANIM WB DEATH] {e}")
+
+    # 🎬 4) Анимация добивания босса
+    if info.get("killed"):
+        try:
+            boss_name_disp = WORLD_BOSSES.get(boss["boss_code"], {}).get("name", "Босс")
+            await animate_victory_kill(c.message, boss_name_disp)
+        except Exception as e:
+            log.debug(f"[ANIM WB KILL] {e}")
+
+    # ========================================================
+    # СТАРАЯ ЛОГИКА ОТОБРАЖЕНИЯ (без изменений)
+    # ========================================================
     log_text = "\n".join(f"  {_safe(x)}" for x in info.get("log", []))
     header = (f"⚔️ <b>Раунд!</b>\n"
               f"💥 Ты нанёс: <b>{info['my_damage']}</b>\n"
