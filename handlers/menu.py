@@ -1,4 +1,7 @@
-"""Inline-меню категорий + Назад + Социум: Обмен/Дуэль. + анимации."""
+"""Inline-меню категорий + Назад + Социум: Обмен/Дуэль. + анимации.
+
+Закрытие меню возвращает ReplyKeyboard (кнопки снизу).
+"""
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
@@ -8,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from core import globals as g
 from core.keyboards import (
     menu_game_kb, menu_social_kb, menu_progress_kb, menu_root_kb,
+    main_kb,
 )
 from services.ui import send_menu, fake_message, typing
 
@@ -83,14 +87,41 @@ async def menu_progress(m: Message):
     await send_menu(m, text, menu_progress_kb())
 
 
-# ================= CALLBACK'И КАТЕГОРИЙ =================
+# ================= ЗАКРЫТИЕ =================
 @router.callback_query(F.data == "menu_close")
 async def menu_close(c: CallbackQuery):
-    from services.ui import close_menu
-    await close_menu(c)
-    await c.answer()
+    """Закрывает inline-меню и возвращает ReplyKeyboard (кнопки снизу)."""
+    try:
+        await c.answer()
+    except Exception:
+        pass
+
+    # Удаляем inline-меню
+    try:
+        await c.message.delete()
+    except Exception:
+        try:
+            await c.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    # 🎯 Возвращаем ReplyKeyboard — иначе она "теряется" после удаления
+    u = await g.db.get_user(c.from_user.id)
+    if u and u.get("char_name"):
+        try:
+            await g.bot.send_message(
+                c.from_user.id,
+                "🏠 <b>Главное меню</b>\n\n"
+                "💡 <i>Используй кнопки ниже для навигации.</i>\n"
+                "🛠 <i>Или опиши действие текстом.</i>",
+                reply_markup=main_kb(),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
 
 
+# ================= ПЕРЕКЛЮЧЕНИЕ КАТЕГОРИЙ =================
 async def _edit_or_answer(c, text, kb):
     try:
         await c.message.edit_text(text, reply_markup=kb,
