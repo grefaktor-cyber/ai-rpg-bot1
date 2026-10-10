@@ -88,6 +88,8 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if not combat:
         return
 
+    logging.warning(f"[COMBAT DEBUG] round={combat.get('round_num')} is_boss={combat.get('is_boss')} name='{combat.get('enemy_name')}' edit={edit_message is not None}")
+                                
     # === КАРТОЧКА БОЯ С ПРОГРЕСС-БАРАМИ ===
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
     boss_label = " 🐉 <b>БОСС</b>" if combat["is_boss"] else ""
