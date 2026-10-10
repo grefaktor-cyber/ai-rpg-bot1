@@ -5,7 +5,6 @@ import os
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-# ================= ЛОКАЦИИ =================
 LOCATION_FILES = {
     "village":   "assets/loc/village.jpg",
     "tavern":    "assets/loc/tavern.jpg",
@@ -22,8 +21,6 @@ LOCATION_FILES = {
 }
 
 
-# ================= БОССЫ =================
-# Все 8 файлов загружены ✅
 BOSS_FILES = {
     "ancient_dragon": "assets/boss/ancient_dragon.jpg",
     "lich_king":      "assets/boss/lich_king.jpg",
@@ -36,26 +33,49 @@ BOSS_FILES = {
 }
 
 
-# ================= МАППИНГ ИМЁН БОССОВ =================
+# Точные имена из combat['enemy_name']
 BOSS_NAME_MAP = {
-    "Древний Дракон":       "ancient_dragon",
-    "Король Личей":         "lich_king",
-    "Лесной Титан":         "forest_titan",
-    "Морской Кракен":       "sea_kraken",
-    "Дракончик":            "dragon_cub",
-    "Повелитель Бездны":    "abyss_lord",
-    "Лесной Король":        "forest_king",
-    "Пожиратель Миров":     "world_devourer",
-    # Региональные боссы подземелий
-    "Вождь гоблинов":       "dragon_cub",
-    "Древний лич":          "lich_king",
-    "Король вампиров":      "lich_king",
-    "Владыка Бездны":       "abyss_lord",
+    "Древний Дракон":    "ancient_dragon",
+    "Король Личей":      "lich_king",
+    "Лесной Титан":      "forest_titan",
+    "Морской Кракен":    "sea_kraken",
+    "Дракончик":         "dragon_cub",
+    "Повелитель Бездны": "abyss_lord",
+    "Лесной Король":     "forest_king",
+    "Пожиратель Миров":  "world_devourer",
+    "Вождь гоблинов":    "dragon_cub",
+    "Древний лич":       "lich_king",
+    "Король вампиров":   "lich_king",
+    "Владыка Бездны":    "abyss_lord",
 }
+
+# Расширенный поиск по ключевым словам (падежи, "босс" и т.д.)
+BOSS_KEYWORDS = [
+    # (подстрока в lowercase, код картинки)
+    ("пожирател",   "world_devourer"),
+    ("world devour", "world_devourer"),
+    ("повелител бездн", "abyss_lord"),
+    ("владыка бездн",   "abyss_lord"),
+    ("abyss lord",      "abyss_lord"),
+    ("лесной корол",    "forest_king"),
+    ("forest king",     "forest_king"),
+    ("древн дракон",    "ancient_dragon"),
+    ("ancient dragon",  "ancient_dragon"),
+    ("корол лич",       "lich_king"),
+    ("древн лич",       "lich_king"),
+    ("lich king",       "lich_king"),
+    ("лесной титан",    "forest_titan"),
+    ("forest titan",    "forest_titan"),
+    ("морской кракен",  "sea_kraken"),
+    ("sea kraken",      "sea_kraken"),
+    ("корол вампир",    "lich_king"),
+    ("вождь гоблин",    "dragon_cub"),
+    ("дракончик",       "dragon_cub"),
+    ("dragon cub",      "dragon_cub"),
+]
 
 
 def get_location_image_path(loc_code):
-    """Абсолютный путь к файлу локации или None."""
     rel = LOCATION_FILES.get(loc_code)
     if not rel:
         return None
@@ -64,7 +84,6 @@ def get_location_image_path(loc_code):
 
 
 def get_boss_image_path(boss_code):
-    """Абсолютный путь к файлу босса или None."""
     rel = BOSS_FILES.get(boss_code)
     if not rel:
         return None
@@ -73,20 +92,31 @@ def get_boss_image_path(boss_code):
 
 
 def find_boss_by_name(name):
-    """Ищет код босса по имени. Возвращает код или None."""
+    """Ищет код босса по имени. Точное → ключевые слова → частичное."""
     if not name:
         return None
+
+    # 1. Точное совпадение
     if name in BOSS_NAME_MAP:
         return BOSS_NAME_MAP[name]
-    low = name.lower()
-    for full, code in BOSS_NAME_MAP.items():
-        if full.lower() in low or low in full.lower():
+
+    low = name.lower().strip()
+
+    # 2. Поиск по ключевым словам (регистронезависимо, падежи)
+    for keyword, code in BOSS_KEYWORDS:
+        if keyword in low:
             return code
+
+    # 3. Частичное совпадение по имени
+    for full, code in BOSS_NAME_MAP.items():
+        fl = full.lower()
+        if fl in low or low in fl:
+            return code
+
     return None
 
 
 def get_boss_image_path_by_name(name):
-    """Абсолютный путь к картинке босса по имени."""
     code = find_boss_by_name(name)
     if code:
         return get_boss_image_path(code)
