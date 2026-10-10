@@ -1,4 +1,4 @@
-"""Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал."""
+"""Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал, картинки боссов."""
 import json
 import random
 
@@ -179,6 +179,24 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if hints:
         text += "\n\n" + "\n".join(hints)
 
+    # 🎨 КАРТИНКА БОССА ПРИ СТАРТЕ БОЯ
+    is_first_round = combat.get("round_num", 1) == 1
+    is_boss = bool(combat.get("is_boss"))
+    boss_name = combat.get("enemy_name", "")
+
+    if is_first_round and is_boss:
+        try:
+            from services.ui import send_boss_photo_by_name
+            sent = await send_boss_photo_by_name(
+                chat_id, boss_name, text, kb=kb
+            )
+            if sent:
+                return  # фото ушло вместе с карточкой и кнопками
+        except Exception as e:
+            import logging
+            logging.warning(f"[BOSS PHOTO START] {boss_name}: {e}")
+
+    # Обычная отправка текстом
     await g.bot.send_message(chat_id, text, reply_markup=kb,
                              parse_mode=ParseMode.HTML)
 
@@ -593,7 +611,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         ch_code = f"challenge_{challenge['code']}"
         ch_type = challenge["code"]
 
-        # Что зачитывать
         inc = 0
         if ch_type in ("kill_10", "kill_25", "survive_5"):
             inc = 1
@@ -613,7 +630,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                     user["user_id"], ch_code, today
                 )
                 if not row:
-                    # создаём запись
                     await conn.execute(
                         "INSERT INTO daily_quests "
                         "(user_id, quest_type, target, progress, "
@@ -631,14 +647,12 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                             "WHERE id=$2",
                             new_progress, row["id"]
                         )
-                        # Выдаём награду
                         await g.db.add_gold(
                             user["user_id"], challenge["reward_gold"])
                         await g.db.add_xp(
                             user["user_id"], challenge["reward_xp"])
                         await g.db.add_quest_points(
                             user["user_id"], challenge["reward_qp"])
-                        # Уведомление
                         try:
                             await g.bot.send_message(
                                 user["user_id"],
@@ -760,7 +774,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     dmg_taken = combat.get("total_dmg_taken", 0)
     boss_label = " 🐉" if combat["is_boss"] else ""
 
-    # 🎨 ВИЗУАЛЬНЫЕ ИТОГИ
     text = (
         f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -826,8 +839,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                 "UPDATE users SET skill_points = skill_points + 1 WHERE user_id=$1",
                 user["user_id"]
             )
-        # 🎨 Прогресс-бар нового уровня
-        next_xp = level * level * 100
         text += (f"\n\n━━━━━━━━━━━━━━━━━━━\n"
                  f"⭐ <b>УРОВЕНЬ {level}!</b>\n"
                  f"{ui_hp_bar(nm, nm, length=15)}\n"
