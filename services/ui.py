@@ -1,8 +1,8 @@
-"""Утилиты UI: автоочистка меню + FakeMessage + картинки локаций."""
+"""Утилиты UI: автоочистка меню + FakeMessage + локальные картинки."""
 import logging
 
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, FSInputFile
 
 from core import globals as g
 
@@ -88,28 +88,28 @@ def forget_menu(uid):
     _last_menu.pop(uid, None)
 
 
-# ================= КАРТИНКИ ЛОКАЦИЙ =================
+# ================= КАРТИНКИ ИЗ ЛОКАЛЬНЫХ ФАЙЛОВ =================
 async def send_location_photo(chat_id, loc_code, caption, kb=None):
-    """Отправляет фото локации с подписью.
+    """Отправляет фото локации из локального файла.
 
-    Если картинка недоступна — падает в обычный send_message.
+    Если файл не найден или ошибка отправки — падает в send_message.
     Никогда не роняет хендлер.
     """
-    from core.location_art import get_location_image
-    url = get_location_image(loc_code)
+    from core.location_art import get_location_image_path
 
-    if url:
+    path = get_location_image_path(loc_code)
+    if path:
         try:
             await g.bot.send_photo(
                 chat_id,
-                photo=url,
+                photo=FSInputFile(path),
                 caption=caption,
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
             return
         except Exception as e:
-            logging.warning(f"[LOC PHOTO] {loc_code}: {e}")
+            logging.warning(f"[LOC PHOTO] {loc_code} ({path}): {e}")
 
     # Fallback — обычный текст
     try:
@@ -121,22 +121,22 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
 
 
 async def send_boss_photo(chat_id, boss_code, caption, kb=None):
-    """Отправляет фото босса."""
-    from core.location_art import get_boss_image
-    url = get_boss_image(boss_code)
+    """Отправляет фото босса из локального файла. Fallback — текст."""
+    from core.location_art import get_boss_image_path
 
-    if url:
+    path = get_boss_image_path(boss_code)
+    if path:
         try:
             await g.bot.send_photo(
                 chat_id,
-                photo=url,
+                photo=FSInputFile(path),
                 caption=caption,
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
             return
         except Exception as e:
-            logging.warning(f"[BOSS PHOTO] {boss_code}: {e}")
+            logging.warning(f"[BOSS PHOTO] {boss_code} ({path}): {e}")
 
     try:
         await g.bot.send_message(
