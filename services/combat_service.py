@@ -1,4 +1,4 @@
-"""Логика боя 4.0: очередь 4 действия, спойл, range, расовые бонусы, квесты, итоги."""
+"""Логика боя 4.1: очередь, спойл, range, расы, квесты, визуал."""
 import json
 import random
 
@@ -25,6 +25,14 @@ from core.formulas import (
 )
 from core.keyboards import combat_kb, combat_pending_text, dungeon_continue_kb
 from core.skills import get_skill, skill_multiplier
+from core.ui_graphics import (
+    hp_bar as ui_hp_bar,
+    mp_bar as ui_mp_bar,
+    xp_bar as ui_xp_bar,
+    class_icon,
+    race_icon,
+    hp_status,
+)
 from services.notifications import (
     notify_item, notify_achievement, notify_boss, notify_quest,
     notify_drop, notify_book, notify_recipe, notify_level,
@@ -39,14 +47,11 @@ DEFEND_MULT_BY_COUNT = {
 
 
 def _is_range_round_1(user, combat):
-    """Range-класс бьёт дальше в 1-м раунде."""
     return (combat.get("round_num", 1) == 1
             and user.get("class") in RANGE_CLASSES)
 
 
 def _rage_mult(user):
-    """Множитель ярости: чем ниже HP, тем выше урон.
-    Демон: rage_max = 1.60 → при 0% HP урон ×1.6."""
     rage_max = get_racial_combat_bonus(user, "rage_max", 0.0)
     if rage_max <= 1.0:
         return 1.0
@@ -82,37 +87,56 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     if not combat:
         return
 
-    enemy_bar = hp_bar(combat["enemy_hp"], combat["enemy_max_hp"])
-    player_bar = hp_bar(user["hp"], user["max_hp"])
+    # === КАРТОЧКА БОЯ С ПРОГРЕСС-БАРАМИ ===
     emoji = danger_emoji(user["level"], combat["enemy_level"], combat["is_boss"])
-    boss_label = " 🐉 БОСС" if combat["is_boss"] else ""
+    boss_label = " 🐉 <b>БОСС</b>" if combat["is_boss"] else ""
 
     enemy_dmg_type = get_enemy_dmg_type(combat["enemy_name"])
-    type_label = " 🔮" if enemy_dmg_type == "magic" else " ⚔️"
+    type_label = "🔮" if enemy_dmg_type == "magic" else "⚔️"
+
     phase = get_boss_phase(combat)
     phase_label = f" [{phase['name']}]" if phase else ""
+
+    # Враг
+    enemy_hp = combat["enemy_hp"]
+    enemy_max = combat["enemy_max_hp"]
+    enemy_bar_str = ui_hp_bar(enemy_hp, enemy_max, length=15, show_pct=True)
+    enemy_danger = hp_status(enemy_hp, enemy_max)[0]
 
     header = f"⚔️ <b>РАУНД {combat['round_num']}</b>"
     if event:
         header += f" · {event['event_name']}"
 
-    enemy_block = (f"{emoji} <b>{combat['enemy_name']}</b>"
-                   f"{type_label} (Ур. {combat['enemy_level']}){boss_label}{phase_label}\n"
-                   f"{enemy_bar} {combat['enemy_hp']}/{combat['enemy_max_hp']}")
+    enemy_block = (
+        f"{emoji} <b>{combat['enemy_name']}</b> {type_label} "
+        f"(Ур. {combat['enemy_level']}){boss_label}{phase_label}\n"
+        f"{enemy_danger} <b>[{hp_bar(enemy_hp, enemy_max, 15)}]</b> "
+        f"{enemy_hp}/{enemy_max}"
+    )
+
+    # Игрок
+    class_ico = class_icon(user.get("class", ""))
+    race_ico = race_icon(user.get("race", ""))
 
     pet_line = ""
     if user.get("pet_type"):
         pet = PETS.get(user["pet_type"], {})
-        pet_line = f"\n🐾 {user.get('pet_name', pet.get('name', 'Питомец'))}"
+        pet_line = f"\n🐾 <i>{user.get('pet_name', pet.get('name', 'Питомец'))}</i>"
 
     mp = user.get("mp", 0)
     max_mp = user.get("max_mp", 0)
-    mp_line = f" · 💧 MP: {mp}/{max_mp}" if max_mp else ""
 
-    player_block = (f"❤️ <b>{user['char_name']}</b> (Ур. {user['level']}){pet_line}\n"
-                    f"{player_bar} {user['hp']}/{user['max_hp']}{mp_line}")
+    player_lines = [
+        f"{class_ico} <b>{user['char_name']}</b> (Ур. {user['level']}) "
+        f"{race_ico}{pet_line}",
+        ui_hp_bar(user["hp"], user["max_hp"], length=15),
+    ]
+    if max_mp:
+        player_lines.append(ui_mp_bar(mp, max_mp, length=15))
+    player_block = "\n".join(player_lines)
 
     text = f"{header}\n\n{enemy_block}\n\n{player_block}"
+
     if round_text:
         text += f"\n\n{round_text}"
 
@@ -146,9 +170,9 @@ async def send_combat_state(chat_id, user, combat, round_text="", event=None,
     hp_pct = user["hp"] / max(1, user["max_hp"])
     if hp_pct < 0.30 and user["hp"] > 0:
         if user["gold"] >= POTION_PRICE:
-            hints.append("💡 HP низкое — добавь 💚 <b>Зелье HP</b> в очередь")
+            hints.append("🔴 <b>HP критично!</b> Добавь 💚 Зелье HP")
         else:
-            hints.append("⚠️ HP низкое, но золота на зелье нет — беги или защищайся")
+            hints.append("🔴 HP критично, золота нет — беги или защищайся!")
     if combat["round_num"] >= 5 and not pending:
         hints.append("💡 Собери очередь из 3-4 действий для сильного хода")
 
@@ -164,7 +188,7 @@ async def start_combat_from_ai(chat_id, user, enemy):
                             enemy["hp"], 1 if enemy["is_boss"] else 0)
     await g.db.set_pending_actions(user["user_id"], "[]")
     combat = await g.db.get_combat(user["user_id"])
-    intro = "🐉 <b>БОСС!</b>" if enemy["is_boss"] else "Бой начался!"
+    intro = "🐉 <b>БОСС!</b>" if enemy["is_boss"] else "⚔️ Бой начался!"
     event = await g.db.get_active_event(user.get("location_code", "village"))
     await send_combat_state(chat_id, user, combat, intro, event)
 
@@ -255,7 +279,7 @@ async def _exec_player_action(user, combat, action, log):
         await g.db.update_combat_enemy_hp(user["user_id"], new_enemy_hp)
         line = f"⚔️ {dmg} урона" + (" 💥 КРИТ!" if is_crit else "")
         if range_bonus > 1.0:
-            line += " 🎯 <i>(преимущество дальнего боя)</i>"
+            line += " 🎯 <i>(дальний бой)</i>"
         if rage_mult > 1.05:
             line += f" 😈 <i>(ярость ×{rage_mult:.2f})</i>"
         if pet_dmg > 0:
@@ -273,7 +297,7 @@ async def _exec_player_action(user, combat, action, log):
 
     elif action == "spoil":
         await g.db.set_combat_spoil_used(user["user_id"])
-        log.append("🌿 Спойл: моб помечен — при убийстве есть шанс на редкий материал")
+        log.append("🌿 Спойл: моб помечен")
 
     elif action.startswith("skill_"):
         skill_code = action.replace("skill_", "")
@@ -319,7 +343,7 @@ async def _exec_player_action(user, combat, action, log):
                 new_hp = min(user["max_hp"], user["hp"] + heal)
                 await g.db.update_hp(user["user_id"], new_hp)
                 user["hp"] = new_hp
-                log.append(f"💗 Вампиризм скилла: +{heal} HP")
+                log.append(f"💗 Вампиризм: +{heal} HP")
         elif effect == "heal":
             heal = int(user["max_hp"] * mult * racial_heal_mult(user))
             new_hp = min(user["max_hp"], user["hp"] + heal)
@@ -342,7 +366,7 @@ async def _exec_player_action(user, combat, action, log):
             log.append("💚 HP полное — зелье не использовано")
             return new_enemy_hp, enemy_skip
         if user["gold"] < POTION_PRICE:
-            log.append(f"❌ Нет {POTION_PRICE}💰 на зелье HP")
+            log.append(f"❌ Нет {POTION_PRICE}💰 на зелье")
             return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], POTION_PRICE)
         before = user["hp"]
@@ -356,7 +380,7 @@ async def _exec_player_action(user, combat, action, log):
             log.append("🔮 MP полное — зелье не использовано")
             return new_enemy_hp, enemy_skip
         if user["gold"] < MP_POTION_PRICE:
-            log.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье MP")
+            log.append(f"❌ Нет {MP_POTION_PRICE}💰 на зелье")
             return new_enemy_hp, enemy_skip
         await g.db.spend_gold(user["user_id"], MP_POTION_PRICE)
         before = user["mp"]
@@ -371,7 +395,7 @@ async def _exec_player_action(user, combat, action, log):
 async def _exec_enemy_turn(chat_id, user, combat, log, def_mult=1.0):
     dodge = get_racial_combat_bonus(user, "dodge", 0)
     if dodge > 0 and random.randint(1, 100) <= dodge:
-        log.append(f"💨 <b>Уклонение!</b> Ты избежал атаки врага")
+        log.append(f"💨 <b>Уклонение!</b> Ты избежал атаки")
         return False
 
     n_actions, dmg_mult = _get_enemy_actions(combat)
@@ -473,11 +497,11 @@ async def execute_queued_round(chat_id, user, combat, edit_message=None):
 
     summary = ""
     if player_log:
-        summary += "<b>🗡 Твой ход:</b>\n" + "\n".join(f"  {ln}" for ln in player_log)
+        summary += "🗡 <b>Твой ход:</b>\n" + "\n".join(f"  {ln}" for ln in player_log)
     if enemy_log:
         if summary:
             summary += "\n\n"
-        summary += "<b>💀 Ответ врага:</b>\n" + "\n".join(f"  {ln}" for ln in enemy_log)
+        summary += "💀 <b>Ответ врага:</b>\n" + "\n".join(f"  {ln}" for ln in enemy_log)
 
     await g.db.incr_combat_round(user["user_id"])
     user = await g.db.get_user(user["user_id"])
@@ -536,7 +560,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
 
     enemy_name = combat["enemy_name"]
 
-    # ============ ЗАЧЁТ NPC-КВЕСТОВ (старый) ============
+    # NPC-квесты
     all_q = await g.db.get_user_quests(user["user_id"])
     for qrow in all_q:
         if qrow["completed"]:
@@ -546,11 +570,10 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             continue
         target_low = q["target"].lower()
         enemy_low = enemy_name.lower()
-        # Матч в обе стороны — устойчивее к "Гоблин" vs "Гоблин-воин"
         if target_low in enemy_low or enemy_low in target_low:
             await g.db.incr_npc_quest(user["user_id"], qrow["quest_code"], 1)
 
-    # ============ ЗАЧЁТ ВСЕХ ТИПОВ КВЕСТОВ (сюжет + daily + weekly) ============
+    # Все типы квестов
     try:
         from handlers.quests import progress_quest as quest_progress
         await quest_progress(user["user_id"], "kill_enemies", 1,
@@ -561,7 +584,6 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         import logging
         logging.error(f"[QUEST PROGRESS] {_e}", exc_info=True)
 
-    # Старый daily kill_enemies (двойная страховка)
     q = await g.db.progress_quest(user["user_id"], "kill_enemies", 1)
     if q and q.get("completed"):
         try:
@@ -608,7 +630,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
             user["user_id"], enemy_name, combat["enemy_level"]
         )
 
-    # ==================== ПОДЗЕМЕЛЬЕ ====================
+    # === ПОДЗЕМЕЛЬЕ ===
     if is_dungeon:
         d = DUNGEONS.get(user.get("dungeon_id", ""), {})
         mult = d.get("reward_mult", 1.0)
@@ -623,13 +645,13 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await g.db.add_season_xp(user["user_id"], combat["enemy_level"] * 2)
 
         text = (f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
-                f"<b>{combat['enemy_name']}</b> повержен!\n"
-                f"💰 Добыча: +{gold}")
+                f"🏆 <b>{combat['enemy_name']}</b> повержен!\n"
+                f"💰 Добыча: <b>+{gold}</b>")
         u = await g.db.get_user(user["user_id"])
         d = DUNGEONS.get(u.get("dungeon_id", ""))
         if combat["is_boss"]:
             text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b>"
-        text += f"\n\n<b>Комната {u['dungeon_room']}/{d.get('rooms', '?')}</b>"
+        text += f"\n\n📍 <b>Комната {u['dungeon_room']}/{d.get('rooms', '?')}</b>"
 
         if u["dungeon_room"] >= d.get("rooms", 1):
             await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
@@ -640,8 +662,8 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         if combat["is_boss"]:
             await g.db.incr_bosses(user["user_id"])
         return
-    # ==================== КОНЕЦ ПОДЗЕМЕЛЬЯ ====================
 
+    # === ОБЫЧНАЯ ПОБЕДА ===
     await g.db.add_gold(user["user_id"], gold)
     level, xp, leveled_up = await g.db.add_xp(user["user_id"], exp)
 
@@ -662,6 +684,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
     dmg_taken = combat.get("total_dmg_taken", 0)
     boss_label = " 🐉" if combat["is_boss"] else ""
 
+    # 🎨 ВИЗУАЛЬНЫЕ ИТОГИ
     text = (
         f"🎉 <b>ПОБЕДА!</b>\n\n{prefix_text}\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -672,7 +695,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         f"💥 Нанесено: <b>{dmg_dealt}</b>\n"
         f"💔 Получено: <b>{dmg_taken}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"+{exp} XP{xp_note} · +{gold}💰"
+        f"⭐ +{exp} XP{xp_note} · 💰 +{gold}"
     )
 
     if event:
@@ -689,7 +712,7 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         await g.db.add_journal_entry(user["user_id"],
                                       f"Победил босса «{combat['enemy_name']}»", "boss")
         await g.db.update_hp(user["user_id"], user["max_hp"])
-        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b> HP восстановлено."
+        text += f"\n\n🐉 <b>БОСС ПОВЕРЖЕН!</b>\n❤️ HP восстановлено."
         await notify_boss(chat_id, combat["enemy_name"])
 
         if await g.db.add_achievement(user["user_id"], "first_boss"):
@@ -727,7 +750,14 @@ async def handle_victory(chat_id, user, combat, prefix_text):
                 "UPDATE users SET skill_points = skill_points + 1 WHERE user_id=$1",
                 user["user_id"]
             )
-        text += f"\n\n⭐ <b>Уровень {level}!</b> HP: {nm} · MP: {nmp} · +1 очко умений"
+        # 🎨 Прогресс-бар нового уровня
+        next_xp = level * level * 100
+        text += (f"\n\n━━━━━━━━━━━━━━━━━━━\n"
+                 f"⭐ <b>УРОВЕНЬ {level}!</b>\n"
+                 f"{ui_hp_bar(nm, nm, length=15)}\n"
+                 f"{ui_mp_bar(nmp, nmp, length=15)}\n"
+                 f"🎯 <b>+1 очко умений</b>\n"
+                 f"━━━━━━━━━━━━━━━━━━━")
         await notify_level(chat_id, level, nm, nmp)
         if level in (5, 10, 15, 20, 30):
             await g.db.add_journal_entry(user["user_id"],
@@ -790,8 +820,8 @@ async def handle_death(chat_id, user, combat):
 
     text = (f"💀 <b>ТЫ ПАЛ В БОЮ</b>\n\n"
             f"<b>{combat['enemy_name']}</b> оказался сильнее.\n\n"
-            f"Ты очнулся в Начальной деревне.\n"
-            f"Жрецы забрали <b>{lost}💰</b> (30%).")
+            f"🏘 Ты очнулся в Начальной деревне.\n"
+            f"💰 Жрецы забрали <b>{lost}</b> золота (30%).")
     if was_dungeon:
         text += "\n\n⚠️ <b>Вся добыча из подземелья потеряна!</b>"
     text += (f"\n\n━━━━━━━━━━━━━━━━━━━\n"
@@ -800,7 +830,8 @@ async def handle_death(chat_id, user, combat):
              f"💥 Нанесено: {dmg_dealt}\n"
              f"💔 Получено: {dmg_taken}\n"
              f"━━━━━━━━━━━━━━━━━━━\n\n"
-             f"❤️ HP: {nm}/{nm}\n💰 Золото: {u['gold'] - lost}\n\n"
+             f"{ui_hp_bar(nm, nm, length=15)}\n"
+             f"💰 Золото: {u['gold'] - lost}\n\n"
              f"<i>Уровень и опыт сохранены.</i>")
     await g.db.set_location_code(user["user_id"], "village")
     await g.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
