@@ -1,4 +1,4 @@
-"""Профиль с вкладками. back+close везде."""
+"""Профиль с вкладками. back+close везде. Визуализация."""
 import logging
 import traceback
 
@@ -15,6 +15,11 @@ from core.formulas import (
     effective_stats,
 )
 from core.keyboards import main_kb, profile_tabs_kb
+from core.ui_graphics import (
+    hp_bar, mp_bar, xp_bar, energy_bar,
+    race_icon, class_icon, faction_icon,
+    hp_status,
+)
 from services.ui import send_menu, close_menu
 
 router = Router()
@@ -33,7 +38,6 @@ def _back_close_kb():
 
 def _stats_text(u):
     need = u["level"] * u["level"] * 100
-    # ⬅️ ФИКС: со всеми бонусами от экипировки, питомца, сетов
     eff = effective_stats(u)
     faction_name = FACTIONS.get(u["faction"], {}).get("name", "—")
     race_name = RACES.get(u["race"], {}).get("name", "?")
@@ -42,37 +46,56 @@ def _stats_text(u):
     dmg_t = DMG_NAMES.get(get_dmg_type(u), "—")
     pdef = calc_p_def(u)
     mdef = calc_m_def(u)
-    energy_line = "∞" if u.get("is_premium") else f"{u.get('energy', 0)}/{u.get('energy_max', 20)}"
 
     from core.titles import format_active_title
     title_str = format_active_title(u)
     title_line = f" — {title_str}" if title_str else ""
 
+    # Иконки
+    c_ico = class_icon(u.get("class", ""))
+    r_ico = race_icon(u.get("race", ""))
+    f_ico = faction_icon(u.get("faction", ""))
+
+    # HP-статус
+    hp_ico, hp_txt, _ = hp_status(u["hp"], u["max_hp"])
+
+    # Питомец
     pet_line = ""
     if u.get("pet_type"):
         pet_line = f"\n🐾 {u.get('pet_name', '?')} (ур. {u.get('pet_level', 1)})"
 
-    return (
-        f"📊 <b>Статы {u['char_name']}</b>{title_line}\n\n"
-        f"Раса: {race_name}\n"
-        f"Класс: {class_name} ({role})\n"
-        f"Тип урона: {dmg_t}\n"
-        f"Фракция: {faction_name}\n"
-        f"Уровень: {u['level']} · XP {u['xp']}/{need}\n"
-        f"⚡ Энергия: {energy_line}\n"
-        f"💰 Золото: {u['gold']}\n"
-        f"🏅 Репутация: {u['reputation']}{pet_line}\n"
-        f"🎯 Очки умений: {u.get('skill_points', 0)}\n"
-        f"📖 Сезонный XP: {u.get('season_xp', 0)}\n\n"
-        f"<b>Характеристики:</b>\n"
-        f"STR {eff['str']} · DEX {eff['dex']} · CON {eff['con']}\n"
-        f"INT {eff['int']} · WIT {eff['wit']} · MEN {eff['men']}\n\n"
-        f"<b>Защита:</b>\n"
-        f"🛡 P.Def {pdef} · 🔮 M.Def {mdef}\n"
-        f"❤️ HP {u['hp']}/{u['max_hp']} · 💧 MP {u.get('mp', 0)}/{u.get('max_mp', 0)}\n\n"
-        f"⚔️ Боссов: {u['bosses_defeated']} · 💀 Смертей: {u['deaths']}\n"
-        f"🗡 PvP: {u['pvp_wins']}/{u['pvp_losses']}"
-    )
+    text = f"{c_ico} <b>{u['char_name']}</b>{title_line}\n"
+    text += f"{r_ico} {race_name} · {class_name} ({role})\n"
+    text += f"{f_ico} {faction_name}\n"
+    text += f"🎯 Тип урона: {dmg_t}{pet_line}\n\n"
+
+    # Прогресс-бары
+    text += xp_bar(u['xp'], need, length=15) + "\n"
+    text += hp_bar(u["hp"], u["max_hp"], length=15) + "\n"
+    if u.get("max_mp", 0):
+        text += mp_bar(u["mp"], u["max_mp"], length=15) + "\n"
+    if u.get("is_premium"):
+        text += "⚡ <b>∞ Безлимит</b>\n"
+    else:
+        text += energy_bar(u.get("energy", 0), u.get("energy_max", 20), length=15) + "\n"
+
+    text += f"\n💰 Золото: <b>{u['gold']}</b>\n"
+    text += f"🏅 Репутация: <b>{u['reputation']}</b>\n"
+    text += f"🎯 Очки умений: <b>{u.get('skill_points', 0)}</b>\n"
+    text += f"📖 Сезонный XP: <b>{u.get('season_xp', 0)}</b>\n\n"
+
+    text += f"<b>📊 Характеристики:</b>\n"
+    text += f"💪 STR <b>{eff['str']}</b> · 🏹 DEX <b>{eff['dex']}</b> · ❤️ CON <b>{eff['con']}</b>\n"
+    text += f"🔮 INT <b>{eff['int']}</b> · ✨ WIT <b>{eff['wit']}</b> · 🛡 MEN <b>{eff['men']}</b>\n\n"
+
+    text += f"<b>🛡 Защита:</b>\n"
+    text += f"⚔️ P.Def <b>{pdef}</b> · 🔮 M.Def <b>{mdef}</b>\n\n"
+
+    text += f"<b>📊 Статистика:</b>\n"
+    text += f"🐉 Боссов: <b>{u['bosses_defeated']}</b> · 💀 Смертей: <b>{u['deaths']}</b>\n"
+    text += f"🗡 PvP: <b>{u['pvp_wins']}</b>🏆 / <b>{u['pvp_losses']}</b>💀"
+
+    return text
 
 
 def _equip_text(u):
@@ -171,8 +194,10 @@ async def top_cmd(m: Message):
         name = p["char_name"] or "Аноним"
         race = RACES.get(p["race"], {}).get("name", "?")
         cls = CLASSES.get(p["class"], {}).get("name", "?")
-        lines.append(f"{medal} <b>{name}</b> ({race} {cls}) — Ур.{p['level']}")
-    await send_menu(m, "🏅 <b>Топ-10</b>\n\n" + "\n".join(lines), _back_close_kb())
+        r_ico = race_icon(p["race"])
+        c_ico = class_icon(p["class"])
+        lines.append(f"{medal} <b>{name}</b> {c_ico}{r_ico} — Ур.{p['level']}")
+    await send_menu(m, "🏅 <b>Топ-10 игроков</b>\n\n" + "\n".join(lines), _back_close_kb())
 
 
 @router.message(Command("pvptop"))
