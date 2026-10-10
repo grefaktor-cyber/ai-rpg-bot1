@@ -140,14 +140,7 @@ async def start(m: Message):
             await send_combat_state(m.chat.id, user, combat, "Ты в бою!")
         return
 
-    # 🎬 Пролог — показывается один раз после создания героя
-    from core.prologue import maybe_show_prologue
-    showed = await maybe_show_prologue(m.chat.id, user)
-    if showed:
-        # После пролога всё равно показываем меню
-        await show_main_menu(m, user)
-        return
-
+    # Пролог покажется внутри show_main_menu (один раз)
     await show_main_menu(m, user)
 
 
@@ -431,6 +424,14 @@ async def on_faction(c: CallbackQuery):
 
 # ================= ГЛАВНОЕ МЕНЮ =================
 async def show_main_menu(m, user):
+    # 🎬 Пролог — показывается ОДИН раз после создания героя.
+    # Флаг хранится в tutorial_progress.finished.
+    try:
+        from core.prologue import maybe_show_prologue
+        await maybe_show_prologue(m.chat.id, user)
+    except Exception as e:
+        logging.warning(f"[PROLOGUE] hook error: {e}")
+
     loc_code = user.get("location_code", "village")
     loc = W.get_location(loc_code) or {}
     event = await g.db.get_active_event(loc_code)
