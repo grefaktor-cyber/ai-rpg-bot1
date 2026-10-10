@@ -1,10 +1,12 @@
-"""Профиль с вкладками. back+close везде. Визуализация."""
+"""Профиль с вкладками. back+close везде. Визуализация + аватар."""
 import logging
 import traceback
 
 from aiogram import Router, F, BaseMiddleware
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, CallbackQuery,
+                           InlineKeyboardMarkup, InlineKeyboardButton,
+                           FSInputFile)
 from aiogram.enums import ParseMode
 
 from core import globals as g
@@ -20,7 +22,7 @@ from core.ui_graphics import (
     race_icon, class_icon, faction_icon,
     hp_status,
 )
-from services.ui import send_menu, close_menu
+from services.ui import send_menu, close_menu, typing, send_menu_from_chat
 
 router = Router()
 
@@ -34,6 +36,25 @@ def _back_close_kb():
         InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_progress"),
         InlineKeyboardButton(text="❌ Закрыть", callback_data="menu_close"),
     ]])
+
+
+async def _send_class_avatar(chat_id, class_code, caption):
+    """Отправляет фото класса как аватар в профиле. True если ушло."""
+    from core.race_class_art import get_class_image_path
+    path = get_class_image_path(class_code)
+    if not path:
+        return False
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption[:1000],
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[PROFILE PHOTO] {class_code}: {e}")
+        return False
 
 
 def _stats_text(u):
@@ -51,25 +72,23 @@ def _stats_text(u):
     title_str = format_active_title(u)
     title_line = f" — {title_str}" if title_str else ""
 
-    # Иконки
     c_ico = class_icon(u.get("class", ""))
     r_ico = race_icon(u.get("race", ""))
     f_ico = faction_icon(u.get("faction", ""))
 
-    # HP-статус
     hp_ico, hp_txt, _ = hp_status(u["hp"], u["max_hp"])
 
-    # Питомец
     pet_line = ""
     if u.get("pet_type"):
         pet_line = f"\n🐾 {u.get('pet_name', '?')} (ур. {u.get('pet_level', 1)})"
 
-    text = f"{c_ico} <b>{u['char_name']}</b>{title_line}\n"
+    text = "━━━━━━━━━━━━━━━━━━━\n"
+    text += f"{c_ico} <b>{u['char_name']}</b>{title_line}\n"
     text += f"{r_ico} {race_name} · {class_name} ({role})\n"
     text += f"{f_ico} {faction_name}\n"
-    text += f"🎯 Тип урона: {dmg_t}{pet_line}\n\n"
+    text += f"🎯 Тип урона: {dmg_t}{pet_line}\n"
+    text += "━━━━━━━━━━━━━━━━━━━\n\n"
 
-    # Прогресс-бары
     text += xp_bar(u['xp'], need, length=15) + "\n"
     text += hp_bar(u["hp"], u["max_hp"], length=15) + "\n"
     if u.get("max_mp", 0):
@@ -143,7 +162,20 @@ async def stats_cmd(m: Message):
     u = await g.db.get_user(m.from_user.id)
     if not u["race"]:
         await m.answer("Сначала /start"); return
-    await send_menu(m, _stats_text(u), profile_tabs_kb("stats"))
+
+    # 🎬 «Печатает…»
+    await typing(m.chat.id)
+
+    # 🖼 Аватар — фото класса
+    class_name = CLASSES.get(u["class"], {}).get("name", "?")
+    c_ico = class_icon(u.get("class", ""))
+    if class_name and class_name != "?":
+        avatar_caption = f"{c_ico} <b>{u['char_name']}</b> — {class_name}"
+        await _send_class_avatar(m.chat.id, u["class"], avatar_caption)
+
+    # Меню профиля
+    text = _stats_text(u)
+    await send_menu(m, text, profile_tabs_kb("stats"))
 
 
 @router.callback_query(F.data.startswith("prof_tab_"))
