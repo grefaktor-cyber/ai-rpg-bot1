@@ -1,4 +1,4 @@
-"""Путешествия, карта, кто в локации. back+close везде."""
+"""Путешествия, карта, кто в локации. back+close везде. + картинки локаций."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (Message, CallbackQuery,
@@ -9,7 +9,7 @@ from core import globals as g
 from core.game_data import RACES, CLASSES
 from core.keyboards import main_kb, travel_kb as build_travel_kb
 from services.broadcast import broadcast_to_location
-from services.ui import send_menu, close_menu
+from services.ui import send_menu, close_menu, send_location_photo
 import world as W
 
 router = Router()
@@ -187,9 +187,7 @@ async def travel_do(c: CallbackQuery):
     await g.db.add_location(c.from_user.id, new_loc["name"])
 
     # === ЗАЧЁТ КВЕСТА «Исследователь» ===
-    # Старый метод (db.progress_quest) — на случай если где-то ещё используется
     await g.db.progress_quest(c.from_user.id, "visit_locations", 1)
-    # Новый метод — timed_quest_progress (то что в /quests)
     try:
         from handlers.quests import progress_quest as quest_progress
         await quest_progress(c.from_user.id, "visit_locations", 1)
@@ -210,6 +208,7 @@ async def travel_do(c: CallbackQuery):
 
     await close_menu(c)
 
+    # === ТЕКСТ О ЛОКАЦИИ ===
     text = f"🚶 <i>{old_name} → {loc['name']}</i>\n\n"
     text += f"📍 <b>{loc['name']}</b>\n<i>{loc['desc']}</i>\n"
     if owner:
@@ -223,9 +222,13 @@ async def travel_do(c: CallbackQuery):
             text += f"\n• {info['name']}"
     if loc.get("enemies"):
         text += f"\n\n⚔️ <i>Враги: {', '.join(loc['enemies'])}</i>"
+    if first_visit:
+        text += "\n\n🆕 <b>Новая локация открыта!</b>"
 
-    await g.bot.send_message(c.from_user.id, text, reply_markup=main_kb(),
-                             parse_mode=ParseMode.HTML)
+    # 🎨 Отправляем с картинкой локации
+    await send_location_photo(
+        c.from_user.id, code, text, kb=main_kb()
+    )
     await c.answer(f"→ {loc['name']}")
 
     await broadcast_to_location(
