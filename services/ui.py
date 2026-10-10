@@ -102,7 +102,7 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
                 reply_markup=kb,
                 parse_mode=ParseMode.HTML,
             )
-            return
+            return True
         except Exception as e:
             logging.warning(f"[LOC PHOTO] {loc_code} ({path}): {e}")
 
@@ -110,8 +110,10 @@ async def send_location_photo(chat_id, loc_code, caption, kb=None):
         await g.bot.send_message(
             chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
         )
+        return False
     except Exception as e:
         logging.error(f"[LOC PHOTO FALLBACK] {loc_code}: {e}")
+        return False
 
 
 async def send_boss_photo(chat_id, boss_code, caption, kb=None):
@@ -146,16 +148,20 @@ async def send_boss_photo_by_name(chat_id, boss_name, caption, kb=None):
     from core.location_art import get_boss_image_path_by_name
 
     path = get_boss_image_path_by_name(boss_name)
-    if path:
-        try:
-            await g.bot.send_photo(
-                chat_id,
-                photo=FSInputFile(path),
-                caption=caption,
-                reply_markup=kb,
-                parse_mode=ParseMode.HTML,
-            )
-            return True
-        except Exception as e:
-            logging.warning(f"[BOSS PHOTO] {boss_name}: {e}")
-    return False
+    if not path:
+        logging.info(f"[BOSS PHOTO] Нет картинки для '{boss_name}'")
+        return False
+
+    logging.info(f"[BOSS PHOTO] Отправляю '{boss_name}' → {path}")
+    try:
+        await g.bot.send_photo(
+            chat_id,
+            photo=FSInputFile(path),
+            caption=caption,
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        return True
+    except Exception as e:
+        logging.warning(f"[BOSS PHOTO] Ошибка отправки '{boss_name}': {e}")
+        return False
