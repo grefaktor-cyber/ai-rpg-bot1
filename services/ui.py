@@ -1,8 +1,10 @@
-"""Утилиты UI: автоочистка меню + FakeMessage."""
+"""Утилиты UI: автоочистка меню + FakeMessage + картинки локаций."""
 import logging
 
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery
+
+from core import globals as g
 
 
 _last_menu = {}
@@ -84,3 +86,61 @@ async def close_menu(c: CallbackQuery):
 
 def forget_menu(uid):
     _last_menu.pop(uid, None)
+
+
+# ================= КАРТИНКИ ЛОКАЦИЙ =================
+async def send_location_photo(chat_id, loc_code, caption, kb=None):
+    """Отправляет фото локации с подписью.
+
+    Если картинка недоступна — падает в обычный send_message.
+    Никогда не роняет хендлер.
+    """
+    from core.location_art import get_location_image
+    url = get_location_image(loc_code)
+
+    if url:
+        try:
+            await g.bot.send_photo(
+                chat_id,
+                photo=url,
+                caption=caption,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except Exception as e:
+            logging.warning(f"[LOC PHOTO] {loc_code}: {e}")
+
+    # Fallback — обычный текст
+    try:
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.error(f"[LOC PHOTO FALLBACK] {loc_code}: {e}")
+
+
+async def send_boss_photo(chat_id, boss_code, caption, kb=None):
+    """Отправляет фото босса."""
+    from core.location_art import get_boss_image
+    url = get_boss_image(boss_code)
+
+    if url:
+        try:
+            await g.bot.send_photo(
+                chat_id,
+                photo=url,
+                caption=caption,
+                reply_markup=kb,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except Exception as e:
+            logging.warning(f"[BOSS PHOTO] {boss_code}: {e}")
+
+    try:
+        await g.bot.send_message(
+            chat_id, caption, reply_markup=kb, parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.error(f"[BOSS PHOTO FALLBACK] {boss_code}: {e}")
