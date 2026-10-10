@@ -19,12 +19,11 @@ LOCATION_FILES = {
     "port":      "assets/loc/port.jpg",
     "sea":       "assets/loc/sea.jpg",
     "island":    "assets/loc/island.jpg",
-    "crypt":     "assets/loc/crypt.jpg",
-    "abyss":     "assets/loc/abyss.jpg",
 }
 
 
 # ================= БОССЫ =================
+# Все 8 файлов загружены ✅
 BOSS_FILES = {
     "ancient_dragon": "assets/boss/ancient_dragon.jpg",
     "lich_king":      "assets/boss/lich_king.jpg",
@@ -38,8 +37,6 @@ BOSS_FILES = {
 
 
 # ================= МАППИНГ ИМЁН БОССОВ =================
-# Ключ — точное имя (как в world.py / world_bosses.py)
-# Значение — код картинки в BOSS_FILES
 BOSS_NAME_MAP = {
     "Древний Дракон":       "ancient_dragon",
     "Король Личей":         "lich_king",
@@ -97,10 +94,8 @@ def get_boss_image_path_by_name(name):
 
 
 def list_missing_locations():
-    """Хелпер — какие локации без файла."""
     return [c for c in LOCATION_FILES if get_location_image_path(c) is None]
 
 
 def list_missing_bosses():
-    """Хелпер — какие боссы без файла."""
     return [c for c in BOSS_FILES if get_boss_image_path(c) is None]
