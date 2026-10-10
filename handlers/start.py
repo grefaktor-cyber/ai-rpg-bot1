@@ -13,6 +13,10 @@ from core.formulas import (
 from core.keyboards import (
     main_kb, race_selection_kb, faction_selection_kb, pvp_kb,
 )
+from core.ui_graphics import (
+    hp_bar, mp_bar, xp_bar, energy_bar,
+    race_icon, class_icon, faction_icon,
+)
 from core.texts import CONSENT_TEXT
 from config import ADMIN_IDS
 import world as W
@@ -43,12 +47,10 @@ async def start(m: Message):
             except ValueError:
                 pass
         else:
-            # Обрезаем до 50 символов (защита от мусора)
             source = payload[:50] or "direct"
 
     user = await g.db.get_user(m.from_user.id, m.from_user.username or "")
 
-    # Сохраняем источник — только при первом входе
     if not user.get("source"):
         try:
             async with g.db.pool.acquire() as conn:
@@ -124,10 +126,12 @@ async def newchar_cmd(m: Message):
         await show_race_selection(m)
         return
 
+    race_name = RACES.get(u['race'], {}).get('name', '?')
+    class_name = CLASSES.get(u['class'], {}).get('name', '?')
+
     warn = (f"⚠️ <b>Создать нового героя?</b>\n\n"
-            f"Текущий герой: <b>{u['char_name']}</b> "
-            f"({RACES.get(u['race'], {}).get('name', '?')}, "
-            f"{CLASSES.get(u['class'], {}).get('name', '?')}, ур. {u['level']})\n\n"
+            f"Текущий: {class_icon(u['class'])} <b>{u['char_name']}</b>\n"
+            f"{race_icon(u['race'])} {race_name} · {class_name} · ур. {u['level']}\n\n"
             f"<b>Что будет сброшено:</b>\n"
             f"• Имя, раса, класс, фракция\n"
             f"• Уровень, XP, HP, MP, статы\n"
@@ -135,10 +139,10 @@ async def newchar_cmd(m: Message):
             f"• Питомец, гильдия, скилы\n"
             f"• Достижения, репутация, PvP-статистика\n\n"
             f"<b>Что сохранится:</b>\n"
-            f"• Энергия и её максимум\n"
-            f"• Премиум\n"
-            f"• Премиум-расы и классы (купленные)\n"
-            f"• Рефералы\n\n"
+            f"✅ Энергия и её максимум\n"
+            f"✅ Премиум\n"
+            f"✅ Премиум-расы и классы (купленные)\n"
+            f"✅ Рефералы\n\n"
             f"<i>Это действие нельзя отменить!</i>")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -229,8 +233,9 @@ async def show_class_selection(m, race_code):
         return
     rows = []
     for code, cl in classes.items():
+        icon = class_icon(code)
         rows.append([InlineKeyboardButton(
-            text=f"{cl['name']} — {cl['desc']}",
+            text=f"{icon} {cl['name']} — {cl['desc']}",
             callback_data=f"class_{code}"
         )])
     rows.append([InlineKeyboardButton(
@@ -272,8 +277,10 @@ async def on_class(c: CallbackQuery):
     mp = calc_max_mp(user_tmp)
     await g.db.update_stats(c.from_user.id, stats, hp, mp)
     try:
-        await c.message.edit_text(f"✅ Класс: <b>{CLASSES[code]['name']}</b>",
-                                   parse_mode=ParseMode.HTML)
+        await c.message.edit_text(
+            f"✅ Класс: <b>{CLASSES[code]['name']}</b>\n\n"
+            f"❤️ HP: {hp} · 💧 MP: {mp}",
+            parse_mode=ParseMode.HTML)
     except Exception:
         pass
     await show_faction_selection(c.message)
@@ -282,8 +289,9 @@ async def on_class(c: CallbackQuery):
 async def show_faction_selection(m):
     rows = []
     for code, f in FACTIONS.items():
+        icon = faction_icon(code)
         rows.append([InlineKeyboardButton(
-            text=f"{f['name']} — {f['desc']}",
+            text=f"{icon} {f['name']} — {f['desc']}",
             callback_data=f"faction_{code}"
         )])
     rows.append([InlineKeyboardButton(
@@ -317,8 +325,9 @@ async def on_faction(c: CallbackQuery):
         await c.answer("Ошибка"); return
     await g.db.set_faction(c.from_user.id, code)
     try:
-        await c.message.edit_text(f"✅ Фракция: <b>{FACTIONS[code]['name']}</b>",
-                                   parse_mode=ParseMode.HTML)
+        await c.message.edit_text(
+            f"✅ Фракция: <b>{faction_icon(code)} {FACTIONS[code]['name']}</b>",
+            parse_mode=ParseMode.HTML)
     except Exception:
         pass
     await g.bot.send_message(c.from_user.id,
@@ -336,22 +345,41 @@ async def show_main_menu(m, user):
     is_admin = user["user_id"] in ADMIN_IDS
     admin_tag = " 🛠 <i>ADMIN</i>" if is_admin else ""
 
-    header = f"🎮 <b>С возвращением, {user['char_name']}!</b>{admin_tag}\n\n"
-    header += f"⭐ Ур. {user['level']} · XP: {user['xp']}\n"
-    header += f"❤️ HP: {user['hp']}/{user['max_hp']}"
+    # 🎨 ИКОНКИ
+    class_ico = class_icon(user.get("class", ""))
+    race_ico = race_icon(user.get("race", ""))
+    faction_ico = faction_icon(user.get("faction", ""))
+
+    # Заголовок
+    header = (f"🎮 <b>{user['char_name']}</b> {class_ico}{race_ico}{faction_ico}"
+              f"{admin_tag}\n")
+    header += f"⭐ Уровень <b>{user['level']}</b>\n\n"
+
+    # Прогресс-бары
+    next_xp = user["level"] * user["level"] * 100
+    header += xp_bar(user["xp"], next_xp, length=15) + "\n"
+    header += hp_bar(user["hp"], user["max_hp"], length=15) + "\n"
     if user.get("max_mp", 0) > 0:
-        header += f" · 💧 MP: {user.get('mp', 0)}/{user.get('max_mp', 0)}"
-    header += "\n"
+        header += mp_bar(user["mp"], user["max_mp"], length=15) + "\n"
     if user.get("is_premium"):
-        header += "⚡ Энергия: ∞\n"
+        header += "⚡ <b>∞ Безлимит энергии</b>\n"
     else:
-        header += f"⚡ Энергия: {user.get('energy', 0)}/{user.get('energy_max', 20)}\n"
-    header += f"💰 Золото: {user['gold']}\n"
+        header += energy_bar(user.get("energy", 0), user.get("energy_max", 20), length=15) + "\n"
+
+    # Золото и локация
+    header += f"\n💰 Золото: <b>{user['gold']}</b>\n"
     header += f"📍 <b>{loc.get('name', '?')}</b>"
     if owner:
         header += f" 🏴 [{owner.get('guild_tag', '?')}]"
     header += "\n"
+
+    # Питомец
+    if user.get("pet_type"):
+        header += f"🐾 {user.get('pet_name', '?')}\n"
+
+    # Событие
     if event:
-        header += f"\n{event['event_name']}: <i>{event['event_desc']}</i>\n"
-    header += "\nОпиши действие или жми кнопки 👇"
+        header += f"\n⚡ <b>{event['event_name']}</b>: <i>{event['event_desc']}</i>\n"
+
+    header += "\n<i>Опиши действие или жми кнопки 👇</i>"
     await m.answer(header, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
