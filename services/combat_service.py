@@ -584,6 +584,82 @@ async def handle_victory(chat_id, user, combat, prefix_text):
         import logging
         logging.error(f"[QUEST PROGRESS] {_e}", exc_info=True)
 
+    # ============ ЗАЧЁТ ИСПЫТАНИЯ ДНЯ ============
+    try:
+        from core.daily_challenges import get_daily_challenge
+        from datetime import date as _date
+        today = str(_date.today())
+        challenge = get_daily_challenge()
+        ch_code = f"challenge_{challenge['code']}"
+        ch_type = challenge["code"]
+
+        # Что зачитывать
+        inc = 0
+        if ch_type in ("kill_10", "kill_25", "survive_5"):
+            inc = 1
+        elif ch_type == "kill_boss_1" and combat["is_boss"]:
+            inc = 1
+        elif ch_type == "damage_5000":
+            inc = combat.get("total_dmg_dealt", 0)
+        elif ch_type == "crit_5":
+            inc = 1 if "КРИТ" in prefix_text else 0
+
+        if inc > 0:
+            async with g.db.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT id, progress, target, reward_gold, reward_xp, "
+                    "completed FROM daily_quests "
+                    "WHERE user_id=$1 AND quest_type=$2 AND quest_date=$3",
+                    user["user_id"], ch_code, today
+                )
+                if not row:
+                    # создаём запись
+                    await conn.execute(
+                        "INSERT INTO daily_quests "
+                        "(user_id, quest_type, target, progress, "
+                        "reward_gold, reward_xp, quest_date) "
+                        "VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                        user["user_id"], ch_code, challenge["target"],
+                        min(inc, challenge["target"]),
+                        challenge["reward_gold"], challenge["reward_xp"], today
+                    )
+                elif not row["completed"]:
+                    new_progress = min(row["progress"] + inc, row["target"])
+                    if new_progress >= row["target"]:
+                        await conn.execute(
+                            "UPDATE daily_quests SET progress=$1, completed=1 "
+                            "WHERE id=$2",
+                            new_progress, row["id"]
+                        )
+                        # Выдаём награду
+                        await g.db.add_gold(
+                            user["user_id"], challenge["reward_gold"])
+                        await g.db.add_xp(
+                            user["user_id"], challenge["reward_xp"])
+                        await g.db.add_quest_points(
+                            user["user_id"], challenge["reward_qp"])
+                        # Уведомление
+                        try:
+                            await g.bot.send_message(
+                                user["user_id"],
+                                f"🎯 <b>Испытание дня выполнено!</b>\n\n"
+                                f"<b>{challenge['title']}</b>\n"
+                                f"+{challenge['reward_gold']}💰 · "
+                                f"+{challenge['reward_xp']} XP · "
+                                f"+{challenge['reward_qp']}⭐",
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        await conn.execute(
+                            "UPDATE daily_quests SET progress=$1 WHERE id=$2",
+                            new_progress, row["id"]
+                        )
+    except Exception as _e:
+        import logging
+        logging.error(f"[CHALLENGE] {_e}", exc_info=True)
+
     q = await g.db.progress_quest(user["user_id"], "kill_enemies", 1)
     if q and q.get("completed"):
         try:
