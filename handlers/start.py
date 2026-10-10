@@ -381,5 +381,34 @@ async def show_main_menu(m, user):
     if event:
         header += f"\n⚡ <b>{event['event_name']}</b>: <i>{event['event_desc']}</i>\n"
 
-    header += "\n<i>Опиши действие или жми кнопки 👇</i>"
+    # 🎯 Испытание дня
+    try:
+        from core.daily_challenges import get_daily_challenge
+        challenge = get_daily_challenge()
+        # прогресс
+        today = str(__import__('datetime').date.today())
+        async with g.db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT progress, completed FROM daily_quests "
+                "WHERE user_id=$1 AND quest_type=$2 AND quest_date=$3",
+                user["user_id"], f"challenge_{challenge['code']}", today
+            )
+        progress = row["progress"] if row else 0
+        completed = row["completed"] if row else 0
+        target = challenge["target"]
+        # Мини-бар
+        bar_len = 10
+        filled = int((progress / target) * bar_len) if target > 0 else 0
+        filled = min(filled, bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+
+        if completed:
+            header += f"\n🎯 <b>Испытание дня:</b> ✅ <i>выполнено!</i>"
+        else:
+            header += (f"\n🎯 <b>Испытание дня:</b> {challenge['title']}\n"
+                       f"   [{bar}] {progress}/{target}")
+    except Exception:
+        pass
+
+    header += "\n\n<i>Опиши действие или жми кнопки 👇</i>"
     await m.answer(header, reply_markup=main_kb(), parse_mode=ParseMode.HTML)
